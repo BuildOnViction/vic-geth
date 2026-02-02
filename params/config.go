@@ -35,6 +35,64 @@ var (
 	YoloV2GenesisHash = common.HexToHash("0x498a7239036dd2cd09e2bb8a80922b78632017958c332b42044c250d603a8a3e")
 )
 
+// Known Viction genesis hashes
+var (
+	VicMainnetGenesisHash = common.HexToHash("9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624") // Viction Mainnet genesis hash to enforce below configs on
+	VicTestnetGenesisHash = common.HexToHash("296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3") // Viction Testnet genesis hash to enforce below configs on
+)
+
+var (
+	// VicMainnetChainConfig contains the chain parameters to run a Viction node on the main network.
+	VicMainnetChainConfig = &ChainConfig{
+		ChainID:        big.NewInt(88),
+		HomesteadBlock: big.NewInt(1),
+		EIP150Block:    big.NewInt(2),
+		EIP150Hash:     common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		EIP155Block:    big.NewInt(3),
+		EIP158Block:    big.NewInt(3),
+		ByzantiumBlock: big.NewInt(4),
+		SaigonBlock:    big.NewInt(86158494),
+		AtlasBlock:     big.NewInt(97705094),
+		Posv: &PosvConfig{
+			Period:              2,
+			Epoch:               900,
+			Reward:              250,
+			RewardCheckpoint:    900,
+			Gap:                 5,
+			FoudationWalletAddr: common.HexToAddress("0x0000000000000000000000000000000000000068"),
+		},
+	}
+
+	// VicTestnetChainConfig contains the chain parameters to run a Viction node on the test network.
+	VicTestnetChainConfig = &ChainConfig{
+		ChainID:                      big.NewInt(89),
+		HomesteadBlock:               big.NewInt(1),
+		EIP150Block:                  big.NewInt(2),
+		EIP150Hash:                   common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		EIP155Block:                  big.NewInt(3),
+		EIP158Block:                  big.NewInt(3),
+		ByzantiumBlock:               big.NewInt(4),
+		TIP2019Block:                 big.NewInt(0),
+		TIPSigningBlock:              big.NewInt(0),
+		TIPRandomizeBlock:            big.NewInt(0),
+		BlackListHFBlock:             big.NewInt(0),
+		TIPTRC21FeeBlock:             big.NewInt(0),
+		TIPTomoXBlock:                big.NewInt(0),
+		TIPTomoXLendingBlock:         big.NewInt(0),
+		TIPTomoXCancellationFeeBlock: big.NewInt(0),
+		SaigonBlock:                  big.NewInt(10004200),
+		AtlasBlock:                   big.NewInt(24697500),
+		Posv: &PosvConfig{
+			Period:              2,
+			Epoch:               900,
+			Reward:              250,
+			RewardCheckpoint:    900,
+			Gap:                 5,
+			FoudationWalletAddr: common.HexToAddress("0x0000000000000000000000000000000000000068"),
+		},
+	}
+)
+
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
 // the chain it belongs to.
 var TrustedCheckpoints = map[common.Hash]*TrustedCheckpoint{
@@ -240,16 +298,16 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, new(EthashConfig), nil}
+	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, new(EthashConfig), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, new(EthashConfig), nil}
+	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, new(EthashConfig), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int))
 )
 
@@ -327,6 +385,20 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+
+	// For POSV consensus
+	TIP2019Block                 *big.Int `json:"tip2019Block,omitempty"`                 // TIP2019 switch block (nil = no fork, 0 = already activated)
+	TIPSigningBlock              *big.Int `json:"tipSigningBlock,omitempty"`              // TIPSigning switch block (nil = no fork, 0 = already activated)
+	TIPRandomizeBlock            *big.Int `json:"tipRandomizeBlock,omitempty"`            // TIPRandomize switch block (nil = no fork, 0 = already activated)
+	BlackListHFBlock             *big.Int `json:"blackListHFBlock,omitempty"`             // BlackListHF switch block (nil = no fork, 0 = already activated)
+	TIPTRC21FeeBlock             *big.Int `json:"tipTRC21FeeBlock,omitempty"`             // TIPTRC21Fee switch block (nil = no fork, 0 = already activated)
+	TIPTomoXBlock                *big.Int `json:"tipTomoXBlock,omitempty"`                // TIPTomoX switch block (nil = no fork, 0 = already activated)
+	TIPTomoXLendingBlock         *big.Int `json:"tipTomoXLendingBlock,omitempty"`         // TIPTomoXLending switch block (nil = no fork, 0 = already activated)
+	TIPTomoXCancellationFeeBlock *big.Int `json:"tipTomoXCancellationFeeBlock,omitempty"` // TIPTomoXCancellationFee switch block (nil = no fork, 0 = already activated)
+
+	SaigonBlock *big.Int    `json:"saigonBlock,omitempty"` // Saigon switch block (nil = no fork, 0 = already activated)
+	AtlasBlock  *big.Int    `json:"atlasBlock,omitempty"`  // Atlas switch block (nil = no fork, 0 = already activated)
+	Posv        *PosvConfig `json:"posv,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -348,6 +420,21 @@ func (c *CliqueConfig) String() string {
 	return "clique"
 }
 
+// PosvConfig is the consensus engine configs for proof-of-stake-voting based sealing.
+type PosvConfig struct {
+	Period              uint64         `json:"period"`              // Number of seconds between blocks to enforce
+	Epoch               uint64         `json:"epoch"`               // Epoch length to reset votes and checkpoint
+	Reward              uint64         `json:"reward"`              // Block reward - unit Ether
+	RewardCheckpoint    uint64         `json:"rewardCheckpoint"`    // Checkpoint block for calculate rewards.
+	Gap                 uint64         `json:"gap"`                 // Gap time preparing for the next epoch
+	FoudationWalletAddr common.Address `json:"foudationWalletAddr"` // Foundation Address Wallet
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *PosvConfig) String() string {
+	return "posv"
+}
+
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
 	var engine interface{}
@@ -356,10 +443,12 @@ func (c *ChainConfig) String() string {
 		engine = c.Ethash
 	case c.Clique != nil:
 		engine = c.Clique
+	case c.Posv != nil:
+		engine = c.Posv
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, YOLO v2: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, YOLO v2: %v,TIP2019: %v, TIPSigning: %v, TIPRandomize: %v, BlackListHF: %v, TIPTRC21Fee: %v, TIPTomoX: %v, TIPTomoXLending: %v, TIPTomoXCancellationFee: %v, Saigon: %v, Atlas: %v, Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -373,6 +462,14 @@ func (c *ChainConfig) String() string {
 		c.IstanbulBlock,
 		c.MuirGlacierBlock,
 		c.YoloV2Block,
+		c.TIP2019Block,
+		c.TIPSigningBlock,
+		c.TIPRandomizeBlock,
+		c.BlackListHFBlock,
+		c.TIPTRC21FeeBlock,
+		c.TIPTomoXBlock,
+		c.TIPTomoXLendingBlock,
+		c.TIPTomoXCancellationFeeBlock,
 		engine,
 	)
 }
@@ -437,6 +534,64 @@ func (c *ChainConfig) IsYoloV2(num *big.Int) bool {
 // IsEWASM returns whether num represents a block number after the EWASM fork
 func (c *ChainConfig) IsEWASM(num *big.Int) bool {
 	return isForked(c.EWASMBlock, num)
+}
+
+// Check for posv
+func (c *ChainConfig) IsTIP2019(num *big.Int) bool {
+	return isForked(common.TIP2019Block, num)
+}
+
+func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
+	return isForked(common.TIPSigningBlock, num)
+}
+
+func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
+	return isForked(common.TIPRandomizeBlock, num)
+}
+
+func (c *ChainConfig) IsBlackListHF(num *big.Int) bool {
+	return isForked(new(big.Int).SetUint64(common.BlackListHFBlock), num)
+}
+
+func (c *ChainConfig) IsTIPTRC21Fee(num *big.Int) bool {
+	return isForked(common.TIPTRC21FeeBlock, num)
+}
+
+func (c *ChainConfig) IsTIPTomoX(num *big.Int) bool {
+	return isForked(common.TIPTomoXBlock, num)
+}
+
+func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
+	return isForked(common.TIPTomoXLendingBlock, num)
+}
+
+func (c *ChainConfig) IsTIPTomoXCancellationFee(num *big.Int) bool {
+	return isForked(common.TIPTomoXCancellationFeeBlock, num)
+}
+
+func (c *ChainConfig) IsSaigon(num *big.Int) bool {
+	return isForked(c.SaigonBlock, num)
+}
+
+func (c *ChainConfig) IsAtlas(num *big.Int) bool {
+	return isForked(c.AtlasBlock, num)
+}
+
+/* Feature flag check */
+func (c *ChainConfig) IsTomoXEnabled(num *big.Int) bool {
+	return !isForked(c.AtlasBlock, num) && isForked(common.TIPTomoXBlock, num)
+}
+
+func (c *ChainConfig) IsTomoXLendingEnabled(num *big.Int) bool {
+	return isForked(common.TIPTomoXLendingBlock, num)
+}
+
+func (c *ChainConfig) IsTomoXCancellationFeeEnabled(num *big.Int) bool {
+	return isForked(common.TIPTomoXCancellationFeeBlock, num)
+}
+
+func (c *ChainConfig) IsTomoZEnabled(num *big.Int) bool {
+	return isForked(common.TIPTomoXBlock, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -611,10 +766,14 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsYoloV2                                                bool
+	ChainID                                                  *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul  bool
+	IsYoloV2                                                 bool
+	IsTIP2019, IsTIPSigning, IsTIPRandomize                  bool
+	IsBlackListHF, IsTIPTRC21Fee                             bool
+	IsTIPTomoX, IsTIPTomoXLending, IsTIPTomoXCancellationFee bool
+	IsSaigon, IsAtlas                                        bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -624,15 +783,25 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		chainID = new(big.Int)
 	}
 	return Rules{
-		ChainID:          new(big.Int).Set(chainID),
-		IsHomestead:      c.IsHomestead(num),
-		IsEIP150:         c.IsEIP150(num),
-		IsEIP155:         c.IsEIP155(num),
-		IsEIP158:         c.IsEIP158(num),
-		IsByzantium:      c.IsByzantium(num),
-		IsConstantinople: c.IsConstantinople(num),
-		IsPetersburg:     c.IsPetersburg(num),
-		IsIstanbul:       c.IsIstanbul(num),
-		IsYoloV2:         c.IsYoloV2(num),
+		ChainID:                   new(big.Int).Set(chainID),
+		IsHomestead:               c.IsHomestead(num),
+		IsEIP150:                  c.IsEIP150(num),
+		IsEIP155:                  c.IsEIP155(num),
+		IsEIP158:                  c.IsEIP158(num),
+		IsByzantium:               c.IsByzantium(num),
+		IsConstantinople:          c.IsConstantinople(num),
+		IsPetersburg:              c.IsPetersburg(num),
+		IsIstanbul:                c.IsIstanbul(num),
+		IsYoloV2:                  c.IsYoloV2(num),
+		IsTIP2019:                 c.IsTIP2019(num),
+		IsTIPSigning:              c.IsTIPSigning(num),
+		IsTIPRandomize:            c.IsTIPRandomize(num),
+		IsBlackListHF:             c.IsBlackListHF(num),
+		IsTIPTRC21Fee:             c.IsTIPTRC21Fee(num),
+		IsTIPTomoX:                c.IsTIPTomoX(num),
+		IsTIPTomoXLending:         c.IsTIPTomoXLending(num),
+		IsTIPTomoXCancellationFee: c.IsTIPTomoXCancellationFee(num),
+		IsSaigon:                  c.IsSaigon(num),
+		IsAtlas:                   c.IsAtlas(num),
 	}
 }

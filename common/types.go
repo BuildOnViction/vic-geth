@@ -40,6 +40,28 @@ const (
 	AddressLength = 20
 )
 
+// For posv
+const (
+	BlockSigners                      = "0x0000000000000000000000000000000000000089"
+	MasternodeVotingSMC               = "0x0000000000000000000000000000000000000088"
+	RandomizeSMC                      = "0x0000000000000000000000000000000000000090"
+	FoudationAddr                     = "0x0000000000000000000000000000000000000068"
+	TeamAddr                          = "0x0000000000000000000000000000000000000099"
+	TomoXAddr                         = "0x0000000000000000000000000000000000000091"
+	TradingStateAddr                  = "0x0000000000000000000000000000000000000092"
+	TomoXLendingAddress               = "0x0000000000000000000000000000000000000093"
+	TomoXLendingFinalizedTradeAddress = "0x0000000000000000000000000000000000000094"
+	TomoNativeAddress                 = "0x0000000000000000000000000000000000000001"
+	LendingLockAddress                = "0x0000000000000000000000000000000000000011"
+	VoteMethod                        = "0x6dd7d8ea"
+	UnvoteMethod                      = "0x02aa9be2"
+	ProposeMethod                     = "0x01267951"
+	ResignMethod                      = "0xae6e43f5"
+	SignMethod                        = "0xe341eaa4"
+	TomoXApplyMethod                  = "0xc6b32f34"
+	TomoZApplyMethod                  = "0xc6b32f34"
+)
+
 var (
 	hashT    = reflect.TypeOf(Hash{})
 	addressT = reflect.TypeOf(Address{})
@@ -207,6 +229,8 @@ func BytesToAddress(b []byte) Address {
 	a.SetBytes(b)
 	return a
 }
+
+func StringToAddress(s string) Address { return BytesToAddress([]byte(s)) }
 
 // BigToAddress returns Address with byte values of b.
 // If b is larger than len(h), b will be cropped from the left.
@@ -425,4 +449,41 @@ func (ma *MixedcaseAddress) ValidChecksum() bool {
 // Original returns the mixed-case input string
 func (ma *MixedcaseAddress) Original() string {
 	return ma.original
+}
+
+// Extract validators from byte array.
+func RemoveItemFromArray(array []Address, items []Address) []Address {
+	if len(items) == 0 {
+		return array
+	}
+
+	for _, item := range items {
+		for i := len(array) - 1; i >= 0; i-- {
+			if array[i] == item {
+				array = append(array[:i], array[i+1:]...)
+			}
+		}
+	}
+
+	return array
+}
+
+// Extract validators from byte array.
+func ExtractAddressToBytes(penalties []Address) []byte {
+	data := []byte{}
+	for _, signer := range penalties {
+		data = append(data, signer[:]...)
+	}
+	return data
+}
+
+func ExtractAddressFromBytes(bytePenalties []byte) []Address {
+	if bytePenalties != nil && len(bytePenalties) < AddressLength {
+		return []Address{}
+	}
+	penalties := make([]Address, len(bytePenalties)/AddressLength)
+	for i := 0; i < len(penalties); i++ {
+		copy(penalties[i][:], bytePenalties[i*AddressLength:])
+	}
+	return penalties
 }
