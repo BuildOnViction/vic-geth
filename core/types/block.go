@@ -18,6 +18,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -83,11 +84,13 @@ type Header struct {
 	GasUsed     uint64         `json:"gasUsed"          gencodec:"required"`
 	Time        uint64         `json:"timestamp"        gencodec:"required"`
 	Extra       []byte         `json:"extraData"        gencodec:"required"`
-	MixDigest   common.Hash    `json:"mixHash"`
-	Nonce       BlockNonce     `json:"nonce"`
-	Validators  []byte         `json:"validators"       gencodec:"required"`
-	Validator   []byte         `json:"validator"        gencodec:"required"`
-	Penalties   []byte         `json:"penalties"        gencodec:"required"`
+	MixDigest   common.Hash    `json:"mixHash"          gencodec:"required"`
+	Nonce       BlockNonce     `json:"nonce"            gencodec:"required"`
+	// PoSV
+	Posv         bool   `json:"posv,omitempty"`
+	NewAttestors []byte `json:"validators,omitempty"`
+	Attestor     []byte `json:"attestor,omitempty"`
+	Penalties    []byte `json:"penalties,omitempty"`
 }
 
 // field type overrides for gencodec
@@ -102,9 +105,215 @@ type headerMarshaling struct {
 }
 
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
-// RLP encoding.
+// RLP encoding. Uses the same encoding logic as EncodeRLP for consistency.
 func (h *Header) Hash() common.Hash {
-	return rlpHash(h)
+	// Use EncodeRLP to get the encoded bytes, then hash them
+	var buf bytes.Buffer
+	if err := h.EncodeRLP(&buf); err != nil {
+		// Fallback: if EncodeRLP fails, try direct encoding (shouldn't happen)
+		return rlpHash(h)
+	}
+	// Hash the encoded bytes directly
+	sha := hasherPool.Get().(crypto.KeccakState)
+	defer hasherPool.Put(sha)
+	sha.Reset()
+	encodedBytes := buf.Bytes()
+	sha.Write(encodedBytes)
+	var hash common.Hash
+	sha.Read(hash[:])
+	return hash
+}
+
+// HashNoNonce returns the hash which is used as input for the proof-of-work search.
+func (h *Header) HashNoNonce() common.Hash {
+	return rlpHash([]interface{}{
+		h.ParentHash,
+		h.UncleHash,
+		h.Coinbase,
+		h.Root,
+		h.TxHash,
+		h.ReceiptHash,
+		h.Bloom,
+		h.Difficulty,
+		h.Number,
+		h.GasLimit,
+		h.GasUsed,
+		h.Time,
+		h.Extra,
+	})
+}
+
+// HashNoValidator returns the hash which excludes the validator signature.
+// This is used for POSV consensus. The Attestor field is set to empty slice for hash calculation.
+func (h *Header) HashNoValidator() common.Hash {
+	return rlpHash([]interface{}{
+		h.ParentHash,
+		h.UncleHash,
+		h.Coinbase,
+		h.Root,
+		h.TxHash,
+		h.ReceiptHash,
+		h.Bloom,
+		h.Difficulty,
+		h.Number,
+		h.GasLimit,
+		h.GasUsed,
+		h.Time,
+		h.Extra,
+		h.MixDigest,
+		h.Nonce,
+		h.NewAttestors,
+		[]byte{}, // Attestor set to empty slice for hash calculation
+		h.Penalties,
+	})
+}
+
+// EncodeRLP implements rlp.Encoder for Header.
+// POSV fields are only included if Posv is true or fields are not nil (for backward compatibility with standard Ethereum).
+// For Viction chains, POSV fields should always be initialized as empty slices and Posv set to true.
+func (h *Header) EncodeRLP(w io.Writer) error {
+	// Check if POSV fields are present (Posv flag or fields not nil)
+	hasPosvFields := h.Posv || h.NewAttestors != nil || h.Attestor != nil || h.Penalties != nil
+
+	if !hasPosvFields {
+		// Standard Ethereum format - encode without POSV fields
+		return rlp.Encode(w, []interface{}{
+			h.ParentHash,
+			h.UncleHash,
+			h.Coinbase,
+			h.Root,
+			h.TxHash,
+			h.ReceiptHash,
+			h.Bloom,
+			h.Difficulty,
+			h.Number,
+			h.GasLimit,
+			h.GasUsed,
+			h.Time,
+			h.Extra,
+			h.MixDigest,
+			h.Nonce,
+		})
+	}
+
+	// Viction format - include POSV fields
+	// Ensure all POSV fields are initialized (use empty slices if nil)
+	newAttestors := h.NewAttestors
+	if newAttestors == nil {
+		newAttestors = []byte{}
+	}
+	attestor := h.Attestor
+	if attestor == nil {
+		attestor = []byte{}
+	}
+	penalties := h.Penalties
+	if penalties == nil {
+		penalties = []byte{}
+	}
+
+	return rlp.Encode(w, []interface{}{
+		h.ParentHash,
+		h.UncleHash,
+		h.Coinbase,
+		h.Root,
+		h.TxHash,
+		h.ReceiptHash,
+		h.Bloom,
+		h.Difficulty,
+		h.Number,
+		h.GasLimit,
+		h.GasUsed,
+		h.Time,
+		h.Extra,
+		h.MixDigest,
+		h.Nonce,
+		newAttestors,
+		attestor,
+		penalties,
+	})
+}
+
+// DecodeRLP implements rlp.Decoder for Header.
+// Handles both standard Ethereum blocks (15 fields) and Viction blocks (18 fields with POSV).
+func (h *Header) DecodeRLP(s *rlp.Stream) error {
+	_, err := s.List()
+	if err != nil {
+		return err
+	}
+
+	// Decode standard fields (15 fields)
+	if err := s.Decode(&h.ParentHash); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.UncleHash); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Coinbase); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Root); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.TxHash); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.ReceiptHash); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Bloom); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Difficulty); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Number); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.GasLimit); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.GasUsed); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Time); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Extra); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.MixDigest); err != nil {
+		return err
+	}
+	if err := s.Decode(&h.Nonce); err != nil {
+		return err
+	}
+
+	// Try to decode POSV fields (may not be present in standard Ethereum blocks)
+	if err := s.Decode(&h.NewAttestors); err != nil {
+		// Standard Ethereum block - no POSV fields
+		h.Posv = false
+		h.NewAttestors = nil
+		h.Attestor = nil
+		h.Penalties = nil
+		return s.ListEnd()
+	}
+	if err := s.Decode(&h.Attestor); err != nil {
+		// Partial POSV - only NewAttestors present
+		h.Posv = true
+		h.Attestor = []byte{}
+		h.Penalties = []byte{}
+		return s.ListEnd()
+	}
+	if err := s.Decode(&h.Penalties); err != nil {
+		// Partial POSV - NewAttestors and Attestor present
+		h.Posv = true
+		h.Penalties = []byte{}
+		return s.ListEnd()
+	}
+	// All POSV fields decoded successfully
+	h.Posv = true
+
+	return s.ListEnd()
 }
 
 var headerSize = common.StorageSize(reflect.TypeOf(Header{}).Size())
@@ -273,13 +482,30 @@ func CopyHeader(h *Header) *Header {
 	if cpy.Number = new(big.Int); h.Number != nil {
 		cpy.Number.Set(h.Number)
 	}
+	cpy.Time = h.Time
 	if len(h.Extra) > 0 {
 		cpy.Extra = make([]byte, len(h.Extra))
 		copy(cpy.Extra, h.Extra)
 	}
-	if len(h.Validator) > 0 {
-		cpy.Validators = make([]byte, len(h.Validators))
-		copy(cpy.Validators, h.Validators)
+	// Copy POSV fields (preserve nil for standard Ethereum, empty slices for Viction)
+	cpy.Posv = h.Posv
+	if h.NewAttestors != nil {
+		cpy.NewAttestors = make([]byte, len(h.NewAttestors))
+		copy(cpy.NewAttestors, h.NewAttestors)
+	} else {
+		cpy.NewAttestors = nil // Preserve nil for standard Ethereum blocks
+	}
+	if h.Attestor != nil {
+		cpy.Attestor = make([]byte, len(h.Attestor))
+		copy(cpy.Attestor, h.Attestor)
+	} else {
+		cpy.Attestor = nil // Preserve nil for standard Ethereum blocks
+	}
+	if h.Penalties != nil {
+		cpy.Penalties = make([]byte, len(h.Penalties))
+		copy(cpy.Penalties, h.Penalties)
+	} else {
+		cpy.Penalties = nil // Preserve nil for standard Ethereum blocks
 	}
 	return &cpy
 }
@@ -346,8 +572,10 @@ func (b *Block) TxHash() common.Hash      { return b.header.TxHash }
 func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
+func (b *Block) NewAttestors() []byte     { return common.CopyBytes(b.header.NewAttestors) }
+func (b *Block) Attestor() []byte         { return common.CopyBytes(b.header.Attestor) }
 func (b *Block) Penalties() []byte        { return common.CopyBytes(b.header.Penalties) }
-func (b *Block) Validator() []byte        { return common.CopyBytes(b.header.Validator) }
+func (b *Block) Posv() bool               { return b.header.Posv }
 
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
