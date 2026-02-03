@@ -178,7 +178,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	// but the corresponding state is missing.
 	header := rawdb.ReadHeader(db, stored, 0)
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, nil), nil); err != nil {
-		log.Debug("SetupGenesisBlock: state missing, recreating", "error", err)
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
