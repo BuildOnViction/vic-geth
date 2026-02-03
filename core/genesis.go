@@ -185,10 +185,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 		hash := genesis.ToBlock(nil).Hash()
 		log.Debug("SetupGenesisBlock: comparing hashes", "stored", stored.Hex(), "new", hash.Hex(), "match", hash == stored)
 		if hash != stored {
-			log.Warn("SetupGenesisBlock: genesis hash mismatch",
-				"stored", stored.Hex(),
-				"new", hash.Hex(),
-				"expectedVicMainnet", params.VicMainnetGenesisHash.Hex())
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 		block, err := genesis.Commit(db)
