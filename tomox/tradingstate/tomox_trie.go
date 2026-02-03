@@ -146,7 +146,7 @@ func (t *TomoXTrie) GetKey(shaKey []byte) []byte {
 	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
 		return key
 	}
-	key, _ := t.trie.Db.Preimage(common.BytesToHash(shaKey))
+	key := t.trie.Db().Preimage(common.BytesToHash(shaKey))
 	return key
 }
 
@@ -155,14 +155,14 @@ func (t *TomoXTrie) GetKey(shaKey []byte) []byte {
 //
 // Committing flushes nodes from memory. Subsequent Get calls will load nodes
 // from the database.
-func (t *TomoXTrie) Commit(onleaf trie.LeafCallback) (common.Hash, int, error) {
+func (t *TomoXTrie) Commit(onleaf trie.LeafCallback) (common.Hash, error) {
 	// Write all the pre-images to the actual disk database
 	if len(t.getSecKeyCache()) > 0 {
-		t.trie.Db.Lock.Lock()
+		t.trie.Db().Lock()
 		for hk, key := range t.secKeyCache {
-			t.trie.Db.InsertPreimage(common.BytesToHash([]byte(hk)), key)
+			t.trie.Db().InsertPreimage(common.BytesToHash([]byte(hk)), key)
 		}
-		t.trie.Db.Lock.Unlock()
+		t.trie.Db().Unlock()
 
 		t.secKeyCache = make(map[string][]byte)
 	}
