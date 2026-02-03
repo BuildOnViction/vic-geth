@@ -17,7 +17,11 @@
 // Package ethdb defines the interfaces for an Ethereum data store.
 package ethdb
 
-import "io"
+import (
+	"io"
+
+	"github.com/ethereum/go-ethereum/common"
+)
 
 // KeyValueReader wraps the Has and Get method of a backing data store.
 type KeyValueReader interface {
@@ -128,4 +132,9 @@ type Database interface {
 	Stater
 	Compacter
 	io.Closer
+}
+
+// TomoxDatabase interface
+type TomoxDatabase interface {
+	GetObject(hash common.Hash, val interface{}) (interface{}, error)
 }

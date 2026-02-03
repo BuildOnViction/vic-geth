@@ -77,7 +77,7 @@ type TradingService interface {
 	IsSDKNode() bool
 	//SyncDataToSDKNode(takerOrder *tradingstate.OrderItem, txHash common.Hash, txMatchTime time.Time, statedb *state.StateDB, trades []map[string]string, rejectedOrders []*tradingstate.OrderItem, dirtyOrderCount *uint64) error
 	RollbackReorgTxMatch(txhash common.Hash) error
-	GetTokenDecimal(chain consensus.ChainContext, statedb *state.StateDB, tokenAddr common.Address) (*big.Int, error)
+	GetTokenDecimal(chain ChainContext, statedb *state.StateDB, tokenAddr common.Address) (*big.Int, error)
 }
 
 type LendingService interface {
@@ -269,12 +269,12 @@ type Posv struct {
 	BlockSigners *lru.Cache
 
 	// PosvGetEpochReward
-	HookReward func(chain consensus.ChainReader, state *state.StateDB, parentState *state.StateDB, header *types.Header) (error, map[string]interface{})
+	HookReward func(chain ChainReader, state *state.StateDB, parentState *state.StateDB, header *types.Header) (error, map[string]interface{})
 
 	// PosvGetPenalties
-	HookPenalty func(chain consensus.ChainReader, blockNumberEpoc uint64) ([]common.Address, error)
+	HookPenalty func(chain ChainReader, blockNumberEpoc uint64) ([]common.Address, error)
 	// PosvGetPenalties
-	HookPenaltyTIPSigning func(chain consensus.ChainReader, header *types.Header, candidate []common.Address) ([]common.Address, error)
+	HookPenaltyTIPSigning func(chain ChainReader, header *types.Header, candidate []common.Address) ([]common.Address, error)
 
 	// PosvGetAttestors
 	HookValidator func(header *types.Header, signers []common.Address) ([]byte, error)
@@ -325,14 +325,14 @@ func (c *Posv) Author(header *types.Header) (common.Address, error) {
 func (c *Posv) Signer() common.Address { return c.signer }
 
 // VerifyHeader checks whether a header conforms to the consensus rules.
-func (c *Posv) VerifyHeader(chain consensus.ChainReader, header *types.Header, fullVerify bool) error {
+func (c *Posv) VerifyHeader(chain ChainReader, header *types.Header, fullVerify bool) error {
 	return c.verifyHeaderWithCache(chain, header, nil, fullVerify)
 }
 
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers. The
 // method returns a quit channel to abort the operations and a results channel to
 // retrieve the async verifications (the order is that of the input slice).
-func (c *Posv) VerifyHeaders(chain consensus.ChainReader, headers []*types.Header, fullVerifies []bool) (chan<- struct{}, <-chan error) {
+func (c *Posv) VerifyHeaders(chain ChainReader, headers []*types.Header, fullVerifies []bool) (chan<- struct{}, <-chan error) {
 	abort := make(chan struct{})
 	results := make(chan error, len(headers))
 
@@ -351,7 +351,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainReader, headers []*types.Heade
 }
 
 // Mapped to verifyHeaderWithCache
-func (c *Posv) verifyHeaderWithCache(chain consensus.ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
+func (c *Posv) verifyHeaderWithCache(chain ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
 	_, check := c.verifiedHeaders.Get(header.Hash())
 	if check {
 		return nil
@@ -368,7 +368,7 @@ func (c *Posv) verifyHeaderWithCache(chain consensus.ChainReader, header *types.
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
 // a batch of new headers.
-func (c *Posv) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
+func (c *Posv) verifyHeader(chain ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
 	if header.Number == nil {
 		return errUnknownBlock
 	}
@@ -437,7 +437,7 @@ func (c *Posv) verifyHeader(chain consensus.ChainReader, header *types.Header, p
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
-func (c *Posv) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
+func (c *Posv) verifyCascadingFields(chain ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -490,7 +490,7 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainReader, header *types.
 }
 
 // Mapped to verifyValidators
-func (c *Posv) checkSignersOnCheckpoint(chain consensus.ChainReader, header *types.Header, signers []common.Address) error {
+func (c *Posv) checkSignersOnCheckpoint(chain ChainReader, header *types.Header, signers []common.Address) error {
 	number := header.Number.Uint64()
 	// ignore signerCheck at checkpoint block 14458500 due to wrong snapshot at gap 14458495
 	if number == common.IgnoreSignerCheckBlock {
@@ -556,7 +556,7 @@ func compareSignersLists(list1 []common.Address, list2 []common.Address) bool {
 }
 
 // Deleted, Redundant
-func (c *Posv) GetSnapshot(chain consensus.ChainReader, header *types.Header) (*Snapshot, error) {
+func (c *Posv) GetSnapshot(chain ChainReader, header *types.Header) (*Snapshot, error) {
 	number := header.Number.Uint64()
 	log.Trace("take snapshot", "number", number, "hash", header.Hash())
 	snap, err := c.snapshot(chain, number, header.Hash(), nil)
@@ -581,7 +581,7 @@ func position(list []common.Address, x common.Address) int {
 }
 
 // Mapped to GetNearestCheckpointValidators
-func (c *Posv) GetMasternodes(chain consensus.ChainReader, header *types.Header) []common.Address {
+func (c *Posv) GetMasternodes(chain ChainReader, header *types.Header) []common.Address {
 	n := header.Number.Uint64()
 	e := c.config.Epoch
 	switch {
@@ -610,7 +610,7 @@ func whoIsCreator(snap *Snapshot, header *types.Header) (common.Address, error) 
 }
 
 // Mapped to IsMyTurn
-func (c *Posv) YourTurn(chain consensus.ChainReader, parent *types.Header, signer common.Address) (int, int, int, bool, error) {
+func (c *Posv) YourTurn(chain ChainReader, parent *types.Header, signer common.Address) (int, int, int, bool, error) {
 	masternodes := c.GetMasternodes(chain, parent)
 
 	snap, err := c.GetSnapshot(chain, parent)
@@ -646,7 +646,7 @@ func (c *Posv) YourTurn(chain consensus.ChainReader, parent *types.Header, signe
 
 // Mapped to snapshot
 // snapshot retrieves the authorization snapshot at a given point in time.
-func (c *Posv) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
+func (c *Posv) snapshot(chain ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (
 		headers []*types.Header
@@ -725,7 +725,7 @@ func (c *Posv) snapshot(chain consensus.ChainReader, number uint64, hash common.
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
 // uncles as this consensus mechanism doesn't permit uncles.
-func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
+func (c *Posv) VerifyUncles(chain ChainReader, block *types.Block) error {
 	if len(block.Uncles()) > 0 {
 		return errors.New("uncles not allowed")
 	}
@@ -734,7 +734,7 @@ func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) err
 
 // VerifySeal implements consensus.Engine, checking whether the signature contained
 // in the header satisfies the consensus protocol requirements.
-func (c *Posv) VerifySeal(chain consensus.ChainReader, header *types.Header) error {
+func (c *Posv) VerifySeal(chain ChainReader, header *types.Header) error {
 	return c.verifySeal(chain, header, nil, true)
 }
 
@@ -744,7 +744,7 @@ func (c *Posv) VerifySeal(chain consensus.ChainReader, header *types.Header) err
 // from.
 // verifySeal also checks the pair of creator-validator set in the header satisfies
 // the double validation.
-func (c *Posv) verifySeal(chain consensus.ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
+func (c *Posv) verifySeal(chain ChainReader, header *types.Header, parents []*types.Header, fullVerify bool) error {
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, header.Number.Uint64()-1, header.ParentHash, parents)
 	if err != nil {
@@ -836,7 +836,7 @@ func (c *Posv) verifySeal(chain consensus.ChainReader, header *types.Header, par
 	return nil
 }
 
-func (c *Posv) GetValidator(creator common.Address, chain consensus.ChainReader, header *types.Header) (common.Address, error) {
+func (c *Posv) GetValidator(creator common.Address, chain ChainReader, header *types.Header) (common.Address, error) {
 	epoch := c.config.Epoch
 	number := header.Number.Uint64()
 	checkpointNumber := number
@@ -863,7 +863,7 @@ func (c *Posv) GetValidator(creator common.Address, chain consensus.ChainReader,
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
-func (c *Posv) Prepare(chain consensus.ChainReader, header *types.Header) error {
+func (c *Posv) Prepare(chain ChainReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}
@@ -984,7 +984,7 @@ func (c *Posv) UpdateMasternodes(chain consensus.ChainReader, header *types.Head
 
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given, and returns the final block.
-func (c *Posv) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, parentState *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+func (c *Posv) Finalize(chain ChainReader, header *types.Header, state *state.StateDB, parentState *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	// set block reward
 	number := header.Number.Uint64()
 	rCheckpoint := chain.Config().Posv.RewardCheckpoint
@@ -1027,7 +1027,7 @@ func (c *Posv) Authorize(signer common.Address, signFn SignerFn) {
 
 // Seal implements consensus.Engine, attempting to create a sealed block using
 // the local signing credentials.
-func (c *Posv) Seal(chain consensus.ChainReader, block *types.Block, stop <-chan struct{}) (*types.Block, error) {
+func (c *Posv) Seal(chain ChainReader, block *types.Block, stop <-chan struct{}) (*types.Block, error) {
 	header := block.Header()
 
 	// Sealing the genesis block is not supported
@@ -1105,11 +1105,11 @@ func (c *Posv) Seal(chain consensus.ChainReader, block *types.Block, stop <-chan
 // CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
 // that a new block should have based on the previous blocks in the chain and the
 // current signer.
-func (c *Posv) CalcDifficulty(chain consensus.ChainReader, time uint64, parent *types.Header) *big.Int {
+func (c *Posv) CalcDifficulty(chain ChainReader, time uint64, parent *types.Header) *big.Int {
 	return c.calcDifficulty(chain, parent, c.signer)
 }
 
-func (c *Posv) calcDifficulty(chain consensus.ChainReader, parent *types.Header, signer common.Address) *big.Int {
+func (c *Posv) calcDifficulty(chain ChainReader, parent *types.Header, signer common.Address) *big.Int {
 	len, preIndex, curIndex, _, err := c.YourTurn(chain, parent, signer)
 	if err != nil {
 		return big.NewInt(int64(len + curIndex - preIndex))
@@ -1119,7 +1119,7 @@ func (c *Posv) calcDifficulty(chain consensus.ChainReader, parent *types.Header,
 
 // APIs implements consensus.Engine, returning the user facing RPC API to allow
 // controlling the signer voting.
-func (c *Posv) APIs(chain consensus.ChainReader) []rpc.API {
+func (c *Posv) APIs(chain ChainReader) []rpc.API {
 	return []rpc.API{{
 		Namespace: "posv",
 		Version:   "1.0",
@@ -1221,7 +1221,7 @@ func (c *Posv) GetDb() ethdb.Database {
 
 // Mapped to common.SetSubstract
 // Extract validators from byte array.
-func RemovePenaltiesFromBlock(chain consensus.ChainReader, masternodes []common.Address, epochNumber uint64) []common.Address {
+func RemovePenaltiesFromBlock(chain ChainReader, masternodes []common.Address, epochNumber uint64) []common.Address {
 	if epochNumber <= 0 {
 		return masternodes
 	}
@@ -1311,7 +1311,7 @@ func Hop(len, pre, cur int) int {
 	}
 }
 
-func (c *Posv) CheckMNTurn(chain consensus.ChainReader, parent *types.Header, signer common.Address) bool {
+func (c *Posv) CheckMNTurn(chain ChainReader, parent *types.Header, signer common.Address) bool {
 	masternodes := c.GetMasternodes(chain, parent)
 
 	snap, err := c.GetSnapshot(chain, parent)
@@ -1340,7 +1340,7 @@ func (c *Posv) CheckMNTurn(chain consensus.ChainReader, parent *types.Header, si
 }
 
 // included in verifyValidators
-func (c *Posv) GetSignersFromContract(chain consensus.ChainReader, checkpointHeader *types.Header) ([]common.Address, error) {
+func (c *Posv) GetSignersFromContract(chain ChainReader, checkpointHeader *types.Header) ([]common.Address, error) {
 	startGapBlockHeader := checkpointHeader
 	number := checkpointHeader.Number.Uint64()
 	for step := uint64(1); step <= chain.Config().Posv.Gap; step++ {
