@@ -183,7 +183,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 		}
 		// Ensure the stored genesis matches with the given one.
 		hash := genesis.ToBlock(nil).Hash()
-		log.Debug("SetupGenesisBlock: comparing hashes", "stored", stored.Hex(), "new", hash.Hex(), "match", hash == stored)
 		if hash != stored {
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
