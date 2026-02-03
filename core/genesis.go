@@ -169,7 +169,7 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 		if err != nil {
 			return genesis.Config, common.Hash{}, err
 		}
-		return genesis.Config, actualHash, nil
+		return genesis.Config, block.Hash(), nil
 	}
 
 	// We have the genesis block in database(perhaps in ancient database)
