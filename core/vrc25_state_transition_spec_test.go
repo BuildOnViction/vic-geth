@@ -65,6 +65,11 @@ func setupTestStateTransition(t *testing.T, msg Message) (*StateTransition, *sta
 	return st, statedb
 }
 
+// Helper to fix compilation error in existing test file
+func (st *StateTransition) refundGasSponsoringTransaction() {
+	st.refundGasVRC25()
+}
+
 func TestVRC25_BuyGas_Sponsored(t *testing.T) {
 	sponsorAddr := common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee")
 	targetContract := common.HexToAddress("0xTargetContract")
