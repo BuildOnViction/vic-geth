@@ -99,12 +99,12 @@ var (
 		SaigonBlock:                  big.NewInt(10004200),
 		AtlasBlock:                   big.NewInt(24697500),
 		Posv: &PosvConfig{
-			Period:              2,
-			Epoch:               900,
-			Reward:              250,
-			RewardCheckpoint:    900,
-			Gap:                 5,
-			FoudationWalletAddr: common.HexToAddress("0x0000000000000000000000000000000000000068"),
+			Period:                  2,
+			Epoch:                   900,
+			Reward:                  250,
+			RewardCheckpoint:        900,
+			Gap:                     5,
+			RewardFoundationAddress: common.HexToAddress("0x0000000000000000000000000000000000000068"),
 		},
 	}
 
