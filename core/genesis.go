@@ -303,20 +303,6 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	statedb.Database().TrieDB().Commit(root, true, nil)
 
 	block := types.NewBlock(head, nil, nil, nil, new(trie.Trie))
-
-	// Debug logging for genesis block creation
-	log.Debug("Genesis.ToBlock: created block",
-		"hash", block.Hash().Hex(),
-		"stateRoot", root.Hex(),
-		"number", block.Number(),
-		"timestamp", block.Time(),
-		"gasLimit", block.GasLimit(),
-		"difficulty", block.Difficulty(),
-		"extraDataLen", len(block.Extra()),
-		"allocAccounts", len(g.Alloc),
-		"expectedVicMainnet", params.VicMainnetGenesisHash.Hex(),
-		"matchesVicMainnet", block.Hash() == params.VicMainnetGenesisHash)
-
 	return block
 }
 
