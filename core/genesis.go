@@ -166,16 +166,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 			genesis = DefaultGenesisBlock()
 		} else {
 			log.Info("Writing custom genesis block")
-			// Debug: log the genesis block details before committing
-			expectedHash := genesis.ToBlock(nil).Hash()
-			log.Debug("SetupGenesisBlock: new genesis block details",
-				"expectedHash", expectedHash.Hex(),
-				"chainId", genesis.Config.ChainID,
-				"timestamp", genesis.Timestamp,
-				"gasLimit", genesis.GasLimit,
-				"difficulty", genesis.Difficulty,
-				"extraDataLen", len(genesis.ExtraData),
-				"allocAccounts", len(genesis.Alloc))
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
