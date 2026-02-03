@@ -39,7 +39,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -184,6 +183,10 @@ var (
 
 // SignerFn is a signer callback function to request a hash to be signed by a
 // backing account.
+type SignerFn func(accounts.Account, []byte) ([]byte, error)
+
+// SignerFn is a signer callback function to request a hash to be signed by a
+// backing account.
 //type SignerFn func(accounts.Account, []byte) ([]byte, error)
 
 // sigHash returns the hash which is used as input for the proof-of-stake-voting
@@ -258,9 +261,9 @@ type Posv struct {
 	verifiedHeaders     *lru.ARCCache
 	proposals           map[common.Address]bool // Current list of proposals we are pushing
 
-	signer common.Address  // Ethereum address of the signing key
-	signFn clique.SignerFn // Signer function to authorize hashes with
-	lock   sync.RWMutex    // Protects the signer fields
+	signer common.Address // Ethereum address of the signing key
+	signFn SignerFn       // Signer function to authorize hashes with
+	lock   sync.RWMutex   // Protects the signer fields
 
 	BlockSigners               *lru.Cache
 	HookReward                 func(chain consensus.ChainReader, state *state.StateDB, parentState *state.StateDB, header *types.Header) (error, map[string]interface{})
@@ -981,7 +984,7 @@ func (c *Posv) Finalize(chain consensus.ChainReader, header *types.Header, state
 
 // Authorize injects a private key into the consensus engine to mint new blocks
 // with.
-func (c *Posv) Authorize(signer common.Address, signFn clique.SignerFn) {
+func (c *Posv) Authorize(signer common.Address, signFn SignerFn) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -1051,7 +1054,7 @@ func (c *Posv) Seal(chain consensus.ChainReader, block *types.Block, stop <-chan
 	default:
 	}
 	// Sign all the things!
-	sighash, err := signFn(accounts.Account{Address: signer}, "", sigHash(header).Bytes())
+	sighash, err := signFn(accounts.Account{Address: signer}, sigHash(header).Bytes())
 	if err != nil {
 		return nil, err
 	}
