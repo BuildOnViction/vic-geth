@@ -203,15 +203,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 
 	// Get the existing chain configuration.
 	newcfg := genesis.configOrDefault(stored)
-	engineType := "unknown"
-	if newcfg.Posv != nil {
-		engineType = "posv"
-	} else if newcfg.Clique != nil {
-		engineType = "clique"
-	} else if newcfg.Ethash != nil {
-		engineType = "ethash"
-	}
-	log.Debug("SetupGenesisBlock: chain config", "chainId", newcfg.ChainID, "engine", engineType)
 	if err := newcfg.CheckConfigForkOrder(); err != nil {
 		return newcfg, common.Hash{}, err
 	}
