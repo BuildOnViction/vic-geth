@@ -37,8 +37,10 @@ The state transitioning model does all the necessary work to work out a valid ne
 3) Create a new state object if the recipient is \0*32
 4) Value transfer
 == If contract creation ==
-  4a) Attempt to run transaction data
-  4b) If valid, use result as code for the new state object
+
+	4a) Attempt to run transaction data
+	4b) If valid, use result as code for the new state object
+
 == end ==
 5) Run Script section
 6) Derive new state root
@@ -53,6 +55,7 @@ type StateTransition struct {
 	data       []byte
 	state      vm.StateDB
 	evm        *vm.EVM
+	payer      common.Address
 }
 
 // Message represents a message sent to a contract.
@@ -174,9 +177,13 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
+	if err := st.applySponsoringTransaction(); err != nil {
+		return err
+	}
+
 	mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), st.gasPrice)
-	if have, want := st.state.GetBalance(st.msg.From()), mgval; have.Cmp(want) < 0 {
-		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have, want)
+	if have, want := st.state.GetBalance(st.payer), mgval; have.Cmp(want) < 0 {
+		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.payer.Hex(), have, want)
 	}
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
@@ -184,7 +191,7 @@ func (st *StateTransition) buyGas() error {
 	st.gas += st.msg.Gas()
 
 	st.initialGas = st.msg.Gas()
-	st.state.SubBalance(st.msg.From(), mgval)
+	st.state.SubBalance(st.payer, mgval)
 	return nil
 }
 
@@ -206,13 +213,13 @@ func (st *StateTransition) preCheck() error {
 // TransitionDb will transition the state by applying the current message and
 // returning the evm execution result with following fields.
 //
-// - used gas:
-//      total gas used (including gas being refunded)
-// - returndata:
-//      the returned data from evm
-// - concrete execution error:
-//      various **EVM** error which aborts the execution,
-//      e.g. ErrOutOfGas, ErrExecutionReverted
+//   - used gas:
+//     total gas used (including gas being refunded)
+//   - returndata:
+//     the returned data from evm
+//   - concrete execution error:
+//     various **EVM** error which aborts the execution,
+//     e.g. ErrOutOfGas, ErrExecutionReverted
 //
 // However if any consensus issue encountered, return the error directly with
 // nil evm execution result.
@@ -279,6 +286,12 @@ func (st *StateTransition) refundGas() {
 		refund = st.state.GetRefund()
 	}
 	st.gas += refund
+
+	if st.isSponsoringTransaction() {
+		st.refundGasSponsoringTransaction()
+	}
+
+	// TODO: clear gas sponsorship state
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
