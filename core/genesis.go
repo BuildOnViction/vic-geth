@@ -142,10 +142,10 @@ func (e *GenesisMismatchError) Error() string {
 // SetupGenesisBlock writes or updates the genesis block in db.
 // The block that will be used is:
 //
-//                          genesis == nil       genesis != nil
-//                       +------------------------------------------
-//     db has no genesis |  main-net default  |  genesis
-//     db has genesis    |  from DB           |  genesis (if compatible)
+//	                     genesis == nil       genesis != nil
+//	                  +------------------------------------------
+//	db has no genesis |  main-net default  |  genesis
+//	db has genesis    |  from DB           |  genesis (if compatible)
 //
 // The stored chain configuration will be updated if it is compatible (i.e. does not
 // specify a fork block below the local head block). In case of a conflict, the
@@ -158,30 +158,53 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	}
 	// Just commit the new block if there is no stored genesis block.
 	stored := rawdb.ReadCanonicalHash(db, 0)
+	log.Debug("SetupGenesisBlock: checking stored genesis", "stored", stored.Hex(), "empty", stored == common.Hash{})
+
 	if (stored == common.Hash{}) {
 		if genesis == nil {
 			log.Info("Writing default main-net genesis block")
 			genesis = DefaultGenesisBlock()
 		} else {
 			log.Info("Writing custom genesis block")
+			// Debug: log the genesis block details before committing
+			expectedHash := genesis.ToBlock(nil).Hash()
+			log.Debug("SetupGenesisBlock: new genesis block details",
+				"expectedHash", expectedHash.Hex(),
+				"chainId", genesis.Config.ChainID,
+				"timestamp", genesis.Timestamp,
+				"gasLimit", genesis.GasLimit,
+				"difficulty", genesis.Difficulty,
+				"extraDataLen", len(genesis.ExtraData),
+				"allocAccounts", len(genesis.Alloc))
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
+			log.Error("SetupGenesisBlock: failed to commit genesis", "error", err)
 			return genesis.Config, common.Hash{}, err
 		}
-		return genesis.Config, block.Hash(), nil
+		actualHash := block.Hash()
+		log.Debug("SetupGenesisBlock: genesis committed", "actualHash", actualHash.Hex())
+		return genesis.Config, actualHash, nil
 	}
 
 	// We have the genesis block in database(perhaps in ancient database)
 	// but the corresponding state is missing.
 	header := rawdb.ReadHeader(db, stored, 0)
+	log.Debug("SetupGenesisBlock: found stored genesis", "storedHash", stored.Hex(), "headerNumber", header.Number)
+
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, nil), nil); err != nil {
+		log.Debug("SetupGenesisBlock: state missing, recreating", "error", err)
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
 		// Ensure the stored genesis matches with the given one.
 		hash := genesis.ToBlock(nil).Hash()
+		log.Debug("SetupGenesisBlock: comparing hashes", "stored", stored.Hex(), "new", hash.Hex(), "match", hash == stored)
 		if hash != stored {
+			log.Warn("SetupGenesisBlock: genesis hash mismatch",
+				"stored", stored.Hex(),
+				"new", hash.Hex(),
+				"expectedVicMainnet", params.VicMainnetGenesisHash.Hex())
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 		block, err := genesis.Commit(db)
@@ -194,13 +217,31 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()
+		log.Debug("SetupGenesisBlock: checking existing genesis",
+			"stored", stored.Hex(),
+			"new", hash.Hex(),
+			"match", hash == stored,
+			"expectedVicMainnet", params.VicMainnetGenesisHash.Hex())
 		if hash != stored {
+			log.Warn("SetupGenesisBlock: genesis hash mismatch (existing block)",
+				"stored", stored.Hex(),
+				"new", hash.Hex(),
+				"expectedVicMainnet", params.VicMainnetGenesisHash.Hex())
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 	}
 
 	// Get the existing chain configuration.
 	newcfg := genesis.configOrDefault(stored)
+	engineType := "unknown"
+	if newcfg.Posv != nil {
+		engineType = "posv"
+	} else if newcfg.Clique != nil {
+		engineType = "clique"
+	} else if newcfg.Ethash != nil {
+		engineType = "ethash"
+	}
+	log.Debug("SetupGenesisBlock: chain config", "chainId", newcfg.ChainID, "engine", engineType)
 	if err := newcfg.CheckConfigForkOrder(); err != nil {
 		return newcfg, common.Hash{}, err
 	}
@@ -235,6 +276,10 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 	switch {
 	case g != nil:
 		return g.Config
+	case ghash == params.VicMainnetGenesisHash:
+		return params.VicMainnetChainConfig
+	case ghash == params.VicTestnetGenesisHash:
+		return params.VicTestnetChainConfig
 	case ghash == params.MainnetGenesisHash:
 		return params.MainnetChainConfig
 	case ghash == params.RopstenGenesisHash:
@@ -279,6 +324,14 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 		Coinbase:   g.Coinbase,
 		Root:       root,
 	}
+	// Initialize POSV fields only for Viction chains (always present in Viction)
+	// For standard Ethereum chains, these will be nil and won't be encoded in RLP
+	if g.Config != nil && g.Config.Posv != nil {
+		head.Posv = true
+		head.NewAttestors = []byte{}
+		head.Attestor = []byte{}
+		head.Penalties = []byte{}
+	}
 	if g.GasLimit == 0 {
 		head.GasLimit = params.GenesisGasLimit
 	}
@@ -288,7 +341,22 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true, nil)
 
-	return types.NewBlock(head, nil, nil, nil, new(trie.Trie))
+	block := types.NewBlock(head, nil, nil, nil, new(trie.Trie))
+
+	// Debug logging for genesis block creation
+	log.Debug("Genesis.ToBlock: created block",
+		"hash", block.Hash().Hex(),
+		"stateRoot", root.Hex(),
+		"number", block.Number(),
+		"timestamp", block.Time(),
+		"gasLimit", block.GasLimit(),
+		"difficulty", block.Difficulty(),
+		"extraDataLen", len(block.Extra()),
+		"allocAccounts", len(g.Alloc),
+		"expectedVicMainnet", params.VicMainnetGenesisHash.Hex(),
+		"matchesVicMainnet", block.Hash() == params.VicMainnetGenesisHash)
+
+	return block
 }
 
 // Commit writes the block and state of a genesis specification to the database.
@@ -429,4 +497,33 @@ func decodePrealloc(data string) GenesisAlloc {
 		ga[common.BigToAddress(account.Addr)] = GenesisAccount{Balance: account.Balance}
 	}
 	return ga
+}
+
+// decodeJsonAlloc decodes JSON-encoded alloc data into GenesisAlloc.
+// The data should be a JSON string containing the "alloc" section from genesis.json.
+func decodeJsonAlloc(data string) GenesisAlloc {
+	var alloc map[common.UnprefixedAddress]GenesisAccount
+	if err := json.Unmarshal([]byte(data), &alloc); err != nil {
+		panic(fmt.Sprintf("failed to decode JSON alloc data: %v", err))
+	}
+	ga := make(GenesisAlloc, len(alloc))
+	for addr, account := range alloc {
+		ga[common.Address(addr)] = account
+	}
+	return ga
+}
+
+// DefaultVicMainnetGenesisBlock returns the Viction mainnet genesis block.
+// Note: This function loads alloc data from the embedded JSON string constant.
+// The alloc data is extracted from genesis.json and embedded as vicMainnetAllocData.
+func DefaultVicMainnetGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VicMainnetChainConfig,
+		Nonce:      0,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000001b82c4bf317fcafe3d77e8b444c82715d216afe845b7bd987fa22c9bac89b71f0ded03f6e150ba31ad670b2b166684657ffff95f4810380ae7381e9bce41231d5dd8cdd7499e418b648c00af75d184a2f9aba09a6fa4a46fb1a6a3919b027d9cac5aa6890000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   4700000,
+		Difficulty: big.NewInt(1),
+		Alloc:      decodeJsonAlloc(vicMainnetAllocData),
+		Timestamp:  1544771829,
+	}
 }
