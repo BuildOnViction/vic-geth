@@ -177,8 +177,7 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
-	err := st.applySponsoringTransaction()
-	if err != nil {
+	if err := st.applySponsoringTransaction(); err != nil {
 		return err
 	}
 
@@ -287,6 +286,12 @@ func (st *StateTransition) refundGas() {
 		refund = st.state.GetRefund()
 	}
 	st.gas += refund
+
+	if st.isSponsoringTransaction() {
+		st.refundGasSponsoringTransaction()
+	}
+
+	// TODO: clear gas sponsorship state
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
