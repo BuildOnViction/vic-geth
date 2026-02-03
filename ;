@@ -287,8 +287,8 @@ func (st *StateTransition) refundGas() {
 	}
 	st.gas += refund
 
-	if st.isVRC25Transaction() {
-		st.refundVRC25Gas()
+	if st.isSponsoringTransaction() {
+		st.refundGasSponsoringTransaction()
 	}
 
 	// TODO: clear gas sponsorship state

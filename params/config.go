@@ -68,6 +68,7 @@ var (
 		ByzantiumBlock: big.NewInt(4),
 		SaigonBlock:    big.NewInt(86158494),
 		AtlasBlock:     big.NewInt(97705094),
+		VRC25GasPrice:  big.NewInt(250000000),
 		VRC25Contract:  common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
 		Posv: &PosvConfig{
 			Period:                  2,
@@ -439,7 +440,8 @@ type ChainConfig struct {
 	SaigonBlock *big.Int `json:"saigonBlock,omitempty"` // Saigon switch block (nil = no fork, 0 = already activated)
 	AtlasBlock  *big.Int `json:"atlasBlock,omitempty"`  // Atlas switch block (nil = no fork, 0 = already activated)
 
-	/// System contract definitions
+	/// VRC25
+	VRC25GasPrice *big.Int       `json:"vrc25GasPrice,omitempty"`
 	VRC25Contract common.Address `json:"vrc25Contract,omitempty"` // VRC-25 system contract address
 
 	// Various consensus engines
