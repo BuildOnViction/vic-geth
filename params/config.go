@@ -59,16 +59,16 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 var (
 	// VicMainnetChainConfig contains the chain parameters to run a Viction node on the main network.
 	VicMainnetChainConfig = &ChainConfig{
-		ChainID:           big.NewInt(88),
-		HomesteadBlock:    big.NewInt(1),
-		EIP150Block:       big.NewInt(2),
-		EIP150Hash:        common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
-		EIP155Block:       big.NewInt(3),
-		EIP158Block:       big.NewInt(3),
-		ByzantiumBlock:    big.NewInt(4),
-		SaigonBlock:       big.NewInt(86158494),
-		AtlasBlock:        big.NewInt(97705094),
-		VRC25ContractAddr: common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
+		ChainID:        big.NewInt(88),
+		HomesteadBlock: big.NewInt(1),
+		EIP150Block:    big.NewInt(2),
+		EIP150Hash:     common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		EIP155Block:    big.NewInt(3),
+		EIP158Block:    big.NewInt(3),
+		ByzantiumBlock: big.NewInt(4),
+		SaigonBlock:    big.NewInt(86158494),
+		AtlasBlock:     big.NewInt(97705094),
+		VRC25Contract:  common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
 		Posv: &PosvConfig{
 			Period:              2,
 			Epoch:               900,
@@ -440,7 +440,7 @@ type ChainConfig struct {
 	AtlasBlock  *big.Int `json:"atlasBlock,omitempty"`  // Atlas switch block (nil = no fork, 0 = already activated)
 
 	/// System contract definitions
-	VRC25ContractAddr common.Address `json:"vrc25ContractAddr,omitempty"` // VRC-25 system contract address
+	VRC25Contract common.Address `json:"vrc25Contract,omitempty"` // VRC-25 system contract address
 
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
