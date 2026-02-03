@@ -288,10 +288,8 @@ func (st *StateTransition) refundGas() {
 	st.gas += refund
 
 	if st.isVRC25Transaction() {
-		st.refundVRC25Gas()
+		st.refundGasVRC25()
 	}
-
-	// TODO: clear gas sponsorship state
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
