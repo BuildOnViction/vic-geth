@@ -169,7 +169,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
-			log.Error("SetupGenesisBlock: failed to commit genesis", "error", err)
 			return genesis.Config, common.Hash{}, err
 		}
 		return genesis.Config, actualHash, nil
