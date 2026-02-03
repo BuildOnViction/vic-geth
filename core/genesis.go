@@ -177,8 +177,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	// We have the genesis block in database(perhaps in ancient database)
 	// but the corresponding state is missing.
 	header := rawdb.ReadHeader(db, stored, 0)
-	log.Debug("SetupGenesisBlock: found stored genesis", "storedHash", stored.Hex(), "headerNumber", header.Number)
-
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, nil), nil); err != nil {
 		log.Debug("SetupGenesisBlock: state missing, recreating", "error", err)
 		if genesis == nil {
