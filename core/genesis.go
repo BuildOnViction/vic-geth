@@ -197,11 +197,6 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()
-		log.Debug("SetupGenesisBlock: checking existing genesis",
-			"stored", stored.Hex(),
-			"new", hash.Hex(),
-			"match", hash == stored,
-			"expectedVicMainnet", params.VicMainnetGenesisHash.Hex())
 		if hash != stored {
 			log.Warn("SetupGenesisBlock: genesis hash mismatch (existing block)",
 				"stored", stored.Hex(),
