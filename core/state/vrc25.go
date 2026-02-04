@@ -2,6 +2,10 @@
 package state
 
 import (
+	"bytes"
+	"errors"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -20,3 +24,58 @@ var (
 	transferFromFuncHex = common.Hex2Bytes("0x23b872dd")
 )
 
+var (
+	ErrInvalidParams   = errors.New("invalid parameters")
+	ErrInsufficientFee = errors.New("insufficient VRC25 token fee")
+)
+
+func ValidateVRC25Transaction(statedb *StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
+	// only validate if to is a VRC25 contract
+	feeCapKey := GetStorageKeyForMapping(to.Hash(), SlotVRC25Contract["tokensState"])
+	feeCapHash := statedb.GetState(vrc25Contract, feeCapKey)
+	if feeCapHash == (common.Hash{}) {
+		return nil
+	}
+
+	
+	if data == nil || statedb == nil {
+		return ErrInvalidParams
+	}
+
+	slotBalances := SlotVRC25Token["balances"]
+	balanceKey := GetStorageKeyForMapping(from.Hash(), slotBalances)
+	balanceHash := statedb.GetState(to, balanceKey)
+	minFeeSlot := SlotVRC25Token["minFee"]
+	minFeeKey := GetStorageKeyForSlot(minFeeSlot)
+	minFeeHash := statedb.GetState(to, minFeeKey)
+
+	funcHex := data[:4]
+
+	if balanceHash == (common.Hash{}) {
+		if minFeeHash != (common.Hash{}) {
+			return ErrInsufficientFee
+		}
+	} else {
+		balance := balanceHash.Big()
+		minFee := minFeeHash.Big()
+		value := big.NewInt(0)
+
+		if bytes.Equal(funcHex, transferFuncHex) && len(data) == 68 {
+			value = common.BytesToHash(data[36:]).Big()
+		} else {
+			if bytes.Equal(funcHex, transferFromFuncHex) && len(data) == 80 {
+				// Small fix here: only consider the value if 'from' matches
+				if from.Hex() == common.BytesToAddress(data[4:36]).Hex() {
+					value = common.BytesToHash(data[68:]).Big()
+				}
+			}
+		}
+
+		requiredFee := new(big.Int).Add(minFee, value)
+		if balance.Cmp(requiredFee) < 0 {
+			return ErrInsufficientFee
+		}
+	}
+
+	return nil
+}
