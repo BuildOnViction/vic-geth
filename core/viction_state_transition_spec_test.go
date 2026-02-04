@@ -65,11 +65,6 @@ func setupTestStateTransition(t *testing.T, msg Message) (*StateTransition, *sta
 	return st, statedb
 }
 
-// Helper to fix compilation error in existing test file
-func (st *StateTransition) refundGasSponsoringTransaction() {
-	st.refundGasVRC25()
-}
-
 func TestVRC25_BuyGas_Sponsored(t *testing.T) {
 	sponsorAddr := common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee")
 	targetContract := common.HexToAddress("0xTargetContract")
@@ -105,8 +100,8 @@ func TestVRC25_BuyGas_Sponsored(t *testing.T) {
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(initialSponsorBalance))
 
 	// Execute buyVRC25Gas
-	if err := st.buyVRC25Gas(); err != nil {
-		t.Fatalf("buyVRC25Gas failed: %v", err)
+	if err := st.vrc25BuyGas(); err != nil {
+		t.Fatalf("vrc25BuyGas failed: %v", err)
 	}
 
 	// 1. Verify Payer is the Sponsor Contract
@@ -152,8 +147,8 @@ func TestVRC25_BuyGas_InsufficientSponsorBalance(t *testing.T) {
 	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), slotTokensState)
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(initialSponsorBalance))
 
-	if err := st.buyVRC25Gas(); err != nil {
-		t.Fatalf("buyVRC25Gas failed: %v", err)
+	if err := st.vrc25BuyGas(); err != nil {
+		t.Fatalf("vrc25BuyGas failed: %v", err)
 	}
 
 	// Verify Fallback to User
@@ -198,7 +193,8 @@ func TestVRC25_RefundGas(t *testing.T) {
 	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), slotTokensState)
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(storageBalance))
 
-	st.refundGasVRC25()
+	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
+	st.vrc25RefundGas(remaining)
 
 	// Verify Refund
 	// Refund Value = 4000 * 100 = 400,000

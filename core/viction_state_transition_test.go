@@ -45,6 +45,7 @@ func newTestStateTransition(t *testing.T, msg Message) (*StateTransition, *state
 	chainConfig := &params.ChainConfig{
 		ChainID:       big.NewInt(88),
 		VRC25Contract: common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
+		VRC25GasPrice: big.NewInt(10),
 	}
 
 	// Setup BlockContext and EVM
@@ -85,13 +86,12 @@ func TestBuyVRC25Gas_HappyPath(t *testing.T) {
 
 	// 1. Setup VRC25 Storage: Set Fee Capacity for targetContract
 	// Slot Key calculation must match core/vrc25_state_transition.go
-	// Using hardcoded slot index 2 for "tokensState" as seen in core/state/vrc25.go
-	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), 2)
+	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), slotTokensState)
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(initialBalance))
 
 	// 2. Run buyVRC25Gas
-	if err := st.buyVRC25Gas(); err != nil {
-		t.Fatalf("buyVRC25Gas failed: %v", err)
+	if err := st.vrc25BuyGas(); err != nil {
+		t.Fatalf("vrc25BuyGas failed: %v", err)
 	}
 
 	// 3. Assertions
@@ -117,7 +117,7 @@ func TestBuyVRC25Gas_InsufficientFunds(t *testing.T) {
 	userAddr := common.HexToAddress("0xUser")
 
 	gasLimit := uint64(1000)
-	gasPrice := big.NewInt(10) // Cost = 10000
+	gasPrice := big.NewInt(10)         // Cost = 10000
 	initialBalance := big.NewInt(5000) // Insufficient Balance
 
 	msg := &mockMsg{
@@ -131,12 +131,12 @@ func TestBuyVRC25Gas_InsufficientFunds(t *testing.T) {
 	st, statedb := newTestStateTransition(t, msg)
 
 	// Set Insufficient Balance
-	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), 2)
+	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), slotTokensState)
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(initialBalance))
 
 	// Run
-	if err := st.buyVRC25Gas(); err != nil {
-		t.Fatalf("buyVRC25Gas failed: %v", err)
+	if err := st.vrc25BuyGas(); err != nil {
+		t.Fatalf("vrc25BuyGas failed: %v", err)
 	}
 
 	// Assert: Payer should be USER, not Sponsor
@@ -170,8 +170,8 @@ func TestBuyVRC25Gas_NotSponsored(t *testing.T) {
 	// NO STORAGE SET for targetContract
 
 	// Run
-	if err := st.buyVRC25Gas(); err != nil {
-		t.Fatalf("buyVRC25Gas failed: %v", err)
+	if err := st.vrc25BuyGas(); err != nil {
+		t.Fatalf("vrc25BuyGas failed: %v", err)
 	}
 
 	// Assert: Payer is User
@@ -190,9 +190,9 @@ func TestRefundGasSponsoringTransaction(t *testing.T) {
 	gasUsed := uint64(500)
 	remainingGas := gasLimit - gasUsed // 1500
 	gasPrice := big.NewInt(10)
-	
+
 	// Initial balance AFTER deduction (simulating end of tx execution)
-	postDeductionBalance := big.NewInt(80000) 
+	postDeductionBalance := big.NewInt(80000)
 
 	msg := &mockMsg{
 		from:     userAddr,
@@ -203,18 +203,19 @@ func TestRefundGasSponsoringTransaction(t *testing.T) {
 	}
 
 	st, statedb := newTestStateTransition(t, msg)
-	st.gas = remainingGas // Set remaining gas manually
+	st.gas = remainingGas  // Set remaining gas manually
 	st.payer = sponsorAddr // Simulate that it was sponsored
 
 	// Set initial state
-	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), 2)
+	feeCapKey := state.GetStorageKeyForMapping(targetContract.Hash(), slotTokensState)
 	statedb.SetState(sponsorAddr, feeCapKey, common.BigToHash(postDeductionBalance))
 
 	// Run Refund
-	st.refundGasSponsoringTransaction()
+	remaining := new(big.Int).Mul(new(big.Int).SetUint64(remainingGas), gasPrice)
+	st.vrc25RefundGas(remaining)
 
 	// Assert
-	refundAmount := new(big.Int).Mul(new(big.Int).SetUint64(remainingGas), gasPrice) // 1500 * 10 = 15000
+	refundAmount := remaining                                               // 1500 * 10 = 15000
 	expectedBalance := new(big.Int).Add(postDeductionBalance, refundAmount) // 80000 + 15000 = 95000
 
 	currentBalance := statedb.GetState(sponsorAddr, feeCapKey).Big()
