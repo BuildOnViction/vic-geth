@@ -615,14 +615,6 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 	}
 }
 
-// DeleteAddress removes the address from the state trie.
-func (s *StateDB) DeleteAddress(addr common.Address) {
-	stateObject := s.getStateObject(addr)
-	if stateObject != nil && !stateObject.deleted {
-		s.deleteStateObject(stateObject)
-	}
-}
-
 func (db *StateDB) ForEachStorage(addr common.Address, cb func(key, value common.Hash) bool) error {
 	so := db.getStateObject(addr)
 	if so == nil {
