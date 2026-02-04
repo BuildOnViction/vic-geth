@@ -316,26 +316,6 @@ func (db *Database) DiskDB() ethdb.KeyValueStore {
 	return db.diskdb
 }
 
-// Lock acquires the database lock for writing
-func (db *Database) Lock() {
-	db.lock.Lock()
-}
-
-// Unlock releases the database lock
-func (db *Database) Unlock() {
-	db.lock.Unlock()
-}
-
-// RLock acquires the database lock for reading
-func (db *Database) RLock() {
-	db.lock.RLock()
-}
-
-// RUnlock releases the database read lock
-func (db *Database) RUnlock() {
-	db.lock.RUnlock()
-}
-
 // insert inserts a collapsed trie node into the memory database.
 // The blob size must be specified to allow proper size tracking.
 // All nodes inserted by this function will be reference tracked
@@ -385,10 +365,6 @@ func (db *Database) insertPreimage(hash common.Hash, preimage []byte) {
 	}
 	db.preimages[hash] = preimage
 	db.preimagesSize += common.StorageSize(common.HashLength + len(preimage))
-}
-
-func (db *Database) InsertPreimage(hash common.Hash, preimage []byte) {
-	db.insertPreimage(hash, preimage)
 }
 
 // node retrieves a cached trie node from memory, or returns nil if none can be
@@ -483,10 +459,6 @@ func (db *Database) preimage(hash common.Hash) []byte {
 		return preimage
 	}
 	return rawdb.ReadPreimage(db.diskdb, hash)
-}
-
-func (db *Database) Preimage(hash common.Hash) []byte {
-	return db.preimage(hash) // ensure preimages map is initialized
 }
 
 // Nodes retrieves the hashes of all the nodes cached within the memory database.

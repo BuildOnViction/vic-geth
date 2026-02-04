@@ -595,6 +595,10 @@ func (c *ChainConfig) IsTomoXEnabled(num *big.Int) bool {
 	return !isForked(c.AtlasBlock, num) && isForked(common.TIPTomoXBlock, num)
 }
 
+func (c *ChainConfig) IsTomoZEnabled(num *big.Int) bool {
+	return isForked(common.TIPTomoXBlock, num)
+}
+
 func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
 	return isForked(common.TIPSigningBlock, num)
 }

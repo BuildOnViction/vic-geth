@@ -18,8 +18,6 @@
 package tradingstate
 
 import (
-	"sync"
-
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -34,34 +32,13 @@ type revision struct {
 // * Contracts
 // * Accounts
 type TradingStateDB struct {
-	db   Database
-	trie Trie
-
-	// This map holds 'live' objects, which will get modified while processing a state transition.
-	stateExhangeObjects      map[common.Hash]*tradingExchanges
-	stateExhangeObjectsDirty map[common.Hash]struct{}
-
-	// DB error.
-	// State objects are used by the consensus core and VM which are
-	// unable to deal with database-level errors. Any error that occurs
-	// during a database read is memoized here and will eventually be returned
-	// by TradingStateDB.Commit.
-	dbErr error
-
-	// Journal of state modifications. This is the backbone of
-	// Snapshot and RevertToSnapshot.
-	journal        journal
-	validRevisions []revision
-	nextRevisionId int
-
-	lock sync.Mutex
 }
 
 type LendingStateDB struct{}
 
 // Database retrieves the low level database supporting the lower level trie ops.
 func (self *TradingStateDB) Database() Database {
-	return self.db
+	return nil
 }
 
 func New(root common.Hash, db Database) (*LendingStateDB, error) {
