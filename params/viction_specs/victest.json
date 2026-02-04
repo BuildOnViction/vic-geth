@@ -1,0 +1,42 @@
+{
+    "chainName": "victest",
+    "chainId": 89,
+    "consensus": "posv",
+    "homesteadBlock": 1,
+    "eip150Block": 2,
+    "eip155Block": 3,
+    "eip158Block": 3,
+    "byzantiumBlock": 4,
+    "tip2019Block": 0,
+    "tipSigningBlock": 0,
+    "tipRandomizeBlock": 0,
+    "tipBlacklistBlock": 0,
+    "tipTRC21FeeBlock": 0,
+    "tipFixSignerCheckBlock": 0,
+    "posv": {
+      "period": 2,
+      "epoch": 900,
+      "gap": 5
+    },
+    "viction": {
+      "penaltyComebackBlockCount": 150,
+      "penaltyEpochCount": 4,
+      "randomizerCommitNthBlock": 800,
+      "randomizerContract": "0x0000000000000000000000000000000000000090",
+      "randomizerFinaleNthBlock": 900,
+      "randomizerRevealNthBlock": 850,
+      "rewardFoundationAddress": "0x0000000000000000000000000000000000000068",
+      "rewardFoundationPercent": 10,
+      "rewardPerEpoch": "250000000000000000000",
+      "rewardValidatorPercent": 40,
+      "rewardVoterPercent": 50,
+      "trc21GasPrice": "2500",
+      "validatorBlockSignContract": "0x0000000000000000000000000000000000000089",
+      "validatorContract": "0x0000000000000000000000000000000000000088",
+      "validatorMinBlockPerEpochCount": 1,
+      "validatorMaxCount": 150,
+      "validatorSignInterval": 15,
+      "vrc25Contract": "0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee",
+      "vrc25GasPrice": "250000000"
+    }
+  }
