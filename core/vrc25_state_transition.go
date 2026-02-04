@@ -25,7 +25,7 @@ func (st *StateTransition) getFeeCapacity(contract *common.Address) *big.Int {
 }
 
 // buyVRC25Gas checks sponsorship eligibility and deducts the gas fee from the sponsor's storage balance.
-func (st *StateTransition) buyVRC25Gas() error {
+func (st *StateTransition) vrc25BuyGas() error {
 	// Default payer is the sender
 	st.payer = st.msg.From()
 
@@ -62,12 +62,10 @@ func (st *StateTransition) isVRC25Transaction() bool {
 	return st.payer != st.msg.From()
 }
 
-func (st *StateTransition) refundGasVRC25() {
-	// Calculate value to refund
-	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-
+func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
+	addr := st.msg.To()
 	// Get current balance
-	feeCap := st.getFeeCapacity(st.msg.To())
+	feeCap := st.getFeeCapacity(addr)
 	if feeCap == nil {
 		// Should not happen if isSponsoringTransaction is true, but handle safely
 		return
@@ -75,6 +73,6 @@ func (st *StateTransition) refundGasVRC25() {
 
 	// Refund to Contract's Storage Balance
 	newFeeCap := new(big.Int).Add(feeCap, remaining)
-	feeCapKey := state.GetStorageKeyForMapping(st.msg.To().Hash(), slotTokensState)
+	feeCapKey := state.GetStorageKeyForMapping(addr.Hash(), slotTokensState)
 	st.state.SetState(st.evm.ChainConfig().VRC25Contract, feeCapKey, common.BigToHash(newFeeCap))
 }

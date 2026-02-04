@@ -177,7 +177,7 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
-	if err := st.buyVRC25Gas(); err != nil {
+	if err := st.vrc25BuyGas(); err != nil {
 		return err
 	}
 
@@ -287,13 +287,18 @@ func (st *StateTransition) refundGas() {
 	}
 	st.gas += refund
 
-	if st.isVRC25Transaction() {
-		st.refundGasVRC25()
-	}
-
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
+
+	// VRC25, Atlas gas, ...
+	isCustomGasRefunding := st.isVRC25Transaction() || st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber)
+
+	if isCustomGasRefunding {
+		st.vrc25RefundGas(remaining)
+	} else {
+		// If normal transaction, fallback to basic ETH refunding
+		st.state.AddBalance(st.msg.From(), remaining)
+	}
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.
