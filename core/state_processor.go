@@ -76,6 +76,20 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			return nil, nil, 0, err
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
+
+		// Viction: Check for specific transactions (e.g. BlockSigner)
+		if engine, ok := p.engine.(consensus.SpecificTransactionEngine); ok {
+			if handled, receipt, err := engine.ProcessSpecificTransaction(statedb, tx, header); handled {
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				receipts = append(receipts, receipt)
+				allLogs = append(allLogs, receipt.Logs...)
+				*usedGas += receipt.GasUsed
+				continue
+			}
+		}
+
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)

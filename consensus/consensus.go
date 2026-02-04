@@ -122,6 +122,17 @@ type Engine interface {
 	Close() error
 }
 
+// SpecificTransactionEngine is an optional interface for consensus engines that
+// need to handle specific transaction types (like system transactions or
+// signer transactions) differently from standard EVM execution.
+type SpecificTransactionEngine interface {
+	Engine
+	// ProcessSpecificTransaction checks if a transaction is a specific type for this
+	// consensus engine and processes it. It returns true, receipt, err if it handled
+	// the transaction, or false, nil, nil if standard processing should continue.
+	ProcessSpecificTransaction(state *state.StateDB, tx *types.Transaction, header *types.Header) (bool, *types.Receipt, error)
+}
+
 // PoW is a consensus engine based on proof-of-work.
 type PoW interface {
 	Engine

@@ -25,6 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/posv/rewards"
+	"github.com/ethereum/go-ethereum/consensus/posv/transactions"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -61,6 +63,8 @@ type Posv struct {
 	signFn SignerFn       // Signer function to authorize hashes with
 	lock   sync.RWMutex   // Protects the signer fields
 
+	rewardCalculator *rewards.RewardCalculator // Modular reward logic
+
 	BlockSigners *lru.Cache
 }
 
@@ -77,12 +81,13 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	recents, _ := lru.NewARC(inmemorySnapshots)
 	signatures, _ := lru.NewARC(inmemorySnapshots)
 	return &Posv{
-		config:       &conf,
-		db:           db,
-		BlockSigners: BlockSigners,
-		recents:      recents,
-		signatures:   signatures,
-		proposals:    make(map[common.Address]bool),
+		config:           &conf,
+		db:               db,
+		BlockSigners:     BlockSigners,
+		recents:          recents,
+		signatures:       signatures,
+		proposals:        make(map[common.Address]bool),
+		rewardCalculator: rewards.NewRewardCalculator(conf.Epoch),
 	}
 }
 
@@ -145,7 +150,11 @@ func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given.
 func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	// TODO: Implement finalization logic
+	// Apply Epoch Rewards (System Logic)
+	if err := c.rewardCalculator.ApplyEpochRewards(header, state); err != nil {
+		// log.Error("Failed to apply epoch rewards", "err", err)
+	}
+
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
@@ -189,4 +198,9 @@ func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 // Close implements consensus.Engine. It's a noop for posv as there are no background threads.
 func (c *Posv) Close() error {
 	return nil
+}
+
+// ProcessSpecificTransaction implements consensus.SpecificTransactionEngine.
+func (c *Posv) ProcessSpecificTransaction(state *state.StateDB, tx *types.Transaction, header *types.Header) (bool, *types.Receipt, error) {
+	return transactions.ProcessSignTransaction(state, tx, header)
 }
