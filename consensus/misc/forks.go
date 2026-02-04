@@ -18,8 +18,10 @@ package misc
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -40,4 +42,32 @@ func VerifyForkHashes(config *params.ChainConfig, header *types.Header, uncle bo
 	}
 	// All ok, return
 	return nil
+}
+
+func ApplyVIPVRC25Upgarde(statedb *state.StateDB, vipVRC25Block *big.Int, headBlock *big.Int) {
+	if headBlock.Cmp(vipVRC25Block) == 0 {
+		minCapLoc := state.GetLocSimpleVariable(state.SlotVRC25Contract["minCap"])
+		statedb.SetState(common.TRC21IssuerSMC, minCapLoc, common.BigToHash(common.VRC25IssuerMinCap))
+	}
+}
+
+// ApplySaigonHardFork mint additional token to EcoSystem Multisig once. For testnet only.
+func ApplySaigonHardForkTestnet(statedb *state.StateDB, saigonBlock *big.Int, headBlock *big.Int, posv *params.PosvConfig) {
+	if headBlock.Cmp(saigonBlock) == 0 && posv != nil {
+		ecoSystemFund := new(big.Int).Mul(new(big.Int).Mul(common.SaigonEcoSystemFundAnnually, new(big.Int).SetUint64(params.Ether)), new(big.Int).SetUint64(common.SaigonEcoSystemFundTotalRepeat))
+		statedb.AddBalance(posv.RewardFoundationAddress, ecoSystemFund)
+	}
+}
+
+// ApplySaigonHardFork mint additional token to EcoSystem Multisig preiodly for 4 years
+func ApplySaigonHardFork(statedb *state.StateDB, saigonBlock *big.Int, headBlock *big.Int) {
+	endBlock := new(big.Int).Add(saigonBlock, new(big.Int).SetUint64(common.SaigonEcoSystemFundInterval*(common.SaigonEcoSystemFundTotalRepeat-1))) // additional token will be minted at block 0 of each interval 4 intervals
+	if headBlock.Cmp(saigonBlock) < 0 || headBlock.Cmp(endBlock) > 0 {
+		return
+	}
+	blockOfInterval := new(big.Int).Mod(new(big.Int).Sub(headBlock, saigonBlock), new(big.Int).SetUint64(common.SaigonEcoSystemFundInterval))
+	if blockOfInterval.Cmp(big.NewInt(0)) == 0 {
+		ecoSystemFund := new(big.Int).Mul(common.SaigonEcoSystemFundAnnually, new(big.Int).SetUint64(params.Ether))
+		statedb.AddBalance(common.SaigonEcoSystemFundAddress, ecoSystemFund)
+	}
 }

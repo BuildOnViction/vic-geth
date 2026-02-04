@@ -6,6 +6,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+const (
+	OrderCacheLimit = 10000
+)
+
 // tradingExchangeObject is the Ethereum consensus representation of exchanges.
 // These objects are stored in the main orderId trie.
 type orderList struct {

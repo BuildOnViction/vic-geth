@@ -16,7 +16,53 @@
 
 package types
 
-type LendingTransaction struct{}
+import (
+	"math/big"
+	"sync/atomic"
+
+	"github.com/ethereum/go-ethereum/common"
+)
+
+// LendingTransaction lending transaction
+type LendingTransaction struct {
+	data lendingtxdata
+	// caches
+	hash atomic.Value
+	size atomic.Value
+	from atomic.Value
+}
+
+type lendingtxdata struct {
+	AccountNonce    uint64         `json:"nonce"    gencodec:"required"`
+	Quantity        *big.Int       `json:"quantity,omitempty"`
+	Interest        uint64         `json:"interest"`
+	RelayerAddress  common.Address `json:"relayerAddress,omitempty"`
+	UserAddress     common.Address `json:"userAddress,omitempty"`
+	CollateralToken common.Address `json:"collateralToken,omitempty"`
+	AutoTopUp       bool           `json:"autoTopUp,omitempty"`
+	LendingToken    common.Address `json:"lendingToken,omitempty"`
+	Term            uint64         `json:"term"`
+	Status          string         `json:"status,omitempty"`
+	Side            string         `json:"side,omitempty"`
+	Type            string         `json:"type,omitempty"`
+	LendingId       uint64         `json:"lendingId,omitempty"`
+	LendingTradeId  uint64         `json:"tradeId,omitempty"`
+	ExtraData       string         `json:"extraData,omitempty"`
+
+	// Signature values
+	V *big.Int `json:"v" gencodec:"required"`
+	R *big.Int `json:"r" gencodec:"required"`
+	S *big.Int `json:"s" gencodec:"required"`
+
+	// This is only used when marshaling to JSON.
+	Hash common.Hash `json:"hash"`
+}
 
 // LendingTransactions is a Transaction slice type for basic sorting.
 type LendingTransactions []*LendingTransaction
+
+// CacheHash cache hash
+func (tx *LendingTransaction) CacheHash() {
+	v := rlpHash(tx)
+	tx.hash.Store(v)
+}

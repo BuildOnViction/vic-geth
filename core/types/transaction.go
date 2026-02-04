@@ -36,6 +36,15 @@ var (
 	ErrInvalidSig = errors.New("invalid transaction v, r, s values")
 )
 
+// deriveSigner makes a *best* guess about which signer to use.
+func deriveSigner(V *big.Int) Signer {
+	if V.Sign() != 0 && isProtectedV(V) {
+		return NewEIP155Signer(deriveChainId(V))
+	} else {
+		return HomesteadSigner{}
+	}
+}
+
 type Transaction struct {
 	data txdata    // Consensus contents of a transaction
 	time time.Time // Time first seen locally (spam avoidance)
@@ -212,6 +221,11 @@ func (tx *Transaction) Hash() common.Hash {
 	return v
 }
 
+func (tx *Transaction) CacheHash() {
+	v := rlpHash(tx)
+	tx.hash.Store(v)
+}
+
 // Size returns the true RLP encoded storage size of the transaction, either by
 // encoding and returning it, or returning a previously cached value.
 func (tx *Transaction) Size() common.StorageSize {
@@ -265,6 +279,52 @@ func (tx *Transaction) Cost() *big.Int {
 	total := new(big.Int).Mul(tx.data.Price, new(big.Int).SetUint64(tx.data.GasLimit))
 	total.Add(total, tx.data.Amount)
 	return total
+}
+
+func (tx *Transaction) IsTomoZApplyTransaction() bool {
+	if tx.To() == nil {
+		return false
+	}
+
+	if tx.To().String() != common.TRC21IssuerSMC.String() {
+		return false
+	}
+
+	method := common.ToHex(tx.Data()[0:4])
+	if method != common.TomoZApplyMethod {
+		return false
+	}
+
+	// 4 bytes for function name
+	// 32 bytes for 1 parameter
+	if len(tx.Data()) != (32 + 4) {
+		return false
+	}
+
+	return true
+}
+
+func (tx *Transaction) IsTomoXApplyTransaction() bool {
+	if tx.To() == nil {
+		return false
+	}
+
+	if tx.To().String() != common.TomoXListingSMC.String() {
+		return false
+	}
+
+	method := common.ToHex(tx.Data()[0:4])
+
+	if method != common.TomoXApplyMethod {
+		return false
+	}
+
+	// 4 bytes for function name
+	// 32 bytes for 1 parameter
+	if len(tx.Data()) != (32 + 4) {
+		return false
+	}
+	return true
 }
 
 func (tx *Transaction) IsSigningTransaction() bool {
@@ -462,3 +522,16 @@ func (m Message) Gas() uint64          { return m.gasLimit }
 func (m Message) Nonce() uint64        { return m.nonce }
 func (m Message) Data() []byte         { return m.data }
 func (m Message) CheckNonce() bool     { return m.checkNonce }
+
+func (tx *Transaction) From() *common.Address {
+	if tx.data.V != nil {
+		signer := deriveSigner(tx.data.V)
+		if f, err := Sender(signer, tx); err != nil {
+			return nil
+		} else {
+			return &f
+		}
+	} else {
+		return nil
+	}
+}

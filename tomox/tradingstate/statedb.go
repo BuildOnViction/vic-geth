@@ -57,7 +57,13 @@ type TradingStateDB struct {
 	lock sync.Mutex
 }
 
+type LendingStateDB struct{}
+
 // Database retrieves the low level database supporting the lower level trie ops.
 func (self *TradingStateDB) Database() Database {
 	return self.db
+}
+
+func New(root common.Hash, db Database) (*LendingStateDB, error) {
+	return nil, nil
 }
