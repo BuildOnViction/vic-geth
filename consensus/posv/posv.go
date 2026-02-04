@@ -32,10 +32,6 @@ import (
 	"sync"
 	"time"
 
-	// "github.com/ethereum/go-ethereum/tomox/tradingstate"
-	// "github.com/ethereum/go-ethereum/tomoxlending/lendingstate"
-	// "gopkg.in/karalabe/cookiejar.v2/collections/prque"
-
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -49,8 +45,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/tomox/tradingstate"
-	"github.com/ethereum/go-ethereum/tomoxlending/lendingstate"
 	"github.com/ethereum/go-ethereum/trie"
 	lru "github.com/hashicorp/golang-lru"
 	"golang.org/x/crypto/sha3"
@@ -69,10 +63,10 @@ type Masternode struct {
 
 type TradingService interface {
 	GetTradingStateRoot(block *types.Block, author common.Address) (common.Hash, error)
-	//GetTradingState(block *types.Block, author common.Address) (*tradingstate.TradingStateDB, error)
-	//GetEmptyTradingState() (*tradingstate.TradingStateDB, error)
-	HasTradingState(block *types.Block, author common.Address) bool
-	GetStateCache() tradingstate.Database
+	// GetTradingState(block *types.Block, author common.Address) (*tradingstate.TradingStateDB, error)
+	// GetEmptyTradingState() (*tradingstate.TradingStateDB, error)
+	// HasTradingState(block *types.Block, author common.Address) bool
+	// GetStateCache() tradingstate.Database
 	//GetTriegc() *prque.Prque
 	//ApplyOrder(header *types.Header, coinbase common.Address, chain consensus.ChainContext, statedb *state.StateDB, tomoXstatedb *tradingstate.TradingStateDB, orderBook common.Hash, order *tradingstate.OrderItem) ([]map[string]string, []*tradingstate.OrderItem, error)
 	//UpdateMediumPriceBeforeEpoch(epochNumber uint64, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB) error
@@ -84,9 +78,9 @@ type TradingService interface {
 
 type LendingService interface {
 	GetLendingStateRoot(block *types.Block, author common.Address) (common.Hash, error)
-	//GetLendingState(block *types.Block, author common.Address) (*lendingstate.LendingStateDB, error)
+	// GetLendingState(block *types.Block, author common.Address) (*lendingstate.LendingStateDB, error)
 	HasLendingState(block *types.Block, author common.Address) bool
-	GetStateCache() lendingstate.Database
+	// GetStateCache() lendingstate.Database
 	//GetTriegc() *prque.Prque
 	//ApplyOrder(header *types.Header, coinbase common.Address, chain consensus.ChainContext, statedb *state.StateDB, lendingStateDB *lendingstate.LendingStateDB, tradingStateDb *tradingstate.TradingStateDB, lendingOrderBook common.Hash, order *lendingstate.LendingItem) ([]*lendingstate.LendingTrade, []*lendingstate.LendingItem, error)
 	//GetCollateralPrices(header *types.Header, chain consensus.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, collateralToken common.Address, lendingToken common.Address) (*big.Int, *big.Int, error)
