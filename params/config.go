@@ -59,23 +59,24 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 var (
 	// VicMainnetChainConfig contains the chain parameters to run a Viction node on the main network.
 	VicMainnetChainConfig = &ChainConfig{
-		ChainID:           big.NewInt(88),
-		HomesteadBlock:    big.NewInt(1),
-		EIP150Block:       big.NewInt(2),
-		EIP150Hash:        common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
-		EIP155Block:       big.NewInt(3),
-		EIP158Block:       big.NewInt(3),
-		ByzantiumBlock:    big.NewInt(4),
-		SaigonBlock:       big.NewInt(86158494),
-		AtlasBlock:        big.NewInt(97705094),
-		VRC25ContractAddr: common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
+		ChainID:        big.NewInt(88),
+		HomesteadBlock: big.NewInt(1),
+		EIP150Block:    big.NewInt(2),
+		EIP150Hash:     common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		EIP155Block:    big.NewInt(3),
+		EIP158Block:    big.NewInt(3),
+		ByzantiumBlock: big.NewInt(4),
+		SaigonBlock:    big.NewInt(86158494),
+		AtlasBlock:     big.NewInt(97705094),
+		VRC25GasPrice:  big.NewInt(250000000),
+		VRC25Contract:  common.HexToAddress("0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee"),
 		Posv: &PosvConfig{
-			Period:              2,
-			Epoch:               900,
-			Reward:              250,
-			RewardCheckpoint:    900,
-			Gap:                 5,
-			FoudationWalletAddr: common.HexToAddress("0x0000000000000000000000000000000000000068"),
+			Period:                  2,
+			Epoch:                   900,
+			Reward:                  250,
+			RewardCheckpoint:        900,
+			Gap:                     5,
+			RewardFoundationAddress: common.HexToAddress("0x0000000000000000000000000000000000000068"),
 		},
 	}
 
@@ -99,12 +100,12 @@ var (
 		SaigonBlock:                  big.NewInt(10004200),
 		AtlasBlock:                   big.NewInt(24697500),
 		Posv: &PosvConfig{
-			Period:              2,
-			Epoch:               900,
-			Reward:              250,
-			RewardCheckpoint:    900,
-			Gap:                 5,
-			FoudationWalletAddr: common.HexToAddress("0x0000000000000000000000000000000000000068"),
+			Period:                  2,
+			Epoch:                   900,
+			Reward:                  250,
+			RewardCheckpoint:        900,
+			Gap:                     5,
+			RewardFoundationAddress: common.HexToAddress("0x0000000000000000000000000000000000000068"),
 		},
 	}
 
@@ -439,8 +440,9 @@ type ChainConfig struct {
 	SaigonBlock *big.Int `json:"saigonBlock,omitempty"` // Saigon switch block (nil = no fork, 0 = already activated)
 	AtlasBlock  *big.Int `json:"atlasBlock,omitempty"`  // Atlas switch block (nil = no fork, 0 = already activated)
 
-	/// System contract definitions
-	VRC25ContractAddr common.Address `json:"vrc25ContractAddr,omitempty"` // VRC-25 system contract address
+	/// VRC25
+	VRC25GasPrice *big.Int       `json:"vrc25GasPrice,omitempty"`
+	VRC25Contract common.Address `json:"vrc25Contract,omitempty"` // VRC-25 system contract address
 
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
@@ -469,12 +471,12 @@ func (c *CliqueConfig) String() string {
 
 // PosvConfig is the consensus engine configs for proof-of-stake-voting based sealing.
 type PosvConfig struct {
-	Period              uint64         `json:"period"`              // Number of seconds between blocks to enforce
-	Epoch               uint64         `json:"epoch"`               // Epoch length to reset votes and checkpoint
-	Reward              uint64         `json:"reward"`              // Block reward - unit Ether
-	RewardCheckpoint    uint64         `json:"rewardCheckpoint"`    // Checkpoint block for calculate rewards.
-	Gap                 uint64         `json:"gap"`                 // Gap time preparing for the next epoch
-	FoudationWalletAddr common.Address `json:"foudationWalletAddr"` // Foundation Address Wallet
+	Period                  uint64         `json:"period"`                  // Number of seconds between blocks to enforce
+	Epoch                   uint64         `json:"epoch"`                   // Epoch length to reset votes and checkpoint
+	Reward                  uint64         `json:"reward"`                  // Block reward - unit Ether
+	RewardCheckpoint        uint64         `json:"rewardCheckpoint"`        // Checkpoint block for calculate rewards.
+	Gap                     uint64         `json:"gap"`                     // Gap time preparing for the next epoch
+	RewardFoundationAddress common.Address `json:"rewardFoundationAddress"` // Foundation Address Wallet
 }
 
 // String implements the stringer interface, returning the consensus engine details.
@@ -566,6 +568,16 @@ func (c *ChainConfig) IsPetersburg(num *big.Int) bool {
 // IsIstanbul returns whether num is either equal to the Istanbul fork block or greater.
 func (c *ChainConfig) IsIstanbul(num *big.Int) bool {
 	return isForked(c.IstanbulBlock, num)
+}
+
+// IsSaigon returns whether num is either equal to the Saigon fork block or greater.
+func (c *ChainConfig) IsSaigon(num *big.Int) bool {
+	return isForked(c.SaigonBlock, num)
+}
+
+// IsAtlas returns whether num is either equal to the Atlas fork block or greater.
+func (c *ChainConfig) IsAtlas(num *big.Int) bool {
+	return isForked(c.AtlasBlock, num)
 }
 
 // IsYoloV2 returns whether num is either equal to the YoloV1 fork block or greater.
