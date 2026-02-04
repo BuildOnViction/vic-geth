@@ -29,15 +29,13 @@ var (
 	ErrInsufficientFee = errors.New("insufficient VRC25 token fee")
 )
 
-func ValidateVRC25Transaction(statedb *StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
-	// only validate if to is a VRC25 contract
-	feeCapKey := GetStorageKeyForMapping(to.Hash(), SlotVRC25Contract["tokensState"])
+func GetFeeCapacity(statedb *StateDB, vrc25Contract common.Address, addr common.Address) *big.Int {
+	feeCapKey := GetStorageKeyForMapping(addr.Hash(), SlotVRC25Contract["tokensState"])
 	feeCapHash := statedb.GetState(vrc25Contract, feeCapKey)
-	if feeCapHash == (common.Hash{}) {
-		return nil
-	}
+	return feeCapHash.Big()
+}
 
-	
+func ValidateVRC25Transaction(statedb *StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
 	if data == nil || statedb == nil {
 		return ErrInvalidParams
 	}

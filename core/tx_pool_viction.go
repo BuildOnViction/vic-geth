@@ -1,22 +1,37 @@
 package core
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func (pool *TxPool) isSufficientFunds(tx *types.Transaction, from common.Address) bool {
-	return pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0
-}
+// validate sufficient balance for transaction execution, considering VRC25 fee cap if applicable
+func (pool *TxPool) validateSufficientTransaction(tx *types.Transaction, from common.Address) error {
+	balance := pool.currentState.GetBalance(from)
+	requiredBalance := tx.Cost()
 
-// validate customize Viction transaction (black list, special transaction) return bool to skip other validation
-func (pool *TxPool) validateSpecialTransaction(tx *types.Transaction, from common.Address) (bool, error) {
-	if err := state.ValidateVRC25Transaction(pool.currentState, pool.chainconfig.VRC25Contract, from, *tx.To(), tx.Data()); err != nil {
-		return false, err
+	if tx.To() != nil {
+		feeCap := state.GetFeeCapacity(pool.currentState, pool.chainconfig.VRC25Contract, from)
+		if feeCap != nil {
+			// VRC25 transaction
+			if err := state.ValidateVRC25Transaction(pool.currentState, pool.chainconfig.VRC25Contract, from, *tx.To(), tx.Data()); err != nil {
+				return err
+			}
+
+			requiredFee := new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), pool.chainconfig.VRC25GasPrice)
+			if feeCap.Cmp(requiredFee) >= 0 {
+				// if fee capacity is sufficient, reduce the required balance by gas fee
+				requiredBalance = tx.Value()
+			}
+		}
 	}
-	if pool.isSufficientFunds(tx, from) {
-		return true, nil
+
+	if balance.Cmp(requiredBalance) < 0 {
+		return ErrInsufficientFunds
 	}
-	return false, nil
+
+	return nil
 }
