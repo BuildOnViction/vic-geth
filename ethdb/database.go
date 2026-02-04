@@ -19,8 +19,6 @@ package ethdb
 
 import (
 	"io"
-
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // KeyValueReader wraps the Has and Get method of a backing data store.
@@ -132,9 +130,4 @@ type Database interface {
 	Stater
 	Compacter
 	io.Closer
-}
-
-// TomoxDatabase interface
-type TomoxDatabase interface {
-	GetObject(hash common.Hash, val interface{}) (interface{}, error)
 }
