@@ -7,23 +7,24 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-type VictionProcessorState struct {
+type victionProcessorState struct {
 }
 
 
-func (p *StateProcessor) BeforeProcess(block *types.Block, statedb *state.StateDB) error {
-	p.victionState = &VictionProcessorState{}
+func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateDB) error {
+	// clear previous state and initialize new
+	p.victionState = &victionProcessorState{}
 	return nil
 }
 
-func (p *StateProcessor) AfterProcess(block *types.Block, statedb *state.StateDB) error {
+func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB) error {
 	return nil
 }
 
-func (p *StateProcessor) BeforeApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB) error {
+func (p *StateProcessor) beforeApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB) error {
 	return nil
 }
 
-func (p *StateProcessor) AfterApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
+func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
 	return nil
 }

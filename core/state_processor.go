@@ -37,7 +37,7 @@ type StateProcessor struct {
 	config       *params.ChainConfig // Chain configuration options
 	bc           *BlockChain         // Canonical block chain
 	engine       consensus.Engine    // Consensus engine used for block rewards
-	victionState *VictionProcessorState
+	victionState *victionProcessorState
 }
 
 // NewStateProcessor initialises a new StateProcessor.
@@ -58,7 +58,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 	// Viction hooks
-	if err := p.BeforeProcess(block, statedb); err != nil {
+	if err := p.beforeProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 	var (
@@ -82,7 +82,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		// Viction Hooks
-		if err := p.BeforeApplyTransaction(tx, msg, statedb); err != nil {
+		if err := p.beforeApplyTransaction(tx, msg, statedb); err != nil {
 			return nil, nil, 0, err
 		}
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
@@ -90,7 +90,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		// Viction Hooks
-		if err := p.AfterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
+		if err := p.afterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
 			return nil, nil, 0, err
 		}
 		receipts = append(receipts, receipt)
@@ -100,7 +100,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
 	// Viction hooks
-	if err := p.AfterProcess(block, statedb); err != nil {
+	if err := p.afterProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 
