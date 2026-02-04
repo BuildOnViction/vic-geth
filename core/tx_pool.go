@@ -544,7 +544,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
 	}
-	
 	// Use custom VRC25 balance validation
 	if err := pool.validateSufficientTransaction(tx, from); err != nil {
 		return err
