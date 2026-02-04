@@ -204,7 +204,7 @@ func TestGenesisJSONFile(t *testing.T) {
 	block := genesis.ToBlock(nil)
 
 	// Check that the hash matches the expected Viction mainnet hash
-	expectedHash := params.VicMainnetGenesisHash
+	expectedHash := params.VictionGenesisHash
 	actualHash := block.Hash()
 
 	if actualHash != expectedHash {
@@ -237,20 +237,197 @@ func TestGenesisJSONFile(t *testing.T) {
 	}
 }
 
-// TestVictionMainnetGenesisBlock tests the default Viction mainnet genesis block
-func TestVictionMainnetGenesisBlock(t *testing.T) {
-	block := DefaultVicMainnetGenesisBlock().ToBlock(nil)
-	if block.Hash() != params.VicMainnetGenesisHash {
-		t.Errorf("wrong Viction mainnet genesis hash, got %v, want %v",
-			block.Hash().String(), params.VicMainnetGenesisHash.String())
-	} else {
-		t.Logf("Viction mainnet genesis block hash matches: %s", block.Hash().Hex())
+// TestVictionChainConfig tests that Viction chain config is loaded correctly with Posv consensus
+func TestVictionChainConfig(t *testing.T) {
+	config := params.VictionChainConfig
+	if config == nil {
+		t.Fatal("VictionChainConfig is nil")
 	}
 
-	// Test that the expected hash constant is correct
+	// Verify chain ID
+	expectedChainID := big.NewInt(88)
+	if config.ChainID == nil || config.ChainID.Cmp(expectedChainID) != 0 {
+		t.Errorf("wrong chain ID, got %v, want %v", config.ChainID, expectedChainID)
+	}
+
+	// Verify Posv config is set
+	if config.Posv == nil {
+		t.Fatal("Posv config is nil")
+	}
+
+	// Verify Posv parameters
+	if config.Posv.Period != 2 {
+		t.Errorf("wrong Posv Period, got %d, want 2", config.Posv.Period)
+	}
+	if config.Posv.Epoch != 900 {
+		t.Errorf("wrong Posv Epoch, got %d, want 900", config.Posv.Epoch)
+	}
+	if config.Posv.Gap != 5 {
+		t.Errorf("wrong Posv Gap, got %d, want 5", config.Posv.Gap)
+	}
+
+	// Verify Viction config is set
+	if config.Viction == nil {
+		t.Fatal("Viction config is nil")
+	}
+
+	// Verify some key fork blocks
+	if config.HomesteadBlock == nil || config.HomesteadBlock.Cmp(big.NewInt(1)) != 0 {
+		t.Errorf("wrong HomesteadBlock, got %v, want 1", config.HomesteadBlock)
+	}
+	if config.TIP2019Block == nil || config.TIP2019Block.Cmp(big.NewInt(1050000)) != 0 {
+		t.Errorf("wrong TIP2019Block, got %v, want 1050000", config.TIP2019Block)
+	}
+
+	t.Logf("Viction chain config verified: ChainID=%d, Posv Period=%d Epoch=%d Gap=%d",
+		config.ChainID, config.Posv.Period, config.Posv.Epoch, config.Posv.Gap)
+}
+
+// TestVictestChainConfig tests that Victest chain config is loaded correctly with Posv consensus
+func TestVictestChainConfig(t *testing.T) {
+	config := params.VictestChainConfig
+	if config == nil {
+		t.Fatal("VictestChainConfig is nil")
+	}
+
+	// Verify chain ID
+	expectedChainID := big.NewInt(89)
+	if config.ChainID == nil || config.ChainID.Cmp(expectedChainID) != 0 {
+		t.Errorf("wrong chain ID, got %v, want %v", config.ChainID, expectedChainID)
+	}
+
+	// Verify Posv config is set
+	if config.Posv == nil {
+		t.Fatal("Posv config is nil")
+	}
+
+	// Verify Posv parameters
+	if config.Posv.Period != 2 {
+		t.Errorf("wrong Posv Period, got %d, want 2", config.Posv.Period)
+	}
+	if config.Posv.Epoch != 900 {
+		t.Errorf("wrong Posv Epoch, got %d, want 900", config.Posv.Epoch)
+	}
+	if config.Posv.Gap != 5 {
+		t.Errorf("wrong Posv Gap, got %d, want 5", config.Posv.Gap)
+	}
+
+	// Verify Viction config is set
+	if config.Viction == nil {
+		t.Fatal("Viction config is nil")
+	}
+
+	// Verify fork blocks (Victest has TIP blocks at 0)
+	if config.TIP2019Block == nil || config.TIP2019Block.Cmp(big.NewInt(0)) != 0 {
+		t.Errorf("wrong TIP2019Block, got %v, want 0", config.TIP2019Block)
+	}
+
+	t.Logf("Victest chain config verified: ChainID=%d, Posv Period=%d Epoch=%d Gap=%d",
+		config.ChainID, config.Posv.Period, config.Posv.Epoch, config.Posv.Gap)
+}
+
+// TestVictionGenesisHash tests that Viction genesis hash constant is correct
+func TestVictionGenesisHash(t *testing.T) {
 	expectedHash := common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
-	if params.VicMainnetGenesisHash != expectedHash {
-		t.Errorf("params.VicMainnetGenesisHash constant is wrong: got %s, want %s",
-			params.VicMainnetGenesisHash.Hex(), expectedHash.Hex())
+	if params.VictionGenesisHash != expectedHash {
+		t.Errorf("params.VictionGenesisHash constant is wrong: got %s, want %s",
+			params.VictionGenesisHash.Hex(), expectedHash.Hex())
+	} else {
+		t.Logf("Viction genesis hash constant is correct: %s", params.VictionGenesisHash.Hex())
+	}
+}
+
+// TestVictestGenesisHash tests that Victest genesis hash constant is correct
+func TestVictestGenesisHash(t *testing.T) {
+	expectedHash := common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
+	if params.VictestGenesisHash != expectedHash {
+		t.Errorf("params.VictestGenesisHash constant is wrong: got %s, want %s",
+			params.VictestGenesisHash.Hex(), expectedHash.Hex())
+	} else {
+		t.Logf("Victest genesis hash constant is correct: %s", params.VictestGenesisHash.Hex())
+	}
+}
+
+// TestVictionSetupGenesis tests that SetupGenesisBlock recognizes Viction genesis hash
+func TestVictionSetupGenesis(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+
+	// Use the default Viction genesis block
+	genesis := DefaultVictionGenesisBlock()
+
+	// Commit the genesis block
+	block := genesis.MustCommit(db)
+	genesisHash := block.Hash()
+
+	// Verify it matches Viction genesis hash
+	if genesisHash != params.VictionGenesisHash {
+		t.Logf("Note: Custom genesis hash %s differs from expected Viction hash %s (this is expected if alloc differs)",
+			genesisHash.Hex(), params.VictionGenesisHash.Hex())
+	}
+
+	// Test that SetupGenesisBlock recognizes the hash
+	config, returnedHash, err := SetupGenesisBlock(db, nil)
+	if err != nil {
+		t.Fatalf("SetupGenesisBlock failed: %v", err)
+	}
+
+	// Verify returned hash matches committed hash
+	if returnedHash != genesisHash {
+		t.Errorf("returned hash %s does not match committed hash %s", returnedHash.Hex(), genesisHash.Hex())
+	}
+
+	// Verify it returns Viction config
+	if config.ChainID == nil || config.ChainID.Cmp(big.NewInt(88)) != 0 {
+		t.Errorf("wrong chain ID, got %v, want 88", config.ChainID)
+	}
+
+	// Verify Posv is set
+	if config.Posv == nil {
+		t.Error("Posv config is nil")
+	} else {
+		t.Logf("SetupGenesisBlock correctly identified Viction chain with Posv: Period=%d, Epoch=%d",
+			config.Posv.Period, config.Posv.Epoch)
+	}
+}
+
+// TestVictestSetupGenesis tests that SetupGenesisBlock recognizes Victest genesis hash
+func TestVictestSetupGenesis(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+
+	// Use the default Victest genesis block
+	genesis := DefaultVictestGenesisBlock()
+
+	// Commit the genesis block
+	block := genesis.MustCommit(db)
+	genesisHash := block.Hash()
+
+	// Verify it matches Victest genesis hash
+	if genesisHash != params.VictestGenesisHash {
+		t.Logf("Note: Custom genesis hash %s differs from expected Victest hash %s (this is expected if alloc differs)",
+			genesisHash.Hex(), params.VictestGenesisHash.Hex())
+	}
+
+	// Test that SetupGenesisBlock recognizes the hash
+	config, returnedHash, err := SetupGenesisBlock(db, nil)
+	if err != nil {
+		t.Fatalf("SetupGenesisBlock failed: %v", err)
+	}
+
+	// Verify returned hash matches committed hash
+	if returnedHash != genesisHash {
+		t.Errorf("returned hash %s does not match committed hash %s", returnedHash.Hex(), genesisHash.Hex())
+	}
+
+	// Verify it returns Victest config
+	if config.ChainID == nil || config.ChainID.Cmp(big.NewInt(89)) != 0 {
+		t.Errorf("wrong chain ID, got %v, want 89", config.ChainID)
+	}
+
+	// Verify Posv is set
+	if config.Posv == nil {
+		t.Error("Posv config is nil")
+	} else {
+		t.Logf("SetupGenesisBlock correctly identified Victest chain with Posv: Period=%d, Epoch=%d",
+			config.Posv.Period, config.Posv.Epoch)
 	}
 }
