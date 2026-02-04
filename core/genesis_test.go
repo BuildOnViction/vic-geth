@@ -17,7 +17,11 @@
 package core
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"math/big"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -160,5 +164,93 @@ func TestSetupGenesis(t *testing.T) {
 				t.Errorf("%s: block in DB has hash %s, want %s", test.name, stored.Hash(), test.wantHash)
 			}
 		}
+	}
+}
+
+// TestGenesisJSONFile tests that the genesis.json file produces the correct genesis block hash
+func TestGenesisJSONFile(t *testing.T) {
+	// Find the genesis.json file relative to the test file
+	// The test file is in core/, so we need to go up one level
+	testDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+
+	// Try to find genesis.json in the project root
+	// We're in core/, so go up one level
+	projectRoot := filepath.Dir(testDir)
+	genesisPath := filepath.Join(projectRoot, "genesis.json")
+
+	// If not found, try going up one more level (in case we're in a subdirectory)
+	if _, err := os.Stat(genesisPath); os.IsNotExist(err) {
+		projectRoot = filepath.Dir(projectRoot)
+		genesisPath = filepath.Join(projectRoot, "genesis.json")
+	}
+
+	// Read the genesis.json file
+	data, err := ioutil.ReadFile(genesisPath)
+	if err != nil {
+		t.Skipf("genesis.json file not found at %s, skipping test: %v", genesisPath, err)
+		return
+	}
+
+	// Unmarshal the genesis JSON
+	var genesis Genesis
+	if err := json.Unmarshal(data, &genesis); err != nil {
+		t.Fatalf("Failed to unmarshal genesis.json: %v", err)
+	}
+
+	// Convert to block
+	block := genesis.ToBlock(nil)
+
+	// Check that the hash matches the expected Viction mainnet hash
+	expectedHash := params.VicMainnetGenesisHash
+	actualHash := block.Hash()
+
+	if actualHash != expectedHash {
+		t.Errorf("Wrong genesis hash from genesis.json:\n  got:  %s\n  want: %s",
+			actualHash.Hex(), expectedHash.Hex())
+
+		// Also log additional debug information
+		t.Logf("Block details:")
+		t.Logf("  Number: %d", block.Number())
+		t.Logf("  StateRoot: %s", block.Root().Hex())
+		t.Logf("  Timestamp: %d", block.Time())
+		t.Logf("  GasLimit: %d", block.GasLimit())
+		t.Logf("  Difficulty: %s", block.Difficulty().String())
+		t.Logf("  ExtraData length: %d", len(block.Extra()))
+		t.Logf("  Alloc accounts: %d", len(genesis.Alloc))
+	} else {
+		t.Logf("Genesis block hash matches expected Viction mainnet hash: %s", actualHash.Hex())
+	}
+
+	// Also verify the state root if we have an expected value
+	// The state root should be: 0x1394d6e0a3d48b3d25da2206de068a1444108280c60d360bd9d5a870004529ee
+	expectedStateRoot := common.HexToHash("0x1394d6e0a3d48b3d25da2206de068a1444108280c60d360bd9d5a870004529ee")
+	actualStateRoot := block.Root()
+
+	if actualStateRoot != expectedStateRoot {
+		t.Errorf("Wrong state root from genesis.json:\n  got:  %s\n  want: %s",
+			actualStateRoot.Hex(), expectedStateRoot.Hex())
+	} else {
+		t.Logf("State root matches expected: %s", actualStateRoot.Hex())
+	}
+}
+
+// TestVictionMainnetGenesisBlock tests the default Viction mainnet genesis block
+func TestVictionMainnetGenesisBlock(t *testing.T) {
+	block := DefaultVicMainnetGenesisBlock().ToBlock(nil)
+	if block.Hash() != params.VicMainnetGenesisHash {
+		t.Errorf("wrong Viction mainnet genesis hash, got %v, want %v",
+			block.Hash().String(), params.VicMainnetGenesisHash.String())
+	} else {
+		t.Logf("Viction mainnet genesis block hash matches: %s", block.Hash().Hex())
+	}
+
+	// Test that the expected hash constant is correct
+	expectedHash := common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
+	if params.VicMainnetGenesisHash != expectedHash {
+		t.Errorf("params.VicMainnetGenesisHash constant is wrong: got %s, want %s",
+			params.VicMainnetGenesisHash.Hex(), expectedHash.Hex())
 	}
 }
