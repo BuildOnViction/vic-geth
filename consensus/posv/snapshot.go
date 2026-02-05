@@ -300,12 +300,3 @@ func (s *Snapshot) GetSigners() []common.Address {
 	}
 	return signers
 }
-
-// inturn returns if a signer at a given block height is in-turn or not.
-func (s *Snapshot) inturn(number uint64, signer common.Address) bool {
-	signers, offset := s.GetSigners(), 0
-	for offset < len(signers) && signers[offset] != signer {
-		offset++
-	}
-	return (number % uint64(len(signers))) == uint64(offset)
-}
