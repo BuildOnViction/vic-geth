@@ -25,6 +25,19 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+const (
+	ValidatorBlockSignContract = "0x0000000000000000000000000000000000000089"
+	ValidatorContract          = "0x0000000000000000000000000000000000000088"
+	SignMethod                 = "0xe341eaa4"
+	RandomizerFinaleNthBlock   = 900
+	TipFixSignerCheckBlock     = 14458500
+	PenaltyEpochCount          = 4
+)
+
+var (
+	StoreRewardFolder string
+)
+
 // Genesis hashes to enforce below configs on.
 var (
 	VicMainnetGenesisHash = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624") // Viction Mainnet genesis hash to enforce below configs on

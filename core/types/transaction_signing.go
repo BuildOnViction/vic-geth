@@ -224,13 +224,13 @@ func (tx *Transaction) IsSigningTransaction() bool {
 		return false
 	}
 
-	if tx.To().String() != common.BlockSigners {
+	if tx.To().String() != params.ValidatorBlockSignContract {
 		return false
 	}
 
 	method := common.ToHex(tx.Data()[0:4])
 
-	if method != common.SignMethod {
+	if method != params.SignMethod {
 		return false
 	}
 
