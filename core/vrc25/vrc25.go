@@ -55,8 +55,6 @@ func ValidateVRC25Transaction(statedb vm.StateDB, vrc25Contract common.Address, 
 	minFeeKey := state.GetStorageKeyForSlot(minFeeSlot)
 	minFeeHash := statedb.GetState(to, minFeeKey)
 
-	funcHex := data[:4]
-
 	if balanceHash == (common.Hash{}) {
 		if minFeeHash != (common.Hash{}) {
 			return ErrInsufficientFee
@@ -66,17 +64,20 @@ func ValidateVRC25Transaction(statedb vm.StateDB, vrc25Contract common.Address, 
 		minFee := minFeeHash.Big()
 		value := big.NewInt(0)
 
-		if bytes.Equal(funcHex, transferFuncHex) && len(data) == 68 {
-			value = common.BytesToHash(data[36:]).Big()
-		} else {
-			if bytes.Equal(funcHex, transferFromFuncHex) && len(data) == 80 {
-				// Small fix here: only consider the value if 'from' matches
-				if from.Hex() == common.BytesToAddress(data[4:36]).Hex() {
-					value = common.BytesToHash(data[68:]).Big()
+		if len(data) > 4 {
+			funcHex := data[:4]
+			if bytes.Equal(funcHex, transferFuncHex) && len(data) == 68 {
+				value = common.BytesToHash(data[36:]).Big()
+			} else {
+				if bytes.Equal(funcHex, transferFromFuncHex) && len(data) == 80 {
+					// Small fix here: only consider the value if 'from' matches
+					if from.Hex() == common.BytesToAddress(data[4:36]).Hex() {
+						value = common.BytesToHash(data[68:]).Big()
+					}
 				}
 			}
-		}
 
+		}
 		requiredFee := new(big.Int).Add(minFee, value)
 		if balance.Cmp(requiredFee) < 0 {
 			return ErrInsufficientFee
