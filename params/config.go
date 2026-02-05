@@ -591,14 +591,6 @@ func (c *ChainConfig) IsEWASM(num *big.Int) bool {
 }
 
 /* Feature flag check */
-func (c *ChainConfig) IsTomoXEnabled(num *big.Int) bool {
-	return !isForked(c.AtlasBlock, num) && isForked(c.TIPTomoXBlock, num)
-}
-
-func (c *ChainConfig) IsTomoZEnabled(num *big.Int) bool {
-	return isForked(c.TIPTomoXBlock, num)
-}
-
 func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
 	return isForked(c.TIPSigningBlock, num)
 }
