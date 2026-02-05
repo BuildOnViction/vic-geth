@@ -146,6 +146,8 @@ var (
 		utils.RinkebyFlag,
 		utils.GoerliFlag,
 		utils.YoloV2Flag,
+		utils.VictionFlag,
+		utils.VictestFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,
@@ -294,6 +296,12 @@ func prepare(ctx *cli.Context) {
 
 	case ctx.GlobalIsSet(utils.GoerliFlag.Name):
 		log.Info("Starting Geth on Görli testnet...")
+
+	case ctx.GlobalIsSet(utils.VictionFlag.Name):
+		log.Info("Starting Geth on Viction mainnet...")
+
+	case ctx.GlobalIsSet(utils.VictestFlag.Name):
+		log.Info("Starting Geth on Victest testnet...")
 
 	case ctx.GlobalIsSet(utils.DeveloperFlag.Name):
 		log.Info("Starting Geth in ephemeral dev mode...")
