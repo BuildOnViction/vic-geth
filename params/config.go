@@ -598,36 +598,52 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock},
 		{name: "tipTRC21FeeBlock", block: c.TIPTRC21FeeBlock},
 		{name: "tipFixSignerCheckBlock", block: c.TIPFixSignerCheckBlock},
-		{name: "tipTomoXBlock", block: c.TIPTomoXBlock},
-		{name: "tipTomoXLendingBlock", block: c.TIPTomoXLendingBlock},
-		{name: "tipTomoXCancelFeeBlock", block: c.TIPTomoXCancelFeeBlock},
+		{name: "tipTomoXBlock", block: c.TIPTomoXBlock, optional: true},
+		{name: "tipTomoXLendingBlock", block: c.TIPTomoXLendingBlock, optional: true},
+		{name: "tipTomoXCancelFeeBlock", block: c.TIPTomoXCancelFeeBlock, optional: true},
 		{name: "saigonBlock", block: c.SaigonBlock},
 		{name: "atlasBlock", block: c.AtlasBlock},
 	} {
-		// Skip Ethereum forks for Posv chains (Viction) - they use their own fork sequence
+		// For Posv chains (Viction), skip certain Ethereum forks and nil Viction-specific forks
 		if c.Posv != nil {
 			if cur.name == "constantinopleBlock" || cur.name == "petersburgBlock" ||
 				cur.name == "istanbulBlock" || cur.name == "muirGlacierBlock" ||
 				cur.name == "yoloV2Block" {
 				continue
 			}
+			// Skip nil Viction-specific forks (they may not be used in all configurations)
+			isVictionFork := cur.name == "tip2019Block" || cur.name == "tipSigningBlock" ||
+				cur.name == "tipRandomizeBlock" || cur.name == "tipBlacklistBlock" ||
+				cur.name == "tipTRC21FeeBlock" || cur.name == "tipFixSignerCheckBlock" ||
+				cur.name == "tipTomoXBlock" || cur.name == "tipTomoXLendingBlock" ||
+				cur.name == "tipTomoXCancelFeeBlock"
+			if isVictionFork && cur.block == nil {
+				continue
+			}
 		}
 		if lastFork.name != "" {
 			// Next one must be higher number
 			if lastFork.block == nil && cur.block != nil {
-				return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
-					lastFork.name, cur.name, cur.block)
+				// For Posv chains, allow nil Viction-specific forks (tip2019Block onwards) to be skipped
+				isVictionFork := lastFork.name == "tip2019Block" || lastFork.name == "tipSigningBlock" ||
+					lastFork.name == "tipRandomizeBlock" || lastFork.name == "tipBlacklistBlock" ||
+					lastFork.name == "tipTRC21FeeBlock" || lastFork.name == "tipFixSignerCheckBlock" ||
+					lastFork.name == "tipTomoXBlock" || lastFork.name == "tipTomoXLendingBlock" ||
+					lastFork.name == "tipTomoXCancelFeeBlock"
+				if c.Posv == nil || (!lastFork.optional && !isVictionFork) {
+					return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
+						lastFork.name, cur.name, cur.block)
+				}
 			}
 			if lastFork.block != nil && cur.block != nil {
-				// For Posv chains, allow Viction forks (tip2019Block onwards) at 0 (genesis) even if previous fork is higher
-				isVictionFork := cur.name == "tip2019Block" || cur.name == "tipSigningBlock" ||
+				// For Posv chains, allow Viction forks at 0 (genesis) even if previous fork is higher
+				isVictionForkAtZero := c.Posv != nil && cur.block.Sign() == 0 && (cur.name == "tip2019Block" || cur.name == "tipSigningBlock" ||
 					cur.name == "tipRandomizeBlock" || cur.name == "tipBlacklistBlock" ||
 					cur.name == "tipTRC21FeeBlock" || cur.name == "tipFixSignerCheckBlock" ||
 					cur.name == "tipTomoXBlock" || cur.name == "tipTomoXLendingBlock" ||
 					cur.name == "tipTomoXCancelFeeBlock" || cur.name == "saigonBlock" ||
-					cur.name == "atlasBlock"
-				allowZeroFork := c.Posv != nil && isVictionFork && cur.block.Sign() == 0
-				if !allowZeroFork && lastFork.block.Cmp(cur.block) > 0 {
+					cur.name == "atlasBlock")
+				if !isVictionForkAtZero && lastFork.block.Cmp(cur.block) > 0 {
 					return fmt.Errorf("unsupported fork ordering: %v enabled at %v, but %v enabled at %v",
 						lastFork.name, lastFork.block, cur.name, cur.block)
 				}
