@@ -97,15 +97,10 @@ func (api *API) GetSignersAtHash(hash common.Hash) ([]common.Address, error) {
 	return snap.GetSigners(), nil
 }
 
-// func (api *API) NetworkInformation() NetworkInformation {
-// 	api.posv.lock.RLock()
-// 	defer api.posv.lock.RUnlock()
-// 	info := NetworkInformation{}
-// 	info.NetworkId = api.chain.Config().ChainID
-// 	info.TomoValidatorAddress = common.HexToAddress(common.MasternodeVotingSMC)
-// 	info.LendingAddress = common.HexToAddress(common.LendingRegistrationSMC)
-// 	info.RelayerRegistrationAddress = common.HexToAddress(common.RelayerRegistrationSMC)
-// 	info.TomoXListingAddress = common.TomoXListingSMC
-// 	info.TomoZAddress = common.TRC21IssuerSMC
-// 	return info
-// }
+// [TO-DO]
+func (api *API) NetworkInformation() NetworkInformation {
+	api.posv.lock.RLock()
+	defer api.posv.lock.RUnlock()
+	info := NetworkInformation{}
+	return info
+}
