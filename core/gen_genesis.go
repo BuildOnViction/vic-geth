@@ -114,6 +114,5 @@ func (g *Genesis) UnmarshalJSON(input []byte) error {
 	if dec.ParentHash != nil {
 		g.ParentHash = *dec.ParentHash
 	}
-	fmt.Println("-> g.ParentHash", g.ParentHash)
 	return nil
 }
