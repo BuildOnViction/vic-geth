@@ -26,7 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv/rewards"
-	"github.com/ethereum/go-ethereum/consensus/posv/transactions"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -198,9 +197,4 @@ func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 // Close implements consensus.Engine. It's a noop for posv as there are no background threads.
 func (c *Posv) Close() error {
 	return nil
-}
-
-// ProcessSpecificTransaction implements consensus.SpecificTransactionEngine.
-func (c *Posv) ProcessSpecificTransaction(state *state.StateDB, tx *types.Transaction, header *types.Header) (bool, *types.Receipt, error) {
-	return transactions.ProcessSignTransaction(state, tx, header)
 }
