@@ -120,7 +120,6 @@ func (h *storageJSON) UnmarshalText(text []byte) error {
 	}
 	offset := len(h) - len(text)/2 // pad on the left
 	if _, err := hex.Decode(h[offset:], text); err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("invalid hex storage key/value %q", text)
 	}
 	return nil
@@ -291,6 +290,13 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	if g.Difficulty == nil {
 		head.Difficulty = params.GenesisDifficulty
+	}
+	// Initialize Posv fields for Viction chains (required for correct hash calculation)
+	if g.Config != nil && g.Config.Posv != nil {
+		head.Posv = true
+		head.NewAttestors = []byte{}
+		head.Attestor = []byte{}
+		head.Penalties = []byte{}
 	}
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true, nil)

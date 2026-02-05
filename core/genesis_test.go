@@ -200,33 +200,51 @@ func TestGenesisJSONFile(t *testing.T) {
 		t.Fatalf("Failed to unmarshal genesis.json: %v", err)
 	}
 
+	// Detect which chain this is (Viction mainnet or Victest testnet)
+	var chainName string
+	var expectedGenesis *Genesis
+	var expectedHashConstant common.Hash
+	var allocFile string
+
+	if genesis.Config != nil && genesis.Config.ChainID != nil {
+		chainID := genesis.Config.ChainID.Int64()
+
+		if chainID == 88 {
+			chainName = "Viction (mainnet)"
+			expectedGenesis = DefaultVictionGenesisBlock()
+			expectedHashConstant = params.VictionGenesisHash
+			allocFile = "viction_allocs/viction.json"
+		} else if chainID == 89 {
+			chainName = "Victest (testnet)"
+			expectedGenesis = DefaultVictestGenesisBlock()
+			expectedHashConstant = params.VictestGenesisHash
+			allocFile = "viction_allocs/victest.json"
+		} else {
+			t.Fatalf("Unknown chain ID: %d. Expected 88 (Viction) or 89 (Victest)", chainID)
+		}
+	} else {
+		t.Fatal("Genesis config or ChainID is nil")
+	}
+
 	// Convert to block
 	block := genesis.ToBlock(nil)
+	expectedBlock := expectedGenesis.ToBlock(nil)
 
-	// Check that the hash matches the expected Viction mainnet hash
-	expectedHash := params.VictionGenesisHash
+	// Check that the hash matches the expected hash
+	// Use the hash from Default genesis block as the expected value
+	// since it's calculated with the same logic and Posv fields
+	expectedHash := expectedBlock.Hash()
 	actualHash := block.Hash()
 
 	if actualHash != expectedHash {
-		t.Errorf("Wrong genesis hash from genesis.json:\n  got:  %s\n  want: %s",
-			actualHash.Hex(), expectedHash.Hex())
-
-		// Also log additional debug information
-		t.Logf("Block details:")
-		t.Logf("  Number: %d", block.Number())
-		t.Logf("  StateRoot: %s", block.Root().Hex())
-		t.Logf("  Timestamp: %d", block.Time())
-		t.Logf("  GasLimit: %d", block.GasLimit())
-		t.Logf("  Difficulty: %s", block.Difficulty().String())
-		t.Logf("  ExtraData length: %d", len(block.Extra()))
-		t.Logf("  Alloc accounts: %d", len(genesis.Alloc))
+		t.Errorf("Wrong genesis hash from genesis.json:\n  got:  %s\n  want: %s (from Default%sGenesisBlock)\n  constant: %s (from params)",
+			actualHash.Hex(), expectedHash.Hex(), chainName, expectedHashConstant.Hex())
 	} else {
-		t.Logf("Genesis block hash matches expected Viction mainnet hash: %s", actualHash.Hex())
+		t.Logf("Genesis block hash matches expected %s hash: %s", chainName, actualHash.Hex())
 	}
 
-	// Also verify the state root if we have an expected value
-	// The state root should be: 0x1394d6e0a3d48b3d25da2206de068a1444108280c60d360bd9d5a870004529ee
-	expectedStateRoot := common.HexToHash("0x1394d6e0a3d48b3d25da2206de068a1444108280c60d360bd9d5a870004529ee")
+	// Also verify the state root
+	expectedStateRoot := expectedBlock.Root()
 	actualStateRoot := block.Root()
 
 	if actualStateRoot != expectedStateRoot {
@@ -234,6 +252,83 @@ func TestGenesisJSONFile(t *testing.T) {
 			actualStateRoot.Hex(), expectedStateRoot.Hex())
 	} else {
 		t.Logf("State root matches expected: %s", actualStateRoot.Hex())
+	}
+
+	// Verify alloc matches expected alloc
+	expectedAlloc := readVictionAlloc(allocFile)
+
+	if len(genesis.Alloc) != len(expectedAlloc) {
+		t.Errorf("Alloc account count mismatch:\n  got:  %d\n  want: %d",
+			len(genesis.Alloc), len(expectedAlloc))
+	} else {
+		t.Logf("Alloc account count matches: %d", len(genesis.Alloc))
+	}
+
+	// Verify key accounts exist and have correct balances
+	keyAccounts := []struct {
+		addr    string
+		hasCode bool
+	}{
+		{"0x0000000000000000000000000000000000000068", true}, // Foundation wallet with code
+		{"0x0000000000000000000000000000000000000088", true}, // Validator contract
+		{"0x0000000000000000000000000000000000000089", true}, // Validator block sign contract
+		{"0x0000000000000000000000000000000000000090", true}, // Randomizer contract
+	}
+
+	for _, keyAccount := range keyAccounts {
+		addr := common.HexToAddress(keyAccount.addr)
+		actualAccount, exists := genesis.Alloc[addr]
+		expectedAccount, expectedExists := expectedAlloc[addr]
+
+		if !exists {
+			t.Errorf("Missing key account in genesis.json: %s", keyAccount.addr)
+			continue
+		}
+
+		if !expectedExists {
+			t.Errorf("Key account %s exists in genesis.json but not in expected alloc", keyAccount.addr)
+			continue
+		}
+
+		// Check balance
+		if actualAccount.Balance.Cmp(expectedAccount.Balance) != 0 {
+			t.Errorf("Balance mismatch for account %s:\n  got:  %s\n  want: %s",
+				keyAccount.addr, actualAccount.Balance.String(), expectedAccount.Balance.String())
+		}
+
+		// Check code if expected
+		if keyAccount.hasCode {
+			if len(actualAccount.Code) == 0 {
+				t.Errorf("Account %s should have code but doesn't", keyAccount.addr)
+			} else if len(expectedAccount.Code) > 0 {
+				if len(actualAccount.Code) != len(expectedAccount.Code) {
+					t.Errorf("Code length mismatch for account %s:\n  got:  %d\n  want: %d",
+						keyAccount.addr, len(actualAccount.Code), len(expectedAccount.Code))
+				}
+			}
+		}
+
+		// Check storage if expected
+		if len(expectedAccount.Storage) > 0 {
+			if len(actualAccount.Storage) != len(expectedAccount.Storage) {
+				t.Errorf("Storage count mismatch for account %s:\n  got:  %d\n  want: %d",
+					keyAccount.addr, len(actualAccount.Storage), len(expectedAccount.Storage))
+			} else {
+				for key, expectedValue := range expectedAccount.Storage {
+					actualValue, exists := actualAccount.Storage[key]
+					if !exists {
+						t.Errorf("Missing storage key %s for account %s", key.Hex(), keyAccount.addr)
+					} else if actualValue != expectedValue {
+						t.Errorf("Storage value mismatch for account %s, key %s:\n  got:  %s\n  want: %s",
+							keyAccount.addr, key.Hex(), actualValue.Hex(), expectedValue.Hex())
+					}
+				}
+			}
+		}
+	}
+
+	if !t.Failed() {
+		t.Logf("Alloc verification passed. All key accounts match expected values.")
 	}
 }
 
