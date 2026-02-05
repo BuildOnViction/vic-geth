@@ -301,7 +301,7 @@ func prepare(ctx *cli.Context) {
 		log.Info("Starting Geth on Viction mainnet...")
 
 	case ctx.GlobalIsSet(utils.VictestFlag.Name):
-		log.Info("Starting Geth on Victest testnet...")
+		log.Info("Starting Geth on Viction testnet...")
 
 	case ctx.GlobalIsSet(utils.DeveloperFlag.Name):
 		log.Info("Starting Geth in ephemeral dev mode...")
