@@ -488,6 +488,16 @@ func (c *ChainConfig) IsIstanbul(num *big.Int) bool {
 	return isForked(c.IstanbulBlock, num)
 }
 
+// IsSaigon returns whether num is either equal to the Saigon fork block or greater.
+func (c *ChainConfig) IsSaigon(num *big.Int) bool {
+	return isForked(c.SaigonBlock, num)
+}
+
+// IsAtlas returns whether num is either equal to the Atlas fork block or greater.
+func (c *ChainConfig) IsAtlas(num *big.Int) bool {
+	return isForked(c.AtlasBlock, num)
+}
+
 // IsYoloV2 returns whether num is either equal to the YoloV1 fork block or greater.
 func (c *ChainConfig) IsYoloV2(num *big.Int) bool {
 	return isForked(c.YoloV2Block, num)
