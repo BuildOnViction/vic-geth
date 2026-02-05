@@ -20,11 +20,13 @@ package types
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"reflect"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,6 +90,12 @@ type Header struct {
 	Extra       []byte         `json:"extraData"        gencodec:"required"`
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
+
+	// PoSV
+	Posv         bool   `json:"posv,omitempty" rlp:"optional"`
+	NewAttestors []byte `json:"newAttestors,omitempty" rlp:"optional"`
+	Attestor     []byte `json:"attestor,omitempty" rlp:"optional"`
+	Penalties    []byte `json:"penalties,omitempty" rlp:"optional"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
@@ -176,6 +184,325 @@ func (h *Header) EmptyBody() bool {
 // EmptyReceipts returns true if there are no receipts for this header/block.
 func (h *Header) EmptyReceipts() bool {
 	return h.ReceiptHash == EmptyReceiptsHash
+}
+
+func (h *Header) DecodeRLP(s *rlp.Stream) error {
+	_, err := s.List()
+	if err != nil {
+		return err
+		// return fmt.Errorf("open header struct: %w", err)
+	}
+	var b []byte
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read ParentHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for ParentHash: %d", len(b))
+	}
+	copy(h.ParentHash[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read UncleHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for UncleHash: %d", len(b))
+	}
+	copy(h.UncleHash[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read Coinbase: %w", err)
+	}
+	if len(b) != 20 {
+		return fmt.Errorf("wrong size for Coinbase: %d", len(b))
+	}
+	copy(h.Coinbase[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read Root: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for Root: %d", len(b))
+	}
+	copy(h.Root[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read TxHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for TxHash: %d", len(b))
+	}
+	copy(h.TxHash[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read ReceiptHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for ReceiptHash: %d", len(b))
+	}
+	copy(h.ReceiptHash[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read Bloom: %w", err)
+	}
+	if len(b) != 256 {
+		return fmt.Errorf("wrong size for Bloom: %d", len(b))
+	}
+	copy(h.Bloom[:], b)
+	if b, err = s.Uint256Bytes(); err != nil {
+		return fmt.Errorf("read Difficulty: %w", err)
+	}
+	h.Difficulty = new(big.Int).SetBytes(b)
+	if b, err = s.Uint256Bytes(); err != nil {
+		return fmt.Errorf("read Number: %w", err)
+	}
+	h.Number = new(big.Int).SetBytes(b)
+	if h.GasLimit, err = s.Uint(); err != nil {
+		return fmt.Errorf("read GasLimit: %w", err)
+	}
+	if h.GasUsed, err = s.Uint(); err != nil {
+		return fmt.Errorf("read GasUsed: %w", err)
+	}
+	if h.Time, err = s.Uint(); err != nil {
+		return fmt.Errorf("read Time: %w", err)
+	}
+	if h.Extra, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read Extra: %w", err)
+	}
+
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read MixDigest: %w", err)
+	}
+	copy(h.MixDigest[:], b)
+	if b, err = s.Bytes(); err != nil {
+		return fmt.Errorf("read Nonce: %w", err)
+	}
+	if len(b) != 8 {
+		return fmt.Errorf("wrong size for Nonce: %d", len(b))
+	}
+	copy(h.Nonce[:], b)
+
+	// Prioritize PoSV detection
+	kind, _, err := s.Kind()
+	if err != nil {
+		if errors.Is(err, rlp.EOL) {
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no Posv): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read Posv: %w", err)
+	}
+	if kind == rlp.Byte {
+		_, _ = s.Bool()
+		h.Posv = true
+	}
+
+	if b, err = s.Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no NewAttestors/BaseFee): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read NewAttestors/BaseFee: %w", err)
+	}
+	h.NewAttestors = make([]byte, len(b))
+	copy(h.NewAttestors, b)
+
+	if b, err = s.Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			err := h.ResetPoSVDecodeRLP(1)
+			if err != nil {
+				return err
+			}
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no Attestor/WithdrawalsHash): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read Attestor/WithdrawalsHash: %w", err)
+	}
+	h.Attestor = make([]byte, len(b))
+	copy(h.Attestor, b)
+
+	// Detect PoSV BEFORE checking the next field type
+	// This prevents ResetPoSVDecodeRLP from clearing the fields we just read
+	if !h.Posv {
+		// Since 2nd epoch onwards, Attestor always be a signature
+		if len(h.Attestor) == 65 {
+			h.Posv = true
+		}
+		// In 1st epoch, all PoSV fields are empty, and BaseFee must not be empty.
+		if len(h.NewAttestors) == 0 && len(h.Attestor) == 0 {
+			h.Posv = true
+		}
+		// If NewAttestors (Validators) has data, it's a PoSV block with validators (from Geth/TomoChain)
+		if len(h.NewAttestors) > 0 {
+			h.Posv = true
+		}
+	}
+
+	kind, _, err = s.Kind()
+	if err != nil {
+		if errors.Is(err, rlp.EOL) {
+			// If PoSV is detected, we should have Penalties field, but it's missing
+			if h.Posv {
+				if err := s.ListEnd(); err != nil {
+					return fmt.Errorf("close header struct (no Penalties): %w", err)
+				}
+				return nil
+			}
+			// Not PoSV, reset the fields
+			err := h.ResetPoSVDecodeRLP(2)
+			if err != nil {
+				return err
+			}
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no Penalties/BlobGasUsed): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read Penalties/BlobGasUsed: %w", err)
+	}
+	if kind != rlp.String {
+		// If PoSV is detected, we expect Penalties to be a string
+		if h.Posv {
+			return fmt.Errorf("read Penalties: expected string, got %v", kind)
+		}
+		// Not PoSV, reset the fields
+		err := h.ResetPoSVDecodeRLP(2)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("read Penalties/BlobGasUsed: %w", rlp.ErrExpectedString)
+	}
+
+	if h.Posv {
+		if b, err = s.Bytes(); err != nil {
+			if errors.Is(err, rlp.EOL) {
+				if err := s.ListEnd(); err != nil {
+					return fmt.Errorf("close header struct (no Penalties): %w", err)
+				}
+				return nil
+			}
+			return fmt.Errorf("read Penalties: %w", err)
+		}
+		h.Penalties = make([]byte, len(b))
+		copy(h.Penalties[:], b)
+	} else {
+		err2 := h.ResetPoSVDecodeRLP(2)
+		if err2 != nil {
+			return err2
+		}
+	}
+
+	// BaseFee
+	if b, err = s.Uint256Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.BaseFee = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no BaseFee): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read BaseFee: %w", err)
+	}
+	h.BaseFee = new(big.Int).SetBytes(b)
+
+	// WithdrawalsHash
+	if b, err = s.Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.WithdrawalsHash = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no WithdrawalsHash): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read WithdrawalsHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for WithdrawalsHash: %d", len(b))
+	}
+	h.WithdrawalsHash = new(common.Hash)
+	h.WithdrawalsHash.SetBytes(b)
+
+	var blobGasUsed uint64
+	if blobGasUsed, err = s.Uint(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.BlobGasUsed = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no BlobGasUsed): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read BlobGasUsed: %w", err)
+	}
+	h.BlobGasUsed = &blobGasUsed
+
+	var excessBlobGas uint64
+	if excessBlobGas, err = s.Uint(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.ExcessBlobGas = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no ExcessBlobGas): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read ExcessBlobGas: %w", err)
+	}
+	h.ExcessBlobGas = &excessBlobGas
+
+	// ParentBeaconRoot
+	if b, err = s.Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.ParentBeaconRoot = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no ParentBeaconRoot): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read ParentBeaconRoot: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for ParentBeaconRoot: %d", len(b))
+	}
+	h.ParentBeaconRoot = new(common.Hash)
+	h.ParentBeaconRoot.SetBytes(b)
+
+	// RequestsHash
+	if b, err = s.Bytes(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			h.RequestsHash = nil
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no RequestsHash): %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read RequestsHash: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("wrong size for RequestsHash: %d", len(b))
+	}
+	h.RequestsHash = new(common.Hash)
+	h.RequestsHash.SetBytes(b)
+
+	if err := s.ListEnd(); err != nil {
+		return fmt.Errorf("close header struct: %w", err)
+	}
+	return nil
+}
+
+func (h *Header) ResetPoSVDecodeRLP(step int) error {
+	h.Posv = false
+	errUintOverflow := errors.New("rlp: uint overflow")
+	if step >= 1 {
+		if len(h.NewAttestors) > 32 {
+			h.NewAttestors = []byte{}
+			return fmt.Errorf("read BaseFee: %w", errUintOverflow)
+		}
+		h.BaseFee = new(big.Int).SetBytes(h.NewAttestors)
+		h.NewAttestors = nil
+	}
+	if step >= 2 {
+		h.WithdrawalsHash = new(common.Hash)
+		h.WithdrawalsHash.SetBytes(h.Attestor)
+		h.Attestor = nil
+	}
+	return nil
 }
 
 // Body is a simple (mutable, non-safe) data container for storing and moving
@@ -553,4 +880,16 @@ func HeaderParentHashFromRLP(header []byte) common.Hash {
 		return common.Hash{}
 	}
 	return common.BytesToHash(parentHash)
+}
+
+type encodingBuf [32]byte
+
+var pooledBuf = sync.Pool{
+	New: func() interface{} { return new(encodingBuf) },
+}
+
+func newEncodingBuf() *encodingBuf {
+	b := pooledBuf.Get().(*encodingBuf)
+	*b = encodingBuf([32]byte{}) // reset, do we need to?
+	return b
 }

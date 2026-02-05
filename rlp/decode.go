@@ -772,6 +772,59 @@ func (s *Stream) uint(maxbits int) (uint64, error) {
 	}
 }
 
+func (s *Stream) Uint256Bytes() ([]byte, error) {
+	b, err := s.bigIntBytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > 32 {
+		return nil, errUintOverflow
+	}
+	return b, nil
+}
+
+func (s *Stream) bigIntBytes() ([]byte, error) {
+	var buffer []byte
+	kind, size, err := s.Kind()
+	switch {
+	case err != nil:
+		return nil, err
+	case kind == List:
+		return nil, ErrExpectedString
+	case kind == Byte:
+		buffer = s.uintbuf[:1]
+		buffer[0] = s.byteval
+		s.kind = -1 // re-arm Kind
+	case size == 0:
+		// Avoid zero-length read.
+		s.kind = -1
+	case size <= uint64(len(s.uintbuf)):
+		// For integers smaller than s.uintbuf, allocating a buffer
+		// can be avoided.
+		buffer = s.uintbuf[:size]
+		if err := s.readFull(buffer); err != nil {
+			return nil, err
+		}
+		// Reject inputs where single byte encoding should have been used.
+		if size == 1 && buffer[0] < 128 {
+			return nil, ErrCanonSize
+		}
+	default:
+		// For large integers, a temporary buffer is needed.
+		buffer = make([]byte, size)
+		if err := s.readFull(buffer); err != nil {
+			return nil, err
+		}
+	}
+
+	// Reject leading zero bytes.
+	if len(buffer) > 0 && buffer[0] == 0 {
+		return nil, ErrCanonInt
+	}
+
+	return buffer, nil
+}
+
 // Bool reads an RLP string of up to 1 byte and returns its contents
 // as a boolean. If the input does not contain an RLP string, the
 // returned error will be ErrExpectedString.

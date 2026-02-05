@@ -31,6 +31,10 @@ func (h Header) MarshalJSON() ([]byte, error) {
 		Extra            hexutil.Bytes   `json:"extraData"        gencodec:"required"`
 		MixDigest        common.Hash     `json:"mixHash"`
 		Nonce            BlockNonce      `json:"nonce"`
+		Posv             bool            `json:"posv,omitempty" rlp:"optional"`
+		NewAttestors     []byte          `json:"newAttestors,omitempty" rlp:"optional"`
+		Attestor         []byte          `json:"attestor,omitempty" rlp:"optional"`
+		Penalties        []byte          `json:"penalties,omitempty" rlp:"optional"`
 		BaseFee          *hexutil.Big    `json:"baseFeePerGas" rlp:"optional"`
 		WithdrawalsHash  *common.Hash    `json:"withdrawalsRoot" rlp:"optional"`
 		BlobGasUsed      *hexutil.Uint64 `json:"blobGasUsed" rlp:"optional"`
@@ -55,6 +59,10 @@ func (h Header) MarshalJSON() ([]byte, error) {
 	enc.Extra = h.Extra
 	enc.MixDigest = h.MixDigest
 	enc.Nonce = h.Nonce
+	enc.Posv = h.Posv
+	enc.NewAttestors = h.NewAttestors
+	enc.Attestor = h.Attestor
+	enc.Penalties = h.Penalties
 	enc.BaseFee = (*hexutil.Big)(h.BaseFee)
 	enc.WithdrawalsHash = h.WithdrawalsHash
 	enc.BlobGasUsed = (*hexutil.Uint64)(h.BlobGasUsed)
@@ -83,6 +91,10 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		Extra            *hexutil.Bytes  `json:"extraData"        gencodec:"required"`
 		MixDigest        *common.Hash    `json:"mixHash"`
 		Nonce            *BlockNonce     `json:"nonce"`
+		Posv             *bool           `json:"posv,omitempty" rlp:"optional"`
+		NewAttestors     []byte          `json:"newAttestors,omitempty" rlp:"optional"`
+		Attestor         []byte          `json:"attestor,omitempty" rlp:"optional"`
+		Penalties        []byte          `json:"penalties,omitempty" rlp:"optional"`
 		BaseFee          *hexutil.Big    `json:"baseFeePerGas" rlp:"optional"`
 		WithdrawalsHash  *common.Hash    `json:"withdrawalsRoot" rlp:"optional"`
 		BlobGasUsed      *hexutil.Uint64 `json:"blobGasUsed" rlp:"optional"`
@@ -150,6 +162,18 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 	}
 	if dec.Nonce != nil {
 		h.Nonce = *dec.Nonce
+	}
+	if dec.Posv != nil {
+		h.Posv = *dec.Posv
+	}
+	if dec.NewAttestors != nil {
+		h.NewAttestors = dec.NewAttestors
+	}
+	if dec.Attestor != nil {
+		h.Attestor = dec.Attestor
+	}
+	if dec.Penalties != nil {
+		h.Penalties = dec.Penalties
 	}
 	if dec.BaseFee != nil {
 		h.BaseFee = (*big.Int)(dec.BaseFee)
