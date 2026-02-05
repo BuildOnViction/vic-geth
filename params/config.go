@@ -553,16 +553,6 @@ func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
 	return isForked(c.TIPTomoXCancelFeeBlock, num)
 }
 
-// IsSaigon returns whether num is either equal to the Saigon fork block or greater.
-func (c *ChainConfig) IsSaigon(num *big.Int) bool {
-	return isForked(c.SaigonBlock, num)
-}
-
-// IsAtlas returns whether num is either equal to the Atlas fork block or greater.
-func (c *ChainConfig) IsAtlas(num *big.Int) bool {
-	return isForked(c.AtlasBlock, num)
-}
-
 // CheckCompatible checks whether scheduled fork transitions have been imported
 // with a mismatching chain configuration.
 func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *ConfigCompatError {
