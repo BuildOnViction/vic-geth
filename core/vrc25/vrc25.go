@@ -1,5 +1,5 @@
 // Copyright 2026 The Vic-geth Authors
-package state
+package vrc25
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/vm"
 )
 
 var (
@@ -29,22 +31,28 @@ var (
 	ErrInsufficientFee = errors.New("insufficient VRC25 token fee")
 )
 
-func GetFeeCapacity(statedb *StateDB, vrc25Contract common.Address, addr common.Address) *big.Int {
-	feeCapKey := GetStorageKeyForMapping(addr.Hash(), SlotVRC25Contract["tokensState"])
+// we use vm.StateDB interface instead of *StateDB
+func GetFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, addr *common.Address) *big.Int {
+	if addr == nil {
+		return nil
+	}
+	feeCapKey := state.GetStorageKeyForMapping(addr.Hash(), SlotVRC25Contract["tokensState"])
 	feeCapHash := statedb.GetState(vrc25Contract, feeCapKey)
 	return feeCapHash.Big()
 }
 
-func ValidateVRC25Transaction(statedb *StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
+// This function validate VRC25 transaction
+// User's balance must be greater than or equal to the required fee
+func ValidateVRC25Transaction(statedb vm.StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
 	if data == nil || statedb == nil {
 		return ErrInvalidParams
 	}
 
 	slotBalances := SlotVRC25Token["balances"]
-	balanceKey := GetStorageKeyForMapping(from.Hash(), slotBalances)
+	balanceKey := state.GetStorageKeyForMapping(from.Hash(), slotBalances)
 	balanceHash := statedb.GetState(to, balanceKey)
 	minFeeSlot := SlotVRC25Token["minFee"]
-	minFeeKey := GetStorageKeyForSlot(minFeeSlot)
+	minFeeKey := state.GetStorageKeyForSlot(minFeeSlot)
 	minFeeHash := statedb.GetState(to, minFeeKey)
 
 	funcHex := data[:4]

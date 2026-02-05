@@ -6,23 +6,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/vrc25"
 )
 
-var slotTokensState = state.SlotVRC25Contract["tokensState"]
-
-func (st *StateTransition) getFeeCapacity(contract *common.Address) *big.Int {
-	if contract == nil {
-		return nil
-	}
-	feeCapKey := state.GetStorageKeyForMapping(contract.Hash(), slotTokensState)
-	feeCap := st.state.GetState(st.evm.ChainConfig().VRC25Contract, feeCapKey)
-
-	if feeCap == (common.Hash{}) {
-		return nil
-	}
-
-	return feeCap.Big()
-}
+var slotTokensState = vrc25.SlotVRC25Contract["tokensState"]
 
 // buyVRC25Gas checks sponsorship eligibility and deducts the gas fee from the sponsor's storage balance.
 func (st *StateTransition) vrc25BuyGas() error {
@@ -30,7 +17,7 @@ func (st *StateTransition) vrc25BuyGas() error {
 	st.payer = st.msg.From()
 
 	// 1. Check if contract is sponsored (has fee capacity)
-	feeCap := st.getFeeCapacity(st.msg.To())
+	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().VRC25Contract, st.msg.To())
 	if feeCap == nil {
 		return nil // Not sponsored, proceed with standard user payment
 	}
@@ -65,7 +52,7 @@ func (st *StateTransition) isVRC25Transaction() bool {
 func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 	addr := st.msg.To()
 	// Get current balance
-	feeCap := st.getFeeCapacity(addr)
+	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().VRC25Contract, addr)
 	if feeCap == nil {
 		// Should not happen if isSponsoringTransaction is true, but handle safely
 		return
