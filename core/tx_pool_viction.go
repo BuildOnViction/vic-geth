@@ -15,9 +15,11 @@ func (pool *TxPool) validateSufficientTransaction(tx *types.Transaction, from co
 
 	feeCap := vrc25.GetFeeCapacity(pool.currentState, pool.chainconfig.VRC25Contract, tx.To())
 	if feeCap != nil {
-		// VRC25 transaction
-		if err := vrc25.ValidateVRC25Transaction(pool.currentState, pool.chainconfig.VRC25Contract, from, *tx.To(), tx.Data()); err != nil {
-			return err
+		if tx.To() != nil {
+			// VRC25 transaction
+			if err := vrc25.ValidateVRC25Transaction(pool.currentState, pool.chainconfig.VRC25Contract, from, *tx.To(), tx.Data()); err != nil {
+				return err
+			}
 		}
 
 		requiredFee := new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), pool.chainconfig.VRC25GasPrice)
