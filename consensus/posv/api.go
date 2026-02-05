@@ -15,56 +15,11 @@
 
 package posv
 
-import (
-	"math/big"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/rpc"
-)
-
 // API is a user facing RPC API to allow controlling the signer and voting
 // mechanisms of the proof-of-authority scheme.
 type API struct {
-	chain consensus.ChainReader
+	chain ChainReader
 	posv  *Posv
 }
-type NetworkInformation struct {
-	NetworkId                  *big.Int
-	TomoValidatorAddress       common.Address
-	RelayerRegistrationAddress common.Address
-	TomoXListingAddress        common.Address
-	TomoZAddress               common.Address
-	LendingAddress             common.Address
-}
 
-// [TO-DO]
-// GetSnapshot retrieves the state snapshot at a given block.
-func (api *API) GetSnapshot(number *rpc.BlockNumber) (*Snapshot, error) {
-	return nil, nil
-}
-
-// GetSnapshotAtHash retrieves the state snapshot at a given block.
-func (api *API) GetSnapshotAtHash(hash common.Hash) (*Snapshot, error) {
-	return nil, nil
-}
-
-// [TO-DO]
-// GetSigners retrieves the list of authorized signers at the specified block.
-func (api *API) GetSigners(number *rpc.BlockNumber) ([]common.Address, error) {
-	return nil, nil
-}
-
-// [TO-DO]
-// GetSignersAtHash retrieves the state snapshot at a given block.
-func (api *API) GetSignersAtHash(hash common.Hash) ([]common.Address, error) {
-	return nil, nil
-}
-
-// [TO-DO]
-func (api *API) NetworkInformation() NetworkInformation {
-	api.posv.lock.RLock()
-	defer api.posv.lock.RUnlock()
-	info := NetworkInformation{}
-	return info
-}
+//[TO-DO] Implement API functions
