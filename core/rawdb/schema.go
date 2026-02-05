@@ -129,6 +129,7 @@ var (
 	genesisPrefix  = []byte("ethereum-genesis-") // genesis state prefix for the db
 
 	CliqueSnapshotPrefix = []byte("clique-")
+	PosvSnapshotPrefix   = []byte("posv-")
 
 	BestUpdateKey         = []byte("update-")    // bigEndian64(syncPeriod) -> RLP(types.LightClientUpdate)  (nextCommittee only referenced by root hash)
 	FixedCommitteeRootKey = []byte("fixedRoot-") // bigEndian64(syncPeriod) -> committee root hash
