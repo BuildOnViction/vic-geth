@@ -34,6 +34,10 @@ const (
 	PenaltyEpochCount          = 4
 )
 
+var (
+	StoreRewardFolder string
+)
+
 // Genesis hashes to enforce below configs on.
 var (
 	VicMainnetGenesisHash = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624") // Viction Mainnet genesis hash to enforce below configs on
@@ -597,6 +601,10 @@ func (c *ChainConfig) IsYoloV2(num *big.Int) bool {
 // IsEWASM returns whether num represents a block number after the EWASM fork
 func (c *ChainConfig) IsEWASM(num *big.Int) bool {
 	return isForked(c.EWASMBlock, num)
+}
+
+func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
+	return isForked(c.TIPSigningBlock, num)
 }
 
 func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
