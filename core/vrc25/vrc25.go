@@ -22,8 +22,8 @@ var (
 		"minFee":   1,
 		"issuer":   2,
 	}
-	transferFuncHex     = common.Hex2Bytes("0xa9059cbb")
-	transferFromFuncHex = common.Hex2Bytes("0x23b872dd")
+	transferFunctionSelector     = common.Hex2Bytes("0xa9059cbb")
+	transferFromFunctionSelector = common.Hex2Bytes("0x23b872dd")
 )
 
 var (
@@ -66,10 +66,10 @@ func ValidateVRC25Transaction(statedb vm.StateDB, vrc25Contract common.Address, 
 
 		if len(data) > 4 {
 			funcHex := data[:4]
-			if bytes.Equal(funcHex, transferFuncHex) && len(data) == 68 {
+			if bytes.Equal(funcHex, transferFunctionSelector) && len(data) == 68 {
 				value = common.BytesToHash(data[36:]).Big()
 			} else {
-				if bytes.Equal(funcHex, transferFromFuncHex) && len(data) == 80 {
+				if bytes.Equal(funcHex, transferFromFunctionSelector) && len(data) == 80 {
 					// Small fix here: only consider the value if 'from' matches
 					if from.Hex() == common.BytesToAddress(data[4:36]).Hex() {
 						value = common.BytesToHash(data[68:]).Big()
