@@ -147,6 +147,14 @@ var (
 		Name:  "ropsten",
 		Usage: "Ropsten network: pre-configured proof-of-work test network",
 	}
+	VictionFlag = cli.BoolFlag{
+		Name:  "viction",
+		Usage: "Viction network: pre-configured proof-of-stake-voting main network",
+	}
+	VictestFlag = cli.BoolFlag{
+		Name:  "victest",
+		Usage: "Victest network: pre-configured proof-of-stake-voting test network",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -1487,7 +1495,7 @@ func SetShhConfig(ctx *cli.Context, stack *node.Node) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag)
+	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag, VictionFlag, VictestFlag)
 	CheckExclusive(ctx, LegacyLightServFlag, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, GCModeFlag, "archive", TxLookupLimitFlag)
@@ -1620,6 +1628,18 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 			cfg.NetworkId = 133519467574834 // "yolov2"
 		}
 		cfg.Genesis = core.DefaultYoloV2GenesisBlock()
+	case ctx.GlobalBool(VictionFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 88
+		}
+		cfg.Genesis = core.DefaultVictionGenesisBlock()
+		SetDNSDiscoveryDefaults(cfg, params.VictionGenesisHash)
+	case ctx.GlobalBool(VictestFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 89
+		}
+		cfg.Genesis = core.DefaultVictestGenesisBlock()
+		SetDNSDiscoveryDefaults(cfg, params.VictestGenesisHash)
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1804,6 +1824,10 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGoerliGenesisBlock()
 	case ctx.GlobalBool(YoloV2Flag.Name):
 		genesis = core.DefaultYoloV2GenesisBlock()
+	case ctx.GlobalBool(VictionFlag.Name):
+		genesis = core.DefaultVictionGenesisBlock()
+	case ctx.GlobalBool(VictestFlag.Name):
+		genesis = core.DefaultVictestGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}
