@@ -41,7 +41,7 @@ func GetFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, addr *comm
 	return feeCapHash.Big()
 }
 
-// This function validate VRC25 transaction
+// This function validates VRC25 transactions
 // User's balance must be greater than or equal to the required fee
 func ValidateVRC25Transaction(statedb vm.StateDB, vrc25Contract common.Address, from common.Address, to common.Address, data []byte) error {
 	if data == nil || statedb == nil {
