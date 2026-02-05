@@ -54,7 +54,8 @@ const (
 
 // PoSV proof-of-stake protocol constants.
 var (
-	epochLength = uint64(30000) // Default number of blocks after which to checkpoint and reset the pending votes
+	epochLength            = uint64(900) // Default number of blocks after which to checkpoint and reset the pending votes
+	recentBlockVerifyCache = 256         // Number of recent blocks to cache verfication results
 
 	extraVanity = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
 	extraSeal   = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
@@ -169,8 +170,10 @@ type Posv struct {
 	config *params.PosvConfig // Consensus engine configuration parameters
 	db     ethdb.Database     // Database to store and retrieve snapshot checkpoints
 
-	recents    *lru.Cache[common.Hash, *Snapshot] // Snapshots for recent block to speed up reorgs
-	signatures *sigLRU                            // Signatures of recent blocks to speed up mining
+	recents          *lru.Cache[common.Hash, *Snapshot] // Snapshots for recent block to speed up reorgs
+	signatures       *sigLRU                            // Signatures of recent blocks to speed up mining
+	attestSignatures *sigLRU                            // Signatures of recent blocks to speed up mining
+	verifiedBlocks   *lru.Cache[common.Hash, bool]      // Status of recent blocks to speed up synching
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
@@ -179,6 +182,8 @@ type Posv struct {
 
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
+
+	backend PosvBackend
 }
 
 // New creates a PoSV proof-of-stake consensus engine with the initial
@@ -192,14 +197,26 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	// Allocate the snapshot caches and create the engine
 	recents := lru.NewCache[common.Hash, *Snapshot](inmemorySnapshots)
 	signatures := lru.NewCache[common.Hash, common.Address](inmemorySignatures)
+	attestSignatures := lru.NewCache[common.Hash, common.Address](inmemorySignatures)
+	verifiedBlocks := lru.NewCache[common.Hash, bool](recentBlockVerifyCache)
 
 	return &Posv{
-		config:     &conf,
-		db:         db,
-		recents:    recents,
-		signatures: signatures,
-		proposals:  make(map[common.Address]bool),
+		config: &conf,
+		db:     db,
+
+		recents:          recents,
+		signatures:       signatures,
+		attestSignatures: attestSignatures,
+		verifiedBlocks:   verifiedBlocks,
+
+		proposals: make(map[common.Address]bool),
 	}
+}
+
+// Set the backend instance into PoSV for handling some features that require accessing to chain state.
+// Must be called right after creation of PoSV.
+func (c *Posv) SetBackend(backend PosvBackend) {
+	c.backend = backend
 }
 
 // Author implements consensus.Engine, returning the Ethereum address recovered
