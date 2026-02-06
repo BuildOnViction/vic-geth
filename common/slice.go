@@ -37,8 +37,8 @@ func AreSimilarSlices(list1 []Address, list2 []Address) bool {
 	return reflect.DeepEqual(list1, list2)
 }
 
-// Extract validators from byte array.
-func RemoveItemFromArray(array []Address, items []Address) []Address {
+// SetSubstract removes all occurrences of items in 'items' from 'array' and returns the new array.
+func SetSubstract(array []Address, items []Address) []Address {
 	if len(items) == 0 {
 		return array
 	}

@@ -190,7 +190,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		// remove penalized validators in current epoch
 		if len(penalties) > 0 {
-			validators = common.RemoveItemFromArray(validators, penalties)
+			validators = common.SetSubstract(validators, penalties)
 			header.Penalties = EncodePenaltiesForHeader(penalties)
 		}
 		// remove penalized validators in recent epochs
@@ -199,7 +199,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 			prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
 			penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
 			if len(penalties) > 0 {
-				validators = common.RemoveItemFromArray(validators, penalties)
+				validators = common.SetSubstract(validators, penalties)
 			}
 		}
 		// compare validators computed from state with header.Extra
