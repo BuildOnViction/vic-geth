@@ -17,14 +17,14 @@ func (st *StateTransition) vrc25BuyGas() error {
 	st.payer = st.msg.From()
 
 	// 1. Check if contract is sponsored (has fee capacity)
-	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().VRC25Contract, st.msg.To())
+	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().Viction.VRC25Contract, st.msg.To())
 	if feeCap == nil {
 		return nil // Not sponsored, proceed with standard user payment
 	}
-	chainConfig := st.evm.ChainConfig()
+	victionConfig := st.evm.ChainConfig().Viction
 
 	// 2. Calculate Gas Cost with VRC25 Gas Price
-	vrc25GasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), chainConfig.VRC25GasPrice)
+	vrc25GasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), (*big.Int)(victionConfig.VRC25GasPrice))
 
 	// 3. Check sufficiency
 	if feeCap.Cmp(vrc25GasFee) < 0 {
@@ -35,12 +35,12 @@ func (st *StateTransition) vrc25BuyGas() error {
 	// Note: The native ETH deduction happens in state_transition.go via st.state.SubBalance(st.payer)
 	newFeeCap := new(big.Int).Sub(feeCap, vrc25GasFee)
 	feeCapKey := state.GetStorageKeyForMapping(st.msg.To().Hash(), slotTokensState)
-	st.state.SetState(chainConfig.VRC25Contract, feeCapKey, common.BigToHash(newFeeCap))
+	st.state.SetState(victionConfig.VRC25Contract, feeCapKey, common.BigToHash(newFeeCap))
 
 	// 5. Set Payer to System Contract
 	// This ensures buyGas() deducts native ETH from the system contract
-	st.gasPrice = chainConfig.VRC25GasPrice
-	st.payer = chainConfig.VRC25Contract
+	st.gasPrice = (*big.Int)(victionConfig.VRC25GasPrice)
+	st.payer = victionConfig.VRC25Contract
 
 	return nil
 }
@@ -52,7 +52,7 @@ func (st *StateTransition) isVRC25Transaction() bool {
 func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 	addr := st.msg.To()
 	// Get current balance
-	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().VRC25Contract, addr)
+	feeCap := vrc25.GetFeeCapacity(st.state, st.evm.ChainConfig().Viction.VRC25Contract, addr)
 	if feeCap == nil {
 		// Should not happen if isSponsoringTransaction is true, but handle safely
 		return
@@ -61,5 +61,5 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 	// Refund to Contract's Storage Balance
 	newFeeCap := new(big.Int).Add(feeCap, remaining)
 	feeCapKey := state.GetStorageKeyForMapping(addr.Hash(), slotTokensState)
-	st.state.SetState(st.evm.ChainConfig().VRC25Contract, feeCapKey, common.BigToHash(newFeeCap))
+	st.state.SetState(st.evm.ChainConfig().Viction.VRC25Contract, feeCapKey, common.BigToHash(newFeeCap))
 }
