@@ -15,10 +15,12 @@
 
 package posv
 
+import "github.com/ethereum/go-ethereum/consensus"
+
 // API is a user facing RPC API to allow controlling the signer and voting
 // mechanisms of the proof-of-authority scheme.
 type API struct {
-	chain ChainReader
+	chain consensus.ChainHeaderReader
 	posv  *Posv
 }
 
