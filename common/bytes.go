@@ -137,12 +137,3 @@ func TrimRightZeroes(s []byte) []byte {
 	}
 	return s[:idx]
 }
-
-func ToHex(b []byte) string {
-	hex := Bytes2Hex(b)
-	// Prefer output of "0x0" instead of "0x"
-	if len(hex) == 0 {
-		hex = "0"
-	}
-	return "0x" + hex
-}
