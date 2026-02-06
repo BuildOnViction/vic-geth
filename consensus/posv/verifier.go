@@ -18,7 +18,6 @@ package posv
 
 import (
 	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -26,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -38,7 +38,9 @@ var (
 	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 )
 
-// Mapped to verifyHeaderWithCache
+// verifyHeaderWithCache checks the cache for previously verified headers and
+// performs full verification if not found. Successfully verified headers are
+// cached to avoid redundant checks.
 func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	_, check := c.verifiedBlocks.Get(header.Hash())
 	if check {
@@ -146,7 +148,7 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
 	if err != nil {
-		fmt.Println("-> verifyCascadingFields::Snapshot", "number", number, "err", err)
+		log.Debug("Failed to retrieve snapshot", "number", number, "err", err)
 		return err
 	}
 
@@ -155,7 +157,7 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 		chain := chain.(consensus.ChainReader)
 		err := c.verifyValidators(chain, header, parents)
 		if err != nil {
-			fmt.Println("-> verifyCascadingFields::verifyValidators", "number", number, "err", err)
+			log.Debug("Failed to verify validators", "number", number, "err", err)
 			return err
 		}
 	}
@@ -201,8 +203,8 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		// compare validators computed from state with header.Extra
 		headerValidators := ExtractValidatorsFromCheckpointHeader(header)
-		validSigners := common.CompareSignersLists(headerValidators, validators)
-		if validSigners {
+		validValidators := common.AreSimilarSlices(headerValidators, validators)
+		if validValidators {
 			break
 		}
 		// if not matched, try to get validators from smart contract and verify again
@@ -235,12 +237,12 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	// Resolve the authorization key and check against signers
 	validators, err := c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
 	if err != nil {
-		fmt.Println("-> verifySeal", "number", number, "err", err)
+		log.Debug("Failed to get validators", "number", number, "err", err)
 		return err
 	}
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
-		fmt.Println("-> verifySeal", "number", number, "err", err)
+		log.Debug("Failed to recover signer", "number", number, "err", err)
 		return err
 	}
 

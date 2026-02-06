@@ -24,7 +24,7 @@ import (
 // Mapped to AreSimilarSlices
 // compare 2 signers lists
 // return true if they are same elements, otherwise return false
-func CompareSignersLists(list1 []Address, list2 []Address) bool {
+func AreSimilarSlices(list1 []Address, list2 []Address) bool {
 	if len(list1) == 0 && len(list2) == 0 {
 		return true
 	}

@@ -220,9 +220,10 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	}
 }
 
-// VerifyHeader checks whether a header conforms to the consensus rules.
-func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
-	return c.verifyHeaderWithCache(chain, header, nil)
+// Set the backend instance into PoSV for handling some features that require accessing to chain state.
+// Must be called right after creation of PoSV.
+func (c *Posv) SetBackend(backend PosvBackend) {
+	c.backend = backend
 }
 
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
@@ -240,6 +241,11 @@ func SealHash(header *types.Header) (hash common.Hash) {
 	encodeSigHeader(hasher, header)
 	hasher.Sum(hash[:0])
 	return hash
+}
+
+// VerifyHeader checks whether a header conforms to the consensus rules.
+func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
+	return c.verifyHeaderWithCache(chain, header, nil)
 }
 
 // [TO-DO]
