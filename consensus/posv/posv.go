@@ -155,10 +155,10 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 		return address.(common.Address), nil
 	}
 	// Retrieve the signature from the header extra-data
-	if len(header.Extra) < extraSeal {
+	if len(header.Extra) < ExtraSeal {
 		return common.Address{}, errMissingSignature
 	}
-	signature := header.Extra[len(header.Extra)-extraSeal:]
+	signature := header.Extra[len(header.Extra)-ExtraSeal:]
 
 	// Recover the public key and the Ethereum address
 	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)

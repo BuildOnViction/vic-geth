@@ -30,9 +30,6 @@ import (
 )
 
 var (
-	extraVanity = 32 // Fixed number of extra-data prefix bytes reserved for signer vanity
-	extraSeal   = 65 // Fixed number of extra-data suffix bytes reserved for signer seal
-
 	nonceAuthVote = hexutil.MustDecode("0xffffffffffffffff") // Magic nonce number to vote on adding a new signer
 	nonceDropVote = hexutil.MustDecode("0x0000000000000000") // Magic nonce number to vote on removing a signer.
 
@@ -88,14 +85,14 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 
 	// Check that the extra-data contains both the vanity and signature
-	if len(header.Extra) < extraVanity {
+	if len(header.Extra) < ExtraVanity {
 		return errMissingVanity
 	}
-	if len(header.Extra) < extraVanity+extraSeal {
+	if len(header.Extra) < ExtraVanity+ExtraSeal {
 		return errMissingSignature
 	}
 	// Ensure that the extra-data contains a signer list on checkpoint, but none otherwise
-	signersBytes := len(header.Extra) - extraVanity - extraSeal
+	signersBytes := len(header.Extra) - ExtraVanity - ExtraSeal
 	if !checkpoint && signersBytes != 0 {
 		return errExtraSigners
 	}
