@@ -146,7 +146,7 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
 	if err != nil {
-		log.Error("Failed to retrieve snapshot", "number", number, "err", err)
+		log.Debug("Failed to retrieve snapshot", "number", number, "err", err)
 		return err
 	}
 
@@ -155,7 +155,7 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 		chain := chain.(consensus.ChainReader)
 		err := c.verifyValidators(chain, header, parents)
 		if err != nil {
-			log.Error("Failed to verify validators", "number", number, "err", err)
+			log.Debug("Failed to verify validators", "number", number, "err", err)
 			return err
 		}
 	}
@@ -235,12 +235,12 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	// Resolve the authorization key and check against signers
 	validators, err := c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
 	if err != nil {
-		log.Error("Failed to get validators", "number", number, "err", err)
+		log.Debug("Failed to get validators", "number", number, "err", err)
 		return err
 	}
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
-		log.Error("Failed to recover signer", "number", number, "err", err)
+		log.Debug("Failed to recover signer", "number", number, "err", err)
 		return err
 	}
 
