@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -296,5 +297,82 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 }
 
 func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
-	return nil, nil
+	// Search for a snapshot in memory or on disk for checkpoints
+	var (
+		headers []*types.Header
+		snap    *Snapshot
+	)
+
+	for snap == nil { //nolint:govet
+		// If an in-memory snapshot was found, use that
+		if s, ok := c.recents.Get(hash); ok {
+			snap = s.(*Snapshot)
+			break
+		}
+		// If an on-disk checkpoint snapshot can be found, use that
+		if number%checkpointInterval == 0 {
+			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
+				log.Trace("Loaded voting snapshot from disk", "number", number, "hash", hash)
+				snap = s
+				break
+			}
+		}
+		// If we're at the genesis, snapshot the initial state. Alternatively if we're
+		// at a checkpoint block without a parent (light client CHT), or we have piled
+		// up more headers than allowed to be reorged (chain reinit from a freezer),
+		// consider the checkpoint trusted and snapshot it.
+		if number == 0 || (number%c.config.Epoch == 0 && (len(headers) > params.FullImmutabilityThreshold || chain.GetHeaderByNumber(number-1) == nil)) {
+			checkpoint := chain.GetHeaderByNumber(number)
+			if checkpoint != nil {
+				hash := checkpoint.Hash()
+
+				signers := make([]common.Address, (len(checkpoint.Extra)-ExtraVanity-ExtraSeal)/common.AddressLength)
+				for i := 0; i < len(signers); i++ {
+					copy(signers[i][:], checkpoint.Extra[ExtraVanity+i*common.AddressLength:])
+				}
+				snap = newSnapshot(c.config, c.signatures, number, hash, signers)
+				if err := snap.store(c.db); err != nil {
+					return nil, err
+				}
+				log.Info("[PoSV] Stored checkpoint snapshot to disk", "number", number, "hash", hash)
+				break
+			}
+		}
+		// No snapshot for this header, gather the header and move backward
+		var header *types.Header
+		if len(parents) > 0 {
+			// If we have explicit parents, pick from there (enforced)
+			header = parents[len(parents)-1]
+			if header.Hash() != hash || header.Number.Uint64() != number {
+				return nil, consensus.ErrUnknownAncestor
+			}
+			parents = parents[:len(parents)-1]
+		} else {
+			// No explicit parents (or no more left), reach out to the database
+			header = chain.GetHeader(hash, number)
+			if header == nil {
+				return nil, consensus.ErrUnknownAncestor
+			}
+		}
+		headers = append(headers, header)
+		number, hash = number-1, header.ParentHash
+	}
+	// Previous snapshot found, apply any pending headers on top of it
+	for i := 0; i < len(headers)/2; i++ {
+		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
+	}
+	snap, err := snap.apply(headers)
+	if err != nil {
+		return nil, err
+	}
+	c.recents.Add(snap.Hash, snap)
+
+	// If we've generated a new checkpoint snapshot, save to disk
+	if snap.Number%checkpointInterval == 0 && len(headers) > 0 {
+		if err = snap.store(c.db); err != nil {
+			return nil, err
+		}
+		log.Trace("Stored voting snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+	}
+	return snap, err
 }

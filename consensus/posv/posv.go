@@ -45,6 +45,7 @@ const (
 	AddressLength          = uint64(20)             // Length of an address
 	ExtraVanity            = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
 	ExtraSeal              = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
+	checkpointInterval     = 1024                   // Number of blocks after which to save the vote snapshot to the database
 )
 
 type Masternode struct {
@@ -115,6 +116,13 @@ var (
 	errUnauthorizedSigner = errors.New("unauthorized signer")
 
 	errInvalidBlockAttestor = errors.New("invalid block attestor")
+
+	// errInvalidVotingChain is returned if an authorization list is attempted to
+	// be modified via out-of-range or non-contiguous headers.
+	errInvalidVotingChain = errors.New("invalid voting chain")
+
+	// that already signed a header recently, thus is temporarily not allowed to.
+	errRecentlySigned = errors.New("recently signed")
 )
 
 // sigHash returns the hash which is used as input for the proof-of-stake-voting
