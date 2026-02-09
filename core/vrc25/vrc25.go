@@ -44,10 +44,10 @@ func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Addre
 	if balanceHash != (common.Hash{}) {
 		// 3. Check if balance is positive
 		balance := balanceHash.Big()
-		feeUsed := big.NewInt(0)
-		if balance.Cmp(feeUsed) <= 0 {
+		if balance.Sign() <= 0 {
 			return nil
 		}
+		feeUsed := big.NewInt(0)
 
 		// 4. Retrieve the issuer address of the token
 		issuerKey := state.GetStorageKeyForSlot(SlotVRC25Token["issuer"])
