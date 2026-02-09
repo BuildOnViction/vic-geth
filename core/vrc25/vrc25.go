@@ -31,6 +31,55 @@ var (
 	ErrInsufficientFee = errors.New("insufficient VRC25 token fee")
 )
 
+func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Address) error {
+	// 1. Check for valid statedb
+	if statedb == nil {
+		return ErrInvalidParams
+	}
+	// 2. Retrieve the balance of the from address for the VRC25 token
+	slotBalances := SlotVRC25Token["balances"]
+	balanceKey := state.GetStorageKeyForMapping(from.Hash(), slotBalances)
+	balanceHash := statedb.GetState(token, balanceKey)
+
+	if balanceHash != (common.Hash{}) {
+		// 3. Check if balance is positive
+		balance := balanceHash.Big()
+		if balance.Sign() <= 0 {
+			return nil
+		}
+		// 4. Retrieve the issuer address of the token
+		issuerKey := state.GetStorageKeyForSlot(SlotVRC25Token["issuer"])
+		issuerHash := statedb.GetState(token, issuerKey)
+		if issuerHash == (common.Hash{}) {
+			return nil
+		}
+		issuerAddr := common.BytesToAddress(issuerHash.Bytes())
+
+		// 5. Retrieve the minimum fee required by the token
+		minFeeKey := state.GetStorageKeyForSlot(SlotVRC25Token["minFee"])
+		minFeeHash := statedb.GetState(token, minFeeKey)
+		minFee := minFeeHash.Big()
+
+		// 6. Determine the actual fee to charge (lesser of balance or minFee)
+		feeUsed := new(big.Int).Set(minFee)
+		if balance.Cmp(minFee) < 0 {
+			feeUsed.Set(balance)
+		}
+
+		// 7. Deduct the fee from the user's balance and update state
+		newBalance := new(big.Int).Sub(balance, feeUsed)
+		statedb.SetState(token, balanceKey, common.BigToHash(newBalance))
+
+		// 8. Add the fee to the issuer's balance and update state
+		issuerBalanceKey := state.GetStorageKeyForMapping(issuerAddr.Hash(), slotBalances)
+		issuerBalanceHash := statedb.GetState(token, issuerBalanceKey)
+		issuerBalance := issuerBalanceHash.Big()
+		newIssuerBalance := new(big.Int).Add(issuerBalance, feeUsed)
+		statedb.SetState(token, issuerBalanceKey, common.BigToHash(newIssuerBalance))
+	}
+	return nil
+}
+
 // we use vm.StateDB interface instead of *StateDB
 func GetFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, addr *common.Address) *big.Int {
 	if addr == nil {
