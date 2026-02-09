@@ -47,8 +47,6 @@ func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Addre
 		if balance.Sign() <= 0 {
 			return nil
 		}
-		feeUsed := big.NewInt(0)
-
 		// 4. Retrieve the issuer address of the token
 		issuerKey := state.GetStorageKeyForSlot(SlotVRC25Token["issuer"])
 		issuerHash := statedb.GetState(token, issuerKey)
@@ -63,10 +61,9 @@ func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Addre
 		minFee := minFeeHash.Big()
 
 		// 6. Determine the actual fee to charge (lesser of balance or minFee)
+		feeUsed := new(big.Int).Set(minFee)
 		if balance.Cmp(minFee) < 0 {
-			feeUsed = balance
-		} else {
-			feeUsed = minFee
+			feeUsed.Set(balance)
 		}
 
 		// 7. Deduct the fee from the user's balance and update state
