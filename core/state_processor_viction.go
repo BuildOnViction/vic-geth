@@ -52,6 +52,9 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 }
 
 func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB) error {
+	if !p.config.IsAtlas(block.Number()) {
+		vrc25.UpdateFeeCapacity(statedb, p.config.Viction.VRC25Contract, p.victionState.balanceUpdated, p.victionState.totalFeeUsed)
+	}
 	return nil
 }
 
@@ -75,15 +78,30 @@ func (p *StateProcessor) beforeApplyTransaction(block *types.Block, tx *types.Tr
 			return ErrBlacklistedAddress
 		}
 	}
+
+	// TODO: TomoX/TomoZ validation intentionally skipped for now
+	// When needed, add:
+	// - ValidateTomoZApplyTransaction() for TRC21 token registration
+	// - ValidateTomoXApplyTransaction() for TomoX pair registration
+
 	return nil
 }
 
 func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
-	// 1. BlockSigner (0x89) Check
+	// 1. BlockSigner (0x89) - Validator signature transactions
 	if tx.To() != nil && *tx.To() == p.config.Viction.ValidatorBlockSignContract && p.config.IsTIPSigning(header.Number) {
 		return p.applySignTransaction(statedb, tx, header, usedGas)
 	}
 
+	// TODO: TomoX/TomoZ/Lending transactions intentionally skipped for now
+	// When needed, add checks for:
+	// 2. TradingStateAddr (0x92) - TomoX state synchronization
+	// 3. TomoXLendingAddress (0x93) - Lending protocol transactions
+	// 4. TomoXLendingFinalizedTradeAddress (0x94) - Lending finalization
+	// 5. TomoXContract (0x91) - Trading transactions
+	// All would call applyEmptyTransaction()
+
+	// Not a victionchain-specific transaction, use standard EVM
 	return false, nil, 0, nil, nil
 }
 
@@ -122,6 +140,42 @@ func (p *StateProcessor) applySignTransaction(statedb *state.StateDB, tx *types.
 }
 
 func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg types.Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
+	if p.victionState == nil || p.victionState.currentBlockNumber == nil {
+		return nil
+	}
+
+	blockNum := p.victionState.currentBlockNumber
+	isAtlas := p.config.IsAtlas(blockNum)
+
+	// VRC25 / TRC21 Fee Logic
+	if !isAtlas && tx.To() != nil {
+		if p.config.IsTIPTRC21Fee(blockNum) {
+			fee := new(big.Int).SetUint64(usedGas)
+			if p.config.Viction.TRC21GasPrice != nil {
+				price := (*big.Int)(p.config.Viction.TRC21GasPrice)
+				fee = fee.Mul(fee, price)
+			}
+
+			balanceFee := vrc25.GetFeeCapacity(statedb, p.config.Viction.VRC25Contract, tx.To())
+
+			if receipt.Status == types.ReceiptStatusFailed {
+				if balanceFee != nil && balanceFee.Cmp(fee) > 0 {
+					vrc25.PayFeeWithVRC25(statedb, msg.From(), *tx.To())
+				}
+			}
+
+			if balanceFee != nil && balanceFee.Cmp(fee) >= 0 {
+				currentVal, ok := p.victionState.balanceFee[*tx.To()]
+				if !ok {
+					currentVal = balanceFee
+				}
+				newVal := new(big.Int).Sub(currentVal, fee)
+				p.victionState.balanceFee[*tx.To()] = newVal
+				p.victionState.balanceUpdated[*tx.To()] = newVal
+				p.victionState.totalFeeUsed = new(big.Int).Add(p.victionState.totalFeeUsed, fee)
+			}
+		}
+	}
 	return nil
 }
 
