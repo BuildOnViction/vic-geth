@@ -80,15 +80,26 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		statedb.Prepare(tx.Hash(), block.Hash(), i)
-		// Viction Hooks
-		if err := p.beforeApplyTransaction(tx, msg, statedb); err != nil {
+		if err := p.beforeApplyTransaction(block, tx, msg, statedb); err != nil {
 			return nil, nil, 0, err
 		}
-		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
+		statedb.Prepare(tx.Hash(), block.Hash(), i)
+
+		// Viction hook, apply Viction specific transactions
+		// Check for Viction specific transactions (BlockSigner, TomoX, etc)
+		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, nil, 0, err
 		}
+
+		if !handled {
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
+
+			if err != nil {
+				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			}
+		}
+
 		// Viction Hooks
 		if err := p.afterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
 			return nil, nil, 0, err

@@ -7,56 +7,47 @@ import (
 	"runtime"
 	"sync"
 
-
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vrc25"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 type victionProcessorState struct {
 	currentBlockNumber *big.Int
-	parrentState   		*state.StateDB
+	parrentState       *state.StateDB
 	balanceFee         map[common.Address]*big.Int
 	balanceUpdated     map[common.Address]*big.Int
 	totalFeeUsed       *big.Int
 }
 
-
 func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateDB) error {
 	header := block.Header()
 
-	// Clear previous state and initialize new
+	// Initialize victionState
 	p.victionState = &victionProcessorState{
 		currentBlockNumber: new(big.Int).Set(header.Number),
 		balanceFee:         make(map[common.Address]*big.Int),
 		balanceUpdated:     make(map[common.Address]*big.Int),
 		totalFeeUsed:       big.NewInt(0),
+		parrentState:       statedb.Copy(),
 	}
 
-	// 1. Hardfork: TIPSigning
 	if p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
 		statedb.DeleteAddress(p.config.Viction.ValidatorBlockSignContract)
 	}
-
-	// 2. Hardfork: Atlas
 	if p.config.IsAtlas(header.Number) {
-		//[to-do] implement Atlas hardfork logic
-		// misc.ApplyVIPVRC25Upgarde(statedb, p.config.AtlasBlock, header.Number)
+		misc.ApplyVIPVRC25Upgarde(statedb, p.config.Viction, p.config.AtlasBlock, header.Number)
+	}
+	if p.config.SaigonBlock != nil && p.config.SaigonBlock.Cmp(block.Number()) <= 0 {
+		misc.ApplySaigonHardFork(statedb, p.config.Viction, p.config.SaigonBlock, block.Number())
 	}
 
-	// 3. Hardfork: Saigon
-	if p.config.SaigonBlock != nil && p.config.SaigonBlock.Cmp(block.Number()) == 0 {
-		//[to-do] implement Saigon hardfork logic
-		// misc.ApplySaigonHardFork(statedb, p.config.SaigonBlock, block.Number())
-	}
+	// Initialize signers
+	InitSignerInTransactions(p.config, header, block.Transactions())
 
-	p.victionState.parrentState = statedb.Copy()
-	InitSignerInTransactions(p.config, block.Header(), block.Transactions())
-
-	p.victionState.balanceUpdated = make(map[common.Address]*big.Int)
-	p.victionState.totalFeeUsed = big.NewInt(0)
-	
 	return nil
 }
 
@@ -64,11 +55,73 @@ func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB
 	return nil
 }
 
-func (p *StateProcessor) beforeApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB) error {
+func (p *StateProcessor) beforeApplyTransaction(block *types.Block, tx *types.Transaction, msg types.Message, statedb *state.StateDB) error {
+	header := block.Header()
+
+	// Bypass blacklist for legacy blocks (before hardfork)
+	maxBlockNumber := new(big.Int).SetInt64(9147459)
+	if header.Number.Cmp(maxBlockNumber) <= 0 {
+		if val := p.config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
+			statedb.SetBalance(msg.From(), val)
+		}
+	}
+
+	// Check blacklist after hardfork
+	if p.config.IsTIPBlacklist(block.Number()) {
+		if p.config.Viction.IsBlacklisted(msg.From()) {
+			return ErrBlacklistedAddress
+		}
+		if tx.To() != nil && p.config.Viction.IsBlacklisted(*tx.To()) {
+			return ErrBlacklistedAddress
+		}
+	}
 	return nil
 }
 
-func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
+func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	// 1. BlockSigner (0x89) Check
+	if tx.To() != nil && *tx.To() == p.config.Viction.ValidatorBlockSignContract && p.config.IsTIPSigning(header.Number) {
+		return p.applySignTransaction(statedb, tx, header, usedGas)
+	}
+
+	return false, nil, 0, nil, nil
+}
+
+func (p *StateProcessor) applySignTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+	// Validate Sender
+	from, err := types.Sender(types.MakeSigner(p.config, header.Number), tx)
+	if err != nil {
+		return true, nil, 0, err, nil
+	}
+	// Nonce Validation
+	nonce := statedb.GetNonce(from)
+	if nonce < tx.Nonce() {
+		return true, nil, 0, ErrNonceTooHigh, nil
+	} else if nonce > tx.Nonce() {
+		return true, nil, 0, ErrNonceTooLow, nil
+	}
+	statedb.SetNonce(from, nonce+1)
+
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	log := &types.Log{}
+	log.Address = p.config.Viction.ValidatorBlockSignContract
+	log.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(log)
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
+}
+
+func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg types.Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
 	return nil
 }
 
