@@ -28,7 +28,6 @@ const (
 	AddressLength          = uint64(20)             // Length of an address
 	ExtraVanity            = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
 	ExtraSeal              = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
-	checkpointInterval     = 1024                   // Number of blocks after which to save the vote snapshot to the database
 )
 
 type Masternode struct {
