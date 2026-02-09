@@ -70,15 +70,15 @@ func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Addre
 		}
 
 		// 7. Deduct the fee from the user's balance and update state
-		balance.Sub(balance, feeUsed)
-		statedb.SetState(token, balanceKey, common.BigToHash(balance))
+		newBalance := new(big.Int).Sub(balance, feeUsed)
+		statedb.SetState(token, balanceKey, common.BigToHash(newBalance))
 
 		// 8. Add the fee to the issuer's balance and update state
 		issuerBalanceKey := state.GetStorageKeyForMapping(issuerAddr.Hash(), slotBalances)
 		issuerBalanceHash := statedb.GetState(token, issuerBalanceKey)
 		issuerBalance := issuerBalanceHash.Big()
-		issuerBalance.Add(issuerBalance, feeUsed)
-		statedb.SetState(token, issuerBalanceKey, common.BigToHash(issuerBalance))
+		newIssuerBalance := new(big.Int).Add(issuerBalance, feeUsed)
+		statedb.SetState(token, issuerBalanceKey, common.BigToHash(newIssuerBalance))
 	}
 	return nil
 }
