@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -245,7 +246,14 @@ func SealHash(header *types.Header) (hash common.Hash) {
 
 // VerifyHeader checks whether a header conforms to the consensus rules.
 func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
-	return c.verifyHeaderWithCache(chain, header, nil)
+	log.Info("VerifyHeader called", "number", header.Number.Uint64(), "hash", header.Hash().Hex(), "parentHash", header.ParentHash.Hex())
+	err := c.verifyHeaderWithCache(chain, header, nil)
+	if err != nil {
+		log.Warn("VerifyHeader failed", "number", header.Number.Uint64(), "hash", header.Hash().Hex(), "err", err)
+	} else {
+		log.Info("VerifyHeader succeeded", "number", header.Number.Uint64(), "hash", header.Hash().Hex())
+	}
+	return err
 }
 
 // [TO-DO]
@@ -315,12 +323,30 @@ func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Heade
 	return nil
 }
 
-// [TO-DO]
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers. The
 // method returns a quit channel to abort the operations and a results channel to
 // retrieve the async verifications (the order is that of the input slice).
-func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, fullVerifies []bool) (chan<- struct{}, <-chan error) {
-	return nil, nil
+func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
+	abort := make(chan struct{})
+	results := make(chan error, len(headers))
+
+	go func() {
+		for i, header := range headers {
+			// Determine if we should verify the seal for this header
+			verifySeal := false
+			if i < len(seals) {
+				verifySeal = seals[i]
+			}
+			err := c.VerifyHeader(chain, header, verifySeal)
+
+			select {
+			case <-abort:
+				return
+			case results <- err:
+			}
+		}
+	}()
+	return abort, results
 }
 
 // [TO-DO]
