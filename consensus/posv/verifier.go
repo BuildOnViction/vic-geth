@@ -20,21 +20,19 @@ var (
 	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 )
 
-//[TO-DO] return nil for execute step validation.
 // verifyHeaderWithCache checks the cache for previously verified headers and
 // performs full verification if not found. Successfully verified headers are
 // cached to avoid redundant checks.
 func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
-	return nil
-	// _, check := c.verifiedBlocks.Get(header.Hash())
-	// if check {
-	// 	return nil
-	// }
-	// err := c.verifyHeader(chain, header, parents)
-	// if err == nil {
-	// 	c.verifiedBlocks.Add(header.Hash(), true)
-	// }
-	// return err
+	_, check := c.verifiedBlocks.Get(header.Hash())
+	if check {
+		return nil
+	}
+	err := c.verifyHeader(chain, header, parents)
+	if err == nil {
+		c.verifiedBlocks.Add(header.Hash(), true)
+	}
+	return err
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules.The
@@ -158,6 +156,11 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		return err
 	}
 
+	//[TO-DO] if backend is not set, skip validator verification. This is to avoid circular dependency between posv and viction. --- IGNORE ---
+	if c.backend == nil {
+		return nil
+	}
+
 	validators := snap.GetSigners()
 	retryCount := 0
 	for retryCount < 2 {
@@ -217,6 +220,10 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	number := header.Number.Uint64()
 	if number == 0 {
 		return errUnknownBlock
+	}
+	// [TO-DO] skip function if backend is not set. This is to avoid circular dependency between posv and viction. --- IGNORE ---
+	if c.backend == nil {
+		return nil
 	}
 	// Resolve the authorization key and check against signers
 	validators, err := c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
@@ -351,7 +358,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	if (number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
+	if (snap.Number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
