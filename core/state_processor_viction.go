@@ -35,11 +35,11 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 		parrentState:       statedb.Copy(),
 	}
 
-	if p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
+	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
 		statedb.DeleteAddress(p.config.Viction.ValidatorBlockSignContract)
 	}
 	if p.config.IsAtlas(header.Number) {
-		misc.ApplyVIPVRC25Upgarde(statedb, p.config.Viction, p.config.AtlasBlock, header.Number)
+		misc.ApplyVIPVRC25Upgrade(statedb, p.config.Viction, p.config.AtlasBlock, header.Number)
 	}
 	if p.config.SaigonBlock != nil && p.config.SaigonBlock.Cmp(block.Number()) <= 0 {
 		misc.ApplySaigonHardFork(statedb, p.config.Viction, p.config.SaigonBlock, block.Number())
@@ -196,11 +196,11 @@ func InitSignerInTransactions(config *params.ChainConfig, header *types.Header, 
 			to = txs.Len()
 		}
 		go func(from int, to int) {
+			defer wg.Done()
 			for j := from; j < to; j++ {
 				types.CacheSigner(signer, txs[j])
 				txs[j].CacheHash()
 			}
-			wg.Done()
 		}(from, to)
 	}
 	wg.Wait()

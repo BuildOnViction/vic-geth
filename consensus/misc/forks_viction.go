@@ -27,11 +27,11 @@ func ApplySaigonHardFork(statedb *state.StateDB, config *params.VictionConfig, s
 	}
 }
 
-func ApplyVIPVRC25Upgarde(statedb *state.StateDB, config *params.VictionConfig, atlasBlock *big.Int, headBlock *big.Int) {
+func ApplyVIPVRC25Upgrade(statedb *state.StateDB, config *params.VictionConfig, atlasBlock *big.Int, headBlock *big.Int) {
 	if headBlock.Cmp(atlasBlock) == 0 {
 		if config.AtlasVRC25MinCap != nil {
 			slotHash := common.BigToHash(new(big.Int).SetUint64(vrc25.SlotVRC25Contract["minCap"]))
 			statedb.SetState(config.VRC25Contract, slotHash, common.BigToHash((*big.Int)(config.AtlasVRC25MinCap)))
 		}
 	}
-}	
+}
