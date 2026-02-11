@@ -80,6 +80,20 @@ func PayFeeWithVRC25(statedb vm.StateDB, from common.Address, token common.Addre
 	return nil
 }
 
+// UpdateFeeCapacity updates the fee capacity for VRC25 tokens in the VRC25 contract state.
+// This is used to batch update fees at the end of block processing.
+func UpdateFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, newBalance map[common.Address]*big.Int, totalFeeUsed *big.Int) {
+	if statedb == nil || len(newBalance) == 0 {
+		return
+	}
+	slotTokensState := SlotVRC25Contract["tokensState"]
+	for token, value := range newBalance {
+		balanceKey := state.GetStorageKeyForMapping(token.Hash(), slotTokensState)
+		statedb.SetState(vrc25Contract, balanceKey, common.BigToHash(value))
+	}
+	statedb.SubBalance(vrc25Contract, totalFeeUsed)
+}
+
 // we use vm.StateDB interface instead of *StateDB
 func GetFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, addr *common.Address) *big.Int {
 	if addr == nil {
