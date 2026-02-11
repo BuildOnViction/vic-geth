@@ -349,7 +349,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	if (number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
+	if (snap.Number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
