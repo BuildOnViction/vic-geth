@@ -15,7 +15,14 @@
 
 package posv
 
-import "github.com/ethereum/go-ethereum/consensus"
+import (
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
+)
 
 // API is a user facing RPC API to allow controlling the signer and voting
 // mechanisms of the proof-of-authority scheme.
@@ -24,4 +31,77 @@ type API struct {
 	posv  *Posv
 }
 
-//[TO-DO] Implement API functions
+type NetworkInformation struct {
+	NetworkId                  *big.Int
+	TomoValidatorAddress       common.Address
+	RelayerRegistrationAddress common.Address
+	TomoXListingAddress        common.Address
+	TomoZAddress               common.Address
+	LendingAddress             common.Address
+}
+
+// GetSnapshot retrieves the state snapshot at a given block.
+func (api *API) GetSnapshot(number *rpc.BlockNumber) (*Snapshot, error) {
+	// Retrieve the requested block number (or current if none requested)
+	var header *types.Header
+	if number == nil || *number == rpc.LatestBlockNumber {
+		header = api.chain.CurrentHeader()
+	} else {
+		header = api.chain.GetHeaderByNumber(uint64(number.Int64()))
+	}
+	// Ensure we have an actually valid block and return its snapshot
+	if header == nil {
+		return nil, errUnknownBlock
+	}
+	return api.posv.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil)
+}
+
+// GetSnapshotAtHash retrieves the state snapshot at a given block.
+func (api *API) GetSnapshotAtHash(hash common.Hash) (*Snapshot, error) {
+	header := api.chain.GetHeaderByHash(hash)
+	if header == nil {
+		return nil, errUnknownBlock
+	}
+	return api.posv.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil)
+}
+
+// GetSigners retrieves the list of authorized signers at the specified block.
+func (api *API) GetSigners(number *rpc.BlockNumber) ([]common.Address, error) {
+	// Retrieve the requested block number (or current if none requested)
+	var header *types.Header
+	if number == nil || *number == rpc.LatestBlockNumber {
+		header = api.chain.CurrentHeader()
+	} else {
+		header = api.chain.GetHeaderByNumber(uint64(number.Int64()))
+	}
+	// Ensure we have an actually valid block and return the signers from its snapshot
+	if header == nil {
+		return nil, errUnknownBlock
+	}
+	snap, err := api.posv.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil)
+	if err != nil {
+		return nil, err
+	}
+	return snap.GetSigners(), nil
+}
+
+// GetSignersAtHash retrieves the state snapshot at a given block.
+func (api *API) GetSignersAtHash(hash common.Hash) ([]common.Address, error) {
+	header := api.chain.GetHeaderByHash(hash)
+	if header == nil {
+		return nil, errUnknownBlock
+	}
+	snap, err := api.posv.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil)
+	if err != nil {
+		return nil, err
+	}
+	return snap.GetSigners(), nil
+}
+
+// [TO-DO] return nil for network information. --- IGNORE ---
+func (api *API) NetworkInformation() NetworkInformation {
+	api.posv.lock.RLock()
+	defer api.posv.lock.RUnlock()
+	info := NetworkInformation{}
+	return info
+}
