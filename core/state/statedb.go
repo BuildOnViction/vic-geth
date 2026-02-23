@@ -487,6 +487,14 @@ func (s *StateDB) deleteStateObject(obj *stateObject) {
 	}
 }
 
+// DeleteAddress removes the address from the state trie.
+func (s *StateDB) DeleteAddress(addr common.Address) {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil && !stateObject.deleted {
+		s.deleteStateObject(stateObject)
+	}
+}
+
 // getStateObject retrieves a state object given by the address, returning nil if
 // the object is not found or was deleted in this execution context. If you need
 // to differentiate between non-existent/just-deleted, use getDeletedStateObject.
