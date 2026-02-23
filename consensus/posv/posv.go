@@ -120,12 +120,10 @@ var (
 // sigHash returns the hash which is used as input for the proof-of-stake-voting
 // signing. It is the hash of the entire header apart from the 65 byte signature
 // contained at the end of the extra data.
-//
-// Note, the method requires the extra data to be at least 65 bytes, otherwise it
-// panics. This is done to avoid accidentally using both forms (signature present
-// or not), which could be abused to produce different hashes for the same header.
-func encodeSigHeader(w io.Writer, header *types.Header) {
-	enc := []interface{}{
+func sigHash(header *types.Header) (hash common.Hash) {
+	hasher := sha3.NewLegacyKeccak256()
+
+	rlp.Encode(hasher, []interface{}{
 		header.ParentHash,
 		header.UncleHash,
 		header.Coinbase,
@@ -141,10 +139,9 @@ func encodeSigHeader(w io.Writer, header *types.Header) {
 		header.Extra[:len(header.Extra)-crypto.SignatureLength], // Yes, this will panic if extra is too short
 		header.MixDigest,
 		header.Nonce,
-	}
-	if err := rlp.Encode(w, enc); err != nil {
-		panic("can't encode: " + err.Error())
-	}
+	})
+	hasher.Sum(hash[:0])
+	return hash
 }
 
 // ecrecover extracts the Ethereum account address from a signed header.
@@ -161,7 +158,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	signature := header.Extra[len(header.Extra)-ExtraSeal:]
 
 	// Recover the public key and the Ethereum address
-	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	pubkey, err := crypto.Ecrecover(sigHash(header).Bytes(), signature)
 	if err != nil {
 		return common.Address{}, err
 	}
@@ -279,6 +276,12 @@ func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	return
 }
 
+// Author implements consensus.Engine, returning the Ethereum address recovered
+// from the signature in the header's extra-data section.
+func (c *Posv) Author(header *types.Header) (common.Address, error) {
+	return ecrecover(header, c.signatures)
+}
+
 // [TO-DO]
 // APIs implements consensus.Engine, returning the user facing RPC API to allow
 // controlling the signer voting.
@@ -316,18 +319,50 @@ func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Heade
 }
 
 // [TO-DO]
+// encodeSigHeader encodes the header fields relevant for signing.
+func encodeSigHeader(w io.Writer, header *types.Header) {
+	enc := []interface{}{
+		header.ParentHash,
+		header.UncleHash,
+		header.Coinbase,
+		header.Root,
+		header.TxHash,
+		header.ReceiptHash,
+		header.Bloom,
+		header.Difficulty,
+		header.Number,
+		header.GasLimit,
+		header.GasUsed,
+		header.Time,
+		header.Extra[:len(header.Extra)-crypto.SignatureLength], // Yes, this will panic if extra is too short
+		header.MixDigest,
+		header.Nonce,
+	}
+	if err := rlp.Encode(w, enc); err != nil {
+		panic("can't encode: " + err.Error())
+	}
+}
+
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers. The
 // method returns a quit channel to abort the operations and a results channel to
 // retrieve the async verifications (the order is that of the input slice).
 func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, fullVerifies []bool) (chan<- struct{}, <-chan error) {
-	return nil, nil
-}
+	abort := make(chan struct{})
+	results := make(chan error, len(headers))
 
-// [TO-DO]
-// Author implements consensus.Engine, returning the Ethereum address recovered
-// from the signature in the header's extra-data section.
-func (c *Posv) Author(header *types.Header) (common.Address, error) {
-	return common.Address{}, nil
+	go func() {
+		for range headers {
+			// err := c.verifyHeaderWithCache(chain, header, headers[:i])
+			err := error(nil)
+
+			select {
+			case <-abort:
+				return
+			case results <- err:
+			}
+		}
+	}()
+	return abort, results
 }
 
 // [TO-DO]
