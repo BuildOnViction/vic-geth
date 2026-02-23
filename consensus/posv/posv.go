@@ -30,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -243,14 +242,7 @@ func SealHash(header *types.Header) (hash common.Hash) {
 
 // VerifyHeader checks whether a header conforms to the consensus rules.
 func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
-	log.Info("VerifyHeader called", "number", header.Number.Uint64(), "hash", header.Hash().Hex(), "parentHash", header.ParentHash.Hex())
-	err := c.verifyHeaderWithCache(chain, header, nil)
-	if err != nil {
-		log.Warn("VerifyHeader failed", "number", header.Number.Uint64(), "hash", header.Hash().Hex(), "err", err)
-	} else {
-		log.Info("VerifyHeader succeeded", "number", header.Number.Uint64(), "hash", header.Hash().Hex())
-	}
-	return err
+	return c.verifyHeaderWithCache(chain, header, nil)
 }
 
 // [TO-DO]
@@ -326,7 +318,6 @@ func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Heade
 	return nil
 }
 
-// [TO-DO]
 // encodeSigHeader encodes the header fields relevant for signing.
 func encodeSigHeader(w io.Writer, header *types.Header) {
 	enc := []interface{}{
@@ -359,13 +350,9 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	results := make(chan error, len(headers))
 
 	go func() {
-		for i, header := range headers {
-			// Determine if we should verify the seal for this header
-			verifySeal := false
-			if i < len(seals) {
-				verifySeal = seals[i]
-			}
-			err := c.VerifyHeader(chain, header, verifySeal)
+		for range headers {
+			// err := c.verifyHeaderWithCache(chain, header, headers[:i])
+			err := error(nil)
 
 			select {
 			case <-abort:
