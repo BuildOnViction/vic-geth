@@ -36,7 +36,7 @@ var (
 	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 )
 
-//[TO-DO]
+//[TO-DO] return nil for execute step validation.
 // verifyHeaderWithCache checks the cache for previously verified headers and
 // performs full verification if not found. Successfully verified headers are
 // cached to avoid redundant checks.
