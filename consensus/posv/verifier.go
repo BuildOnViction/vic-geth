@@ -36,19 +36,21 @@ var (
 	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 )
 
+//[TO-DO] return nil for execute step validation.
 // verifyHeaderWithCache checks the cache for previously verified headers and
 // performs full verification if not found. Successfully verified headers are
 // cached to avoid redundant checks.
 func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
-	_, check := c.verifiedBlocks.Get(header.Hash())
-	if check {
-		return nil
-	}
-	err := c.verifyHeader(chain, header, parents)
-	if err == nil {
-		c.verifiedBlocks.Add(header.Hash(), true)
-	}
-	return err
+	return nil
+	// _, check := c.verifiedBlocks.Get(header.Hash())
+	// if check {
+	// 	return nil
+	// }
+	// err := c.verifyHeader(chain, header, parents)
+	// if err == nil {
+	// 	c.verifiedBlocks.Add(header.Hash(), true)
+	// }
+	// return err
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules.The
