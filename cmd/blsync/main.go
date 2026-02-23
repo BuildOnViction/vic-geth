@@ -49,6 +49,8 @@ func main() {
 		utils.SepoliaFlag,
 		utils.HoleskyFlag,
 		utils.HoodiFlag,
+		utils.VictionFlag,
+		utils.VictestFlag,
 		utils.BlsyncApiFlag,
 		utils.BlsyncJWTSecretFlag,
 	},

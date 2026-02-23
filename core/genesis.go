@@ -223,6 +223,10 @@ func getGenesisState(db ethdb.Database, blockhash common.Hash) (alloc types.Gene
 		genesis = DefaultHoleskyGenesisBlock()
 	case params.HoodiGenesisHash:
 		genesis = DefaultHoodiGenesisBlock()
+	case params.VictionGenesisHash:
+		genesis = DefaultVictionGenesisBlock()
+	case params.VictestGenesisHash:
+		genesis = DefaultVictestGenesisBlock()
 	}
 	if genesis != nil {
 		return genesis.Alloc, nil
@@ -303,8 +307,8 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 	ghash := rawdb.ReadCanonicalHash(db, 0)
 	if (ghash == common.Hash{}) {
 		if genesis == nil {
-			log.Info("Writing default main-net genesis block")
-			genesis = DefaultGenesisBlock()
+			log.Info("Writing default Viction Mainnet genesis block")
+			genesis = DefaultVictionGenesisBlock()
 		} else {
 			log.Info("Writing custom genesis block")
 		}
@@ -328,8 +332,8 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 		// networks must explicitly specify the genesis in the config file, mainnet
 		// genesis will be used as default and the initialization will always fail.
 		if genesis == nil {
-			log.Info("Writing default main-net genesis block")
-			genesis = DefaultGenesisBlock()
+			log.Info("Writing default Viction Mainnet genesis block")
+			genesis = DefaultVictionGenesisBlock()
 		} else {
 			log.Info("Writing custom genesis block")
 		}
@@ -420,7 +424,7 @@ func LoadChainConfig(db ethdb.Database, genesis *Genesis) (cfg *params.ChainConf
 	}
 	// There is no stored chain config and no new config provided,
 	// In this case the default chain config(mainnet) will be used
-	return params.MainnetChainConfig, params.MainnetGenesisHash, nil
+	return params.VictionChainConfig, params.VictionGenesisHash, nil
 }
 
 // chainConfigOrDefault retrieves the attached chain configuration. If the genesis
@@ -438,6 +442,10 @@ func (g *Genesis) chainConfigOrDefault(ghash common.Hash, stored *params.ChainCo
 		return params.SepoliaChainConfig
 	case ghash == params.HoodiGenesisHash:
 		return params.HoodiChainConfig
+	case ghash == params.VictionGenesisHash:
+		return params.VictionChainConfig
+	case ghash == params.VictestGenesisHash:
+		return params.VictestChainConfig
 	default:
 		return stored
 	}
@@ -517,6 +525,11 @@ func (g *Genesis) toBlockWithRoot(root common.Hash) *types.Block {
 		}
 		if conf.IsPrague(num, g.Timestamp) {
 			head.RequestsHash = &types.EmptyRequestsHash
+		}
+		if conf.Posv != nil {
+			head.NewAttestors = []byte{}
+			head.Attestor = []byte{}
+			head.Penalties = []byte{}
 		}
 	}
 	return types.NewBlock(head, &types.Body{Withdrawals: withdrawals}, nil, trie.NewStackTrie(nil))
@@ -641,6 +654,32 @@ func DefaultHoodiGenesisBlock() *Genesis {
 		Difficulty: big.NewInt(0x01),
 		Timestamp:  1742212800,
 		Alloc:      decodePrealloc(hoodiAllocData),
+	}
+}
+
+// DefaultVictionGenesisBlock returns the Viction Mainnet genesis block.
+func DefaultVictionGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VictionChainConfig,
+		Nonce:      0,
+		Timestamp:  0x5c1358f5,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000001b82c4bf317fcafe3d77e8b444c82715d216afe845b7bd987fa22c9bac89b71f0ded03f6e150ba31ad670b2b166684657ffff95f4810380ae7381e9bce41231d5dd8cdd7499e418b648c00af75d184a2f9aba09a6fa4a46fb1a6a3919b027d9cac5aa6890000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   0x47b760,
+		Difficulty: big.NewInt(1),
+		Alloc:      readPrealloc("allocs/viction.json"),
+	}
+}
+
+// DefaultVictestGenesisBlock returns the Viction Testnet genesis block.
+func DefaultVictestGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VictestChainConfig,
+		Nonce:      0,
+		Timestamp:  0x65309e07,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000001acc82e4cafc08af311852da4722fb34529322c91e7c9fae96ec2efb129b69ff5e0e8a8b8acb6add4f4b5983cdf8f674fa63de933713f245502f97676fdef2bd0d35de1c72016cfbbf2a6f2c59b8c2977e40b530a68d1dd71b7941cfb53534c3806aa5180000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   0x47b760,
+		Difficulty: big.NewInt(1),
+		Alloc:      readPrealloc("allocs/victest.json"),
 	}
 }
 

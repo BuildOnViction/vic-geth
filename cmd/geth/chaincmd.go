@@ -441,6 +441,10 @@ func importHistory(ctx *cli.Context) error {
 			network = "holesky"
 		case ctx.Bool(utils.HoodiFlag.Name):
 			network = "hoodi"
+		case ctx.Bool(utils.VictionFlag.Name):
+			network = "viction"
+		case ctx.Bool(utils.VictestFlag.Name):
+			network = "victest"
 		}
 	} else {
 		// No network flag set, try to determine network based on files

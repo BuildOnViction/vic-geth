@@ -32,6 +32,8 @@ var (
 	HoleskyGenesisHash = common.HexToHash("0xb5f7f912443c940f21fd611f12828d75b534364ed9e95ca4e307729a4661bde4")
 	SepoliaGenesisHash = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
 	HoodiGenesisHash   = common.HexToHash("0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b")
+	VictionGenesisHash = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
+	VictestGenesisHash = common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
 )
 
 func newUint64(val uint64) *uint64 { return &val }
@@ -158,6 +160,13 @@ var (
 			Prague: DefaultPragueBlobConfig,
 		},
 	}
+
+	// VictionChainConfig is the chain parameters to run a Viction Mainnet node.
+	VictionChainConfig = readChainSpec("chainspecs/viction.json")
+
+	// VictestChainConfig is the chain parameters to run a Viction Testnet node.
+	VictestChainConfig = readChainSpec("chainspecs/victest.json")
+
 	// AllEthashProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Ethash consensus.
 	AllEthashProtocolChanges = &ChainConfig{
@@ -402,6 +411,8 @@ var NetworkNames = map[string]string{
 	SepoliaChainConfig.ChainID.String(): "sepolia",
 	HoleskyChainConfig.ChainID.String(): "holesky",
 	HoodiChainConfig.ChainID.String():   "hoodi",
+	VictionChainConfig.ChainID.String(): "viction",
+	VictestChainConfig.ChainID.String(): "victest",
 }
 
 // ChainConfig is the core config which determines the blockchain settings.
@@ -508,6 +519,8 @@ func (c *ChainConfig) Description() string {
 		banner += "Consensus: Beacon (proof-of-stake), merged from Ethash (proof-of-work)\n"
 	case c.Clique != nil:
 		banner += "Consensus: Beacon (proof-of-stake), merged from Clique (proof-of-authority)\n"
+	case c.Posv != nil:
+		banner += "Consensus: Beacon (proof-of-stake), merged from PoSV (proof-of-stake)\n"
 	default:
 		banner += "Consensus: unknown\n"
 	}
