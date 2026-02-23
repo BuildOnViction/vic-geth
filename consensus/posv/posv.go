@@ -19,6 +19,7 @@ package posv
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"sync"
@@ -30,9 +31,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	lru "github.com/hashicorp/golang-lru"
 	"golang.org/x/crypto/sha3"
 )
@@ -223,6 +226,23 @@ func (c *Posv) SetBackend(backend PosvBackend) {
 	c.backend = backend
 }
 
+// GetValidators returns the list of validators for the given header.
+// This is a public method to access validators from the backend.
+func (c *Posv) GetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
+	if c.backend == nil {
+		return nil, fmt.Errorf("posv backend not set")
+	}
+	return c.backend.PosvGetValidators(vicConfig, header, chain)
+}
+
+// GetEpoch returns the epoch length from the Posv config.
+func (c *Posv) GetEpoch() uint64 {
+	if c.config != nil && c.config.Epoch > 0 {
+		return c.config.Epoch
+	}
+	return epochLength // Default epoch length
+}
+
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
 	return ecrecover(header, c.attestSignatures)
 }
@@ -257,23 +277,34 @@ func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	return nil
 }
 
-// [TO-DO]
+// FinalizeAndAssemble implements consensus.Engine, applying finalization and returning the block.
 func (c *Posv) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	return nil, nil
+	c.Finalize(chain, header, state, txs, uncles)
+	return types.NewBlock(header, txs, nil, receipts, new(trie.Trie)), nil
 }
 
-// [TO-DO]
 // Close implements consensus.Engine. It's a noop for clique as there are no background threads.
 func (c *Posv) Close() error {
 	return nil
 }
 
-// [TO-DO]
-// Finalize implements consensus.Engine, ensuring no uncles are set, nor block
-// rewards given, and returns the final block.
+// Finalize implements consensus.Engine, applying post-transaction state modifications
+// (epoch rewards at checkpoint blocks) and updating header. First reward at block 2*epoch (e.g. 1800).
+// Skips block 900 (1*epoch); only calculates and applies at blocks 1800, 2700, ... (2*epoch, 3*epoch, ...).
 func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	return
+	config := chain.Config()
+	if config != nil && config.Posv != nil && config.Viction != nil {
+		number := header.Number.Uint64()
+		epoch := config.Posv.Epoch
+		if epoch > 0 && number%epoch == 0 && number > epoch {
+			if err := c.rewardForCheckpoint(chain, state, header); err != nil {
+				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+			}
+		}
+	}
+	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	header.UncleHash = types.CalcUncleHash(nil)
 }
 
 // Author implements consensus.Engine, returning the Ethereum address recovered
