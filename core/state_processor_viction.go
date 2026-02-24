@@ -62,11 +62,8 @@ func (p *StateProcessor) beforeApplyTransaction(block *types.Block, tx *types.Tr
 	header := block.Header()
 
 	// Bypass blacklist for legacy blocks (before hardfork)
-	maxBlockNumber := new(big.Int).SetInt64(9147459)
-	if header.Number.Cmp(maxBlockNumber) <= 0 {
-		if val := p.config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
-			statedb.SetBalance(msg.From(), val)
-		}
+	if val := p.config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
+		statedb.SetBalance(msg.From(), val)
 	}
 
 	// Check blacklist after hardfork
@@ -93,16 +90,52 @@ func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *typ
 		return p.applySignTransaction(statedb, tx, header, usedGas)
 	}
 
-	// TODO: TomoX/TomoZ/Lending transactions intentionally skipped for now
-	// When needed, add checks for:
-	// 2. TradingStateAddr (0x92) - TomoX state synchronization
-	// 3. TomoXLendingAddress (0x93) - Lending protocol transactions
-	// 4. TomoXLendingFinalizedTradeAddress (0x94) - Lending finalization
-	// 5. TomoXContract (0x91) - Trading transactions
-	// All would call applyEmptyTransaction()
+	// 2. TomoX and Lending logic - DEX system disabled, route to no-op handlers
+	to := tx.To()
+	if to != nil {
+		if p.config.IsTIPTomoX(header.Number) {
+			if *to == p.config.Viction.TomoXContract { // TomoXContact (Trading transactions)
+				return p.applyEmptyTransaction(statedb, tx, header, usedGas)
+			}
+			if *to == p.config.Viction.TradingStateContract { // TradingStateAddr
+				return p.applyEmptyTransaction(statedb, tx, header, usedGas)
+			}
+		}
+		if p.config.IsTIPTomoXLending(header.Number) {
+			if *to == p.config.Viction.LendingContract { // TomoXLendingAddress
+				return p.applyEmptyTransaction(statedb, tx, header, usedGas)
+			}
+			if *to == p.config.Viction.LendingFinalizedContract { // TomoXLendingFinalizedTradeAddress
+				return p.applyEmptyTransaction(statedb, tx, header, usedGas)
+			}
+		}
+	}
 
 	// Not a victionchain-specific transaction, use standard EVM
 	return false, nil, 0, nil, nil
+}
+
+func (p *StateProcessor) applyEmptyTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+	// Create a new receipt for the transaction
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	log := &types.Log{}
+	log.Address = *tx.To()
+	log.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(log)
+
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
 }
 
 func (p *StateProcessor) applySignTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
