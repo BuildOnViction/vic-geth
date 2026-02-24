@@ -3,13 +3,13 @@ package eth
 import (
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/tforce-io/tf-golib/stdx/mathxt/bigxt"
@@ -24,7 +24,7 @@ func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *typ
 	if err != nil {
 		return nil, err
 	}
-	var client bind.ContractBackend = &contractClient{client: rpcClient}
+	client := ethclient.NewClient(rpcClient)
 	return viction.GetAttestors(vicConfig, validators, client)
 }
 
@@ -126,7 +126,7 @@ func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *ty
 	if err != nil {
 		return nil, err
 	}
-	var client bind.ContractBackend = &contractClient{client: rpcClient}
+	client := ethclient.NewClient(rpcClient)
 	state, err := s.BlockChain().State()
 	if err != nil {
 		return nil, err
