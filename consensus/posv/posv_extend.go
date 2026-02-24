@@ -59,6 +59,9 @@ type PosvBackend interface {
 	PosvGetEpochReward(c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 		header *types.Header, chain consensus.ChainReader, state *state.StateDB, logger log.Logger) (*EpochReward, error)
 
+	// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
+	PosvDistributeEpochRewards(header *types.Header, state *state.StateDB, epochReward *EpochReward) error
+
 	// Penalize validators for creating bad block or not creating block at all.
 	PosvGetPenalties(c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error)
 

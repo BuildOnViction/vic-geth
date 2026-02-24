@@ -223,6 +223,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 // Set the backend instance into PoSV for handling some features that require accessing to chain state.
 // Must be called right after creation of PoSV.
 func (c *Posv) SetBackend(backend PosvBackend) {
+	log.Info("SetBackend: setting backend", "backend", backend)
 	c.backend = backend
 }
 
@@ -297,13 +298,23 @@ func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	if config != nil && config.Posv != nil && config.Viction != nil {
 		number := header.Number.Uint64()
 		epoch := config.Posv.Epoch
+
+		// Apply epoch rewards only at checkpoint blocks, skipping the first checkpoint (e.g. 900).
 		if epoch > 0 && number%epoch == 0 && number > epoch {
-			if err := c.rewardForCheckpoint(chain, state, header); err != nil {
+			chainReader := chain.(consensus.ChainReader)
+			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chainReader, state, log.Root())
+			if err != nil {
 				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+			}
+			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			if err != nil {
+				log.Warn("Finalize: add balance rewards failed", "block", number, "err", err)
 			}
 		}
 	}
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+
+	// Always update header fields after any state modifications.
+	header.Root = state.IntermediateRoot(config != nil && config.IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 
