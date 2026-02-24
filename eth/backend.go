@@ -140,6 +140,17 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 		p2pServer:         stack.Server(),
 	}
 
+	// Set PosvBackend if engine is Posv
+	if chainConfig.Posv != nil {
+		if posvEngine, ok := eth.engine.(*posv.Posv); ok {
+			// Set Ethereum instance as PosvBackend (implements PosvGetEpochReward)
+			posvEngine.SetBackend(eth)
+			log.Info("PosvBackend set on Posv engine")
+		} else {
+			log.Warn("Posv config present but engine is not Posv type", "engineType", fmt.Sprintf("%T", eth.engine))
+		}
+	}
+
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
 	if bcVersion != nil {
