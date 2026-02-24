@@ -383,7 +383,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 			header.Extra = append(header.Extra, validator[:]...)
 		}
 		// Write list of attestors to NewAttestors field
-		attestors, err := c.backend.PosvGetAttestors(*chain.Config().Viction, header, validators)
+		attestors, err := c.backend.PosvGetAttestors(chain.Config().Viction, header, validators)
 		if err != nil {
 			return err
 		}

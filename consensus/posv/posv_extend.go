@@ -18,8 +18,10 @@
 package posv
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -45,9 +47,16 @@ type ValidatorReward struct {
 	Reward *big.Int `json:"reward"`
 }
 
+// ValidatorInfo stores basic information about a validator.
+type ValidatorInfo struct {
+	Address  common.Address `json:"address"`
+	Capacity *big.Int       `json:"capacity"`
+	Owner    common.Address `json:"owner"`
+}
+
 type PosvBackend interface {
 	// Get attestors from list of validators.
-	PosvGetAttestors(vicConfig params.VictionConfig, header *types.Header, validators []common.Address) ([]int64, error)
+	PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address) ([]int64, error)
 
 	// Get block signers from the state.
 	PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) []types.Transaction
@@ -120,4 +129,42 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	}
 
 	return validators
+}
+
+// Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
+func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
+	if header == nil {
+		return []int64{}
+	}
+
+	attestors := DecodeAttestorsFromHeader(header.NewAttestors)
+	return attestors
+}
+
+// Decode bytes with format of Block.Attestors into list of attestor numbers.
+func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
+	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
+	attestors := make([]int64, attestorCount)
+	for i := 0; i < attestorCount; i++ {
+		attestorBuff := bytes.Trim(attestorsBuff[i*attestorHeaderItemLength:(i+1)*attestorHeaderItemLength], "\x00")
+		attestorNumber, err := strconv.ParseInt(string(attestorBuff), 10, 64)
+		if err != nil {
+			return []int64{}
+		}
+		attestors[i] = attestorNumber
+	}
+
+	return attestors
+}
+
+// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
+func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader) []types.Transaction {
+	blockHash := header.Hash()
+	if signers, ok := c.BlockSigners.Get(blockHash); ok {
+		return signers.([]types.Transaction)
+	}
+	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
+	c.BlockSigners.Add(blockHash, signers)
+	return signers
 }

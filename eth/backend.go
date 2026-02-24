@@ -177,6 +177,14 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Set the IPC endpoint for the blockchain to allow the viction module to access it
+	eth.blockchain.IPCEndpoint = stack.IPCEndpoint()
+
+	// Set backend for PoSV consensus engine
+	if posvEngine, ok := eth.engine.(*posv.Posv); ok {
+		posvEngine.SetBackend(eth)
+	}
+
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
 		log.Warn("Rewinding chain to upgrade configuration", "err", compat)
@@ -551,4 +559,13 @@ func (s *Ethereum) Stop() error {
 	s.chainDb.Close()
 	s.eventMux.Stop()
 	return nil
+}
+
+// GetIPCClient returns a new RPC client connected to the IPC endpoint.
+// Callers can wrap this with ethclient.NewClient(rpcClient) to get an ethclient.Client.
+func (s *Ethereum) GetIPCClient() (*rpc.Client, error) {
+	if s.blockchain.IPCEndpoint == "" {
+		return nil, fmt.Errorf("IPC endpoint not configured")
+	}
+	return rpc.Dial(s.blockchain.IPCEndpoint)
 }
