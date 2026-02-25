@@ -69,17 +69,3 @@ func (statedb *StateDB) VicGetValidatorVoterCap(contractAddress common.Address, 
 
 	return new(big.Int).SetBytes(statedb.GetState(contractAddress, voterElemSlot.Hash()).Bytes())
 }
-
-func (statedb *StateDB) VictionGetSigners(contractAddress common.Address, blockHash common.Hash) []common.Address {
-	blockSignersMappingSlot := StorageLocationFromSlot(vicBlockSignerStorageMap["blockSigners"])
-	blockSignersArrSlot := StorageLocationOfMappingElement(blockSignersMappingSlot, blockHash.Bytes())
-
-	arrLength := statedb.GetState(contractAddress, blockSignersArrSlot.Hash()).Big().Uint64()
-	signers := make([]common.Address, 0, arrLength)
-	for i := uint64(0); i < arrLength; i++ {
-		elemSlot := StorageLocationOfDynamicArrayElement(blockSignersArrSlot, i, 160)
-		signer := common.BytesToAddress(statedb.GetState(contractAddress, elemSlot.Hash()).Bytes())
-		signers = append(signers, signer)
-	}
-	return signers
-}
