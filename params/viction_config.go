@@ -12,6 +12,7 @@ type VictionConfig struct {
 	AtlasVRC25MinCap *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
 
 	LendingContract            common.Address   `json:"lendingContract,omitempty"`
+	LendingFinalizedContract   common.Address   `json:"lendingFinalizedContract,omitempty"`
 	LendingInterestAmount      *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
 	LendingLiquidateTradeBlock uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
 
@@ -44,13 +45,14 @@ type VictionConfig struct {
 	SaigonFundRepeat     uint64           `json:"saigonFundRepeat,omitempty"`
 	SaigonRewardPerEpoch *math.Decimal256 `json:"saigonRewardPerEpoch,omitempty"`
 
-	TomoXBaseCancelFee *math.Decimal256 `json:"tomoxBaseCancelFee,omitempty"`
-	TomoXBaseFee       *math.Decimal256 `json:"tomoxBaseFee,omitempty"`
-	TomoXBasePrice     *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
-	TomoXBaseRecall    *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
-	TomoXContract      common.Address   `json:"tomoxContract,omitempty"`
-	TomoXTopupDenom    uint64           `json:"tomoxTopupDenom,omitempty"`
-	TomoXTopupNumer    uint64           `json:"tomoxTopupNumer,omitempty"`
+	TomoXBaseCancelFee   *math.Decimal256 `json:"tomoxBaseCancelFee,omitempty"`
+	TomoXBaseFee         *math.Decimal256 `json:"tomoxBaseFee,omitempty"`
+	TomoXBasePrice       *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
+	TomoXBaseRecall      *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
+	TomoXContract        common.Address   `json:"tomoxContract,omitempty"`
+	TradingStateContract common.Address   `json:"tradingStateContract,omitempty"`
+	TomoXTopupDenom      uint64           `json:"tomoxTopupDenom,omitempty"`
+	TomoXTopupNumer      uint64           `json:"tomoxTopupNumer,omitempty"`
 
 	ValidatorBlockSignContract     common.Address `json:"validatorBlockSignContract,omitempty"`
 	ValidatorContract              common.Address `json:"validatorContract,omitempty"`
@@ -258,7 +260,12 @@ var victionBypassBlocks = map[uint64]string{
 	9147459: "0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f",
 }
 
+const victionMaxBypassBlock uint64 = 9147459
+
 func (c *VictionConfig) GetVictionBypassBalance(blockNum uint64, addr common.Address) *big.Int {
+	if blockNum > victionMaxBypassBlock {
+		return nil
+	}
 	if bypassAddrHex, ok := victionBypassBlocks[blockNum]; ok {
 		if strings.EqualFold(bypassAddrHex, addr.Hex()) {
 			if balanceStr, ok := victionBypassBalances[bypassAddrHex]; ok {
