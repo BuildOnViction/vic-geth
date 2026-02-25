@@ -14,7 +14,7 @@ import (
 )
 
 // [TO-DO] PosvGetAttestors returns attestors encoded as bytes for the header.
-func (s *Ethereum) PosvGetAttestors(vicConfig params.VictionConfig, header *types.Header, validators []common.Address) ([]byte, error) {
+func (s *Ethereum) PosvGetAttestors(vicConfig params.VictionConfig, header *types.Header, validators []common.Address) ([]int64, error) {
 	return nil, nil
 }
 

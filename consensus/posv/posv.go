@@ -1,29 +1,16 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package posv implements the proof-of-stake-voting consensus engine.
 package posv
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
+	"math/rand"
 	"sync"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
@@ -48,12 +35,19 @@ const (
 	AddressLength          = uint64(20)             // Length of an address
 	ExtraVanity            = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
 	ExtraSeal              = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
+
+	wiggleTime = 500 * time.Millisecond // Random delay (per signer) to allow concurrent signers
 )
 
 type Masternode struct {
 	Address common.Address
 	Stake   *big.Int
 }
+
+var (
+	diffInTurn = big.NewInt(2) // Block difficulty for in-turn signatures
+	diffNoTurn = big.NewInt(1) // Block difficulty for out-of-turn signatures
+)
 
 // Various error messages to mark blocks invalid. These should be private to
 // prevent engine specific errors from being referenced in the remainder of the
@@ -103,7 +97,7 @@ var (
 
 	// ErrInvalidTimestamp is returned if the timestamp of a block is lower than
 	// the previous block's timestamp + the minimum block period.
-	ErrInvalidTimestamp = errors.New("invalid timestamp")
+	errInvalidTimestamp = errors.New("invalid timestamp")
 
 	// errUnauthorized is returned if a header is signed by a non-authorized entity.
 	errUnauthorized = errors.New("unauthorized")
@@ -118,6 +112,15 @@ var (
 	errUnauthorizedSigner = errors.New("unauthorized signer")
 
 	errInvalidBlockAttestor = errors.New("invalid block attestor")
+
+	// errInvalidVotingChain is returned if an authorization list is attempted to
+	// be modified via out-of-range or non-contiguous headers.
+	errInvalidVotingChain = errors.New("invalid voting chain")
+
+	// that already signed a header recently, thus is temporarily not allowed to.
+	errRecentlySigned = errors.New("recently signed")
+
+	errEmptyValidators = errors.New("validators is empty")
 )
 
 // sigHash returns the hash which is used as input for the proof-of-stake-voting
@@ -261,20 +264,163 @@ func SealHash(header *types.Header) (hash common.Hash) {
 	return hash
 }
 
+// PosvRLP returns the rlp bytes which needs to be signed for the proof-of-authority
+// sealing. The RLP to sign consists of the entire header apart from the 65 byte signature
+// contained at the end of the extra data.
+//
+// Note, the method requires the extra data to be at least 65 bytes, otherwise it
+// panics. This is done to avoid accidentally using both forms (signature present
+// or not), which could be abused to produce different hashes for the same header.
+func PosvRLP(header *types.Header) []byte {
+	b := new(bytes.Buffer)
+	encodeSigHeader(b, header)
+	return b.Bytes()
+}
+
 // VerifyHeader checks whether a header conforms to the consensus rules.
 func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
 	return c.verifyHeaderWithCache(chain, header, nil)
 }
 
-// [TO-DO]
 func (c *Posv) calcDifficulty(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) *big.Int {
-	return nil
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parentNumber, parentHash, chain)
+	if err == nil {
+		distance := Distance(currentIndex, parentIndex, validatorCount)
+		return big.NewInt(int64(validatorCount - distance + 1))
+	}
+	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
+
 }
 
-// [TO-DO]
+// Return the distance between current index and parent index in the circular list of validators.
+func Distance(currentIndex, parentIndex, validatorCount int) int {
+	if currentIndex > parentIndex {
+		return currentIndex - parentIndex
+	}
+	return validatorCount + currentIndex - parentIndex
+}
+
+// Check if the signer is inturn to mint current block. Also return context of the check including:
+// currentIndex, parentIndex, validatorCount.
+func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
+	parent := chain.GetHeader(parentHash, parentNumber)
+	checkpointHeader := GetCheckpointHeader(c.config, parent, chain)
+	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	validatorsCount := len(validators)
+	if validatorsCount == 0 {
+		return false, -1, -1, 0, errEmptyValidators
+	}
+
+	parentIndex := -1
+	if parentNumber > 0 {
+		parentCreator, err := c.Author(parent)
+		if err != nil {
+			return false, 0, 0, 0, err
+		}
+		parentIndex = common.IndexOf(validators, parentCreator)
+	}
+	currentIndex := common.IndexOf(validators, signer)
+
+	inturn := (parentIndex+1)%validatorsCount == currentIndex
+	return inturn, currentIndex, parentIndex, validatorsCount, nil
+}
+
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
-func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
+func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header) error {
+	chain := chainH.(consensus.ChainReader)
+
+	// If the block isn't a checkpoint, cast a random vote (good enough for now)
+	header.Coinbase = common.Address{}
+	header.Nonce = types.BlockNonce{}
+
+	number := header.Number.Uint64()
+	// Assemble the voting snapshot to check which votes make sense
+	snap, err := c.snapshot(chain, number-1, header.ParentHash, nil)
+	if err != nil {
+		return err
+	}
+	c.lock.RLock()
+	if number%c.config.Epoch != 0 {
+		// Gather all the proposals that make sense voting on
+		addresses := make([]common.Address, 0, len(c.proposals))
+		for address, authorize := range c.proposals {
+			if snap.validVote(address, authorize) {
+				addresses = append(addresses, address)
+			}
+		}
+		// If there's pending proposals, cast a vote on them
+		if len(addresses) > 0 {
+			header.Coinbase = addresses[rand.Intn(len(addresses))] // nolint: gosec
+			if c.proposals[header.Coinbase] {
+				copy(header.Nonce[:], nonceAuthVote)
+			} else {
+				copy(header.Nonce[:], nonceDropVote)
+			}
+		}
+	}
+
+	// Copy signer protected by mutex to avoid race condition
+	signer := c.signer
+	c.lock.RUnlock()
+
+	// Set the correct difficulty
+	header.Difficulty = c.calcDifficulty(signer, number-1, header.ParentHash, chain)
+
+	// Ensure the extra data has all its components
+	if len(header.Extra) < ExtraVanity {
+		header.Extra = append(header.Extra, bytes.Repeat([]byte{0x00}, ExtraVanity-len(header.Extra))...)
+	}
+	header.Extra = header.Extra[:ExtraVanity]
+
+	if number%c.config.Epoch == 0 {
+		validators := snap.GetSigners()
+		// remove penalized validators in current epoch
+		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain)
+		if err != nil {
+			return err
+		}
+		if len(penalties) > 0 {
+			validators = common.SetSubstract(validators, penalties)
+			header.Penalties = EncodePenaltiesForHeader(penalties)
+		}
+		// remove penalized validators in recent epochs
+		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
+			prevCheckpointBlockNumber := number - (i * c.config.Epoch)
+			prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+			penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+			if len(penalties) > 0 {
+				validators = common.SetSubstract(validators, penalties)
+			}
+		}
+		// Write the final list of validators to Extra field
+		for _, validator := range validators {
+			header.Extra = append(header.Extra, validator[:]...)
+		}
+		// Write list of attestors to NewAttestors field
+		attestors, err := c.backend.PosvGetAttestors(*chain.Config().Viction, header, validators)
+		if err != nil {
+			return err
+		}
+		header.NewAttestors = EncodeAttestorsForHeader(attestors)
+	}
+	header.Extra = append(header.Extra, make([]byte, ExtraSeal)...)
+
+	// Mix digest is reserved for now, set to empty
+	header.MixDigest = common.Hash{}
+
+	// Ensure the timestamp has the correct delay
+	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
+	header.Time = parent.Time + c.config.Period
+
+	now := uint64(time.Now().Unix())
+	if header.Time < now {
+		header.Time = now
+	}
+
 	return nil
 }
 
@@ -318,46 +464,111 @@ func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 
-// Author implements consensus.Engine, returning the Ethereum address recovered
-// from the signature in the header's extra-data section.
-func (c *Posv) Author(header *types.Header) (common.Address, error) {
-	return ecrecover(header, c.signatures)
-}
-
-// [TO-DO]
 // APIs implements consensus.Engine, returning the user facing RPC API to allow
 // controlling the signer voting.
 func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
-	return []rpc.API{}
+	return []rpc.API{{
+		Namespace: "posv",
+		Version:   "1.0",
+		Service:   &API{chain: chain, posv: c},
+		Public:    false,
+	}}
 }
 
-// [TO-DO]
 // Seal implements consensus.Engine, attempting to create a sealed block using
 // the local signing credentials.
 func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
-	return errors.New("not implemented")
+	header := block.Header()
+
+	// Sealing the genesis block is not supported
+	number := header.Number.Uint64()
+	if number == 0 {
+		return errUnknownBlock
+	}
+	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
+	if c.config.Period == 0 && len(block.Transactions()) == 0 {
+		log.Info("Sealing paused, waiting for transactions")
+		results <- nil
+
+		return nil
+	}
+	// Don't hold the signer fields for the entire sealing procedure
+	c.lock.RLock()
+	signer, signFn := c.signer, c.signFn
+	c.lock.RUnlock()
+
+	// Bail out if we're unauthorized to sign a block
+	snap, err := c.snapshot(chain, number-1, header.ParentHash, nil)
+	if err != nil {
+		return err
+	}
+	if _, authorized := snap.Signers[signer]; !authorized {
+		return fmt.Errorf("Posv.Seal: %w", errUnauthorizedSigner)
+	}
+	// If we're amongst the recent signers, wait for the next block
+	for seen, recent := range snap.Recents {
+		if recent == signer {
+			// Signer is among RecentsRLP, only wait if the current block doesn't shift it out
+			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
+				log.Info("Signed recently, must wait for others")
+				return nil
+			}
+		}
+	}
+	// Sweet, the protocol permits us to sign the block, wait for our time
+	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
+	if header.Difficulty.Cmp(diffNoTurn) == 0 {
+		// It's not our turn explicitly to sign, delay it a bit
+		wiggle := time.Duration(len(snap.Signers)/2+1) * wiggleTime
+		delay += time.Duration(rand.Int63n(int64(wiggle))) // nolint: gosec
+
+		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
+	}
+	// Sign all the things!
+	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypePosv, PosvRLP(header))
+	if err != nil {
+		return err
+	}
+	copy(header.Extra[len(header.Extra)-ExtraSeal:], sighash)
+	// Wait until sealing is terminated or delay timeout.
+	log.Trace("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	go func() {
+		select {
+		case <-stop:
+			return
+		case <-time.After(delay):
+		}
+
+		select {
+		case results <- block.WithSeal(header):
+		default:
+			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+		}
+	}()
+
+	return nil
 }
 
-// [TO-DO]
 // CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
 // that a new block should have based on the previous blocks in the chain and the
 // current signer.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return nil
+	return c.calcDifficulty(c.signer, parent.Number.Uint64(), parent.Hash(), chain)
 }
 
-// [TO-DO]]
 // VerifyUncles implements consensus.Engine, always returning an error for any
 // uncles as this consensus mechanism doesn't permit uncles.
 func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
+	if len(block.Uncles()) > 0 {
+		return errors.New("uncles not allowed")
+	}
 	return nil
 }
 
-// [TO-DO]
 // VerifySeal implements consensus.Engine, checking whether the signature contained
 // in the header satisfies the consensus protocol requirements.
 func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
-	return nil
+	return c.verifySeal(chain, header, nil)
 }
 
 // encodeSigHeader encodes the header fields relevant for signing.
@@ -393,12 +604,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 
 	go func() {
 		for i, header := range headers {
-			// Determine if we should verify the seal for this header
-			verifySeal := false
-			if i < len(seals) {
-				verifySeal = seals[i]
-			}
-			err := c.VerifyHeader(chain, header, verifySeal)
+			err := c.verifyHeaderWithCache(chain, header, headers[:i])
 
 			select {
 			case <-abort:
@@ -410,6 +616,13 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	return abort, results
 }
 
-// [TO-DO]
+// Author implements consensus.Engine, returning the Ethereum address recovered
+// from the signature in the header's extra-data section.
+// This is thread-safe (only access the header, as well as signatures, which
+// are lru.ARCCache, which is thread-safe)
+func (c *Posv) Author(header *types.Header) (common.Address, error) {
+	return ecrecover(header, c.signatures)
+}
+
 // Get signer coinbase
-func (c *Posv) Signer() common.Address { return common.Address{} }
+func (c *Posv) Signer() common.Address { return c.signer }
