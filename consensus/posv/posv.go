@@ -2,14 +2,11 @@ package posv
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/big"
 	"math/rand"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -229,7 +226,25 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 // Set the backend instance into PoSV for handling some features that require accessing to chain state.
 // Must be called right after creation of PoSV.
 func (c *Posv) SetBackend(backend PosvBackend) {
+	log.Info("SetBackend: setting backend", "backend", backend)
 	c.backend = backend
+}
+
+// GetValidators returns the list of validators for the given header.
+// This is a public method to access validators from the backend.
+func (c *Posv) GetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
+	if c.backend == nil {
+		return nil, fmt.Errorf("posv backend not set")
+	}
+	return c.backend.PosvGetValidators(vicConfig, header, chain)
+}
+
+// GetEpoch returns the epoch length from the Posv config.
+func (c *Posv) GetEpoch() uint64 {
+	if c.config != nil && c.config.Epoch > 0 {
+		return c.config.Epoch
+	}
+	return epochLength // Default epoch length
 }
 
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
@@ -409,32 +424,10 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	return nil
 }
 
-func (c *Posv) FinalizeAndAssemble(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
+// FinalizeAndAssemble implements consensus.Engine, applying finalization and returning the block.
+func (c *Posv) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	chain := chainH.(consensus.ChainReader)
-	// set block reward
-	number := header.Number.Uint64()
-	rCheckpoint := chain.Config().Posv.Epoch
-
-	if number%rCheckpoint == 0 {
-		rewards, err := c.backend.PosvGetEpochReward(c, chain.Config(), c.config, chain.Config().Viction, header, chain, state, log.Root())
-		if err != nil {
-			return nil, err
-		}
-		if len(params.StoreRewardFolder) > 0 {
-			data, err := json.Marshal(rewards)
-			if err == nil {
-				err = ioutil.WriteFile(filepath.Join(params.StoreRewardFolder, header.Number.String()+"."+header.Hash().Hex()), data, 0644)
-			}
-			if err != nil {
-				log.Error("Error when save reward info ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			}
-		}
-	}
-	// the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
-
+	c.Finalize(chain, header, state, txs, uncles)
 	return types.NewBlock(header, txs, nil, receipts, new(trie.Trie)), nil
 }
 
@@ -443,36 +436,31 @@ func (c *Posv) Close() error {
 	return nil
 }
 
-// Finalize implements consensus.Engine, ensuring no uncles are set, nor block
-// rewards given, and returns the final block.
-func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	chain := chainH.(consensus.ChainReader)
-	// set block reward
-	number := header.Number.Uint64()
-	rCheckpoint := chain.Config().Posv.Epoch
-	//[TO-DO] Return nil if backend is not set, as this method is called by both miner and full node, and full node doesn't need to calculate reward. --- IGNORE ---
-	if c.backend == nil {
-		return
+// Finalize implements consensus.Engine, applying post-transaction state modifications
+// (epoch rewards at checkpoint blocks) and updating header. First reward at block 2*epoch (e.g. 1800).
+// Skips block 900 (1*epoch); only calculates and applies at blocks 1800, 2700, ... (2*epoch, 3*epoch, ...).
+func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
+	config := chain.Config()
+	if config != nil && config.Posv != nil && config.Viction != nil {
+		number := header.Number.Uint64()
+		epoch := config.Posv.Epoch
+
+		// Apply epoch rewards only at checkpoint blocks, skipping the first checkpoint (e.g. 900).
+		if epoch > 0 && number%epoch == 0 && number > epoch {
+			chainReader := chain.(consensus.ChainReader)
+			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chainReader, state, log.Root())
+			if err != nil {
+				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+			}
+			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			if err != nil {
+				log.Warn("Finalize: add balance rewards failed", "block", number, "err", err)
+			}
+		}
 	}
 
-	if number%rCheckpoint == 0 {
-		rewards, err := c.backend.PosvGetEpochReward(c, chain.Config(), c.config, chain.Config().Viction, header, chain, state, log.Root())
-		if err != nil {
-			log.Error("Error when getting epoch reward ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			return
-		}
-		if len(params.StoreRewardFolder) > 0 {
-			data, err := json.Marshal(rewards)
-			if err == nil {
-				err = ioutil.WriteFile(filepath.Join(params.StoreRewardFolder, header.Number.String()+"."+header.Hash().Hex()), data, 0644)
-			}
-			if err != nil {
-				log.Error("Error when save reward info ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			}
-		}
-	}
-	// the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	// Always update header fields after any state modifications.
+	header.Root = state.IntermediateRoot(config != nil && config.IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 

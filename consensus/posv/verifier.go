@@ -261,6 +261,9 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 
 	// Ensure that the difficulty corresponds to the turn-ness of the signer
 	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
 	difficulty := c.calcDifficulty(creator, parent.Number.Uint64(), parent.Hash(), chain)
 	if header.Difficulty.Int64() != difficulty.Int64() {
 		return errInvalidDifficulty
