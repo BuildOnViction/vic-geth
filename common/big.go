@@ -20,6 +20,7 @@ import "math/big"
 
 // Common big integers often used
 var (
+	Big0   = big.NewInt(0)
 	Big1   = big.NewInt(1)
 	Big2   = big.NewInt(2)
 	Big3   = big.NewInt(3)
@@ -29,7 +30,6 @@ var (
 	Big7   = big.NewInt(7)
 	Big8   = big.NewInt(8)
 	Big9   = big.NewInt(9)
-	Big0   = big.NewInt(0)
 	Big32  = big.NewInt(32)
 	Big100 = big.NewInt(100)
 	Big256 = big.NewInt(256)
