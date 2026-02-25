@@ -30,6 +30,7 @@ var (
 	Big8   = big.NewInt(8)
 	Big9   = big.NewInt(9)
 	Big0   = big.NewInt(0)
+	Big100 = big.NewInt(100)
 	Big32  = big.NewInt(32)
 	Big256 = big.NewInt(256)
 	Big257 = big.NewInt(257)
