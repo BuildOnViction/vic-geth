@@ -12,45 +12,30 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-const (
-	yearsUntilHalving1  = 2
-	yearsUntilHalving2  = 5
-	yearsUntilHalving3  = 8
-	halvingDivisor1     = 2
-	halvingDivisor2     = 4
-	saigonRewardYears   = 16
-	saigonCycleYears    = 4
-	minTxDataLength     = 32
-	percentDivisor      = 100
-	significantMismatch = 100
-)
-
 func CalcDefaultRewardPerBlock(rewardPerEpoch *big.Int, number uint64, blockPerYear uint64) *big.Int {
-	if blockPerYear*yearsUntilHalving3 <= number {
+	// vicConfig is passed for future extensibility, currently using hard-coded values
+	// Stop reward from 8th year onwards
+	if blockPerYear*8 <= number {
 		return big.NewInt(0)
 	}
-	if blockPerYear*yearsUntilHalving2 <= number {
-		return new(big.Int).Div(rewardPerEpoch, big.NewInt(halvingDivisor2))
+	if blockPerYear*5 <= number {
+		return new(big.Int).Div(rewardPerEpoch, new(big.Int).SetUint64(4))
 	}
-	if blockPerYear*yearsUntilHalving1 <= number {
-		return new(big.Int).Div(rewardPerEpoch, big.NewInt(halvingDivisor1))
+	if blockPerYear*2 <= number {
+		return new(big.Int).Div(rewardPerEpoch, new(big.Int).SetUint64(2))
 	}
 	return new(big.Int).Set(rewardPerEpoch)
 }
 
+// Return amount of reward per block of Saigon hard fork based on current block number
 func CalcSaigonRewardPerBlock(rewardPerEpoch *big.Int, saigonBlock *big.Int, number uint64, blockPerYear uint64) *big.Int {
-	if saigonBlock == nil {
-		return big.NewInt(0)
-	}
 	numberBig := new(big.Int).SetUint64(number)
-	yearsFromHardfork := new(big.Int).Div(
-		new(big.Int).Sub(numberBig, saigonBlock),
-		new(big.Int).SetUint64(blockPerYear),
-	)
-	if yearsFromHardfork.Sign() < 0 || yearsFromHardfork.Cmp(big.NewInt(saigonRewardYears)) >= 0 {
-		return big.NewInt(0)
+	yearsFromHardfork := new(big.Int).Div(new(big.Int).Sub(numberBig, saigonBlock), new(big.Int).SetUint64(blockPerYear))
+	// Additional reward for Saigon upgrade will last for 16 years
+	if yearsFromHardfork.Cmp(common.Big0) < 0 || yearsFromHardfork.Cmp(big.NewInt(16)) >= 0 {
+		return common.Big0
 	}
-	cyclesFromHardfork := new(big.Int).Div(yearsFromHardfork, big.NewInt(saigonCycleYears))
+	cyclesFromHardfork := new(big.Int).Div(yearsFromHardfork, big.NewInt(4))
 	rewardHalving := new(big.Int).Exp(big.NewInt(2), cyclesFromHardfork, nil)
 	return new(big.Int).Div(rewardPerEpoch, rewardHalving)
 }
@@ -86,10 +71,10 @@ func CalcRewardsForValidators(
 				continue
 			}
 			txData := tx.Data()
-			if len(txData) < minTxDataLength {
+			if len(txData) < common.HashLength {
 				continue
 			}
-			signedBlockHash := common.BytesToHash(txData[len(txData)-minTxDataLength:])
+			signedBlockHash := common.BytesToHash(txData[len(txData)-common.HashLength:])
 			signer := types.MakeSigner(config, h.Number)
 			msg, err := tx.AsMessage(signer)
 			if err != nil {
@@ -158,9 +143,6 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 	rewardVoterPercent := vicConfig.RewardVoterPercent
 	rewardFoundationPercent := vicConfig.RewardFoundationPercent
 
-	big100 := big.NewInt(percentDivisor)
-	big0 := big.NewInt(0)
-
 	addBalance := func(mapping map[common.Address]*big.Int, addr common.Address, amount *big.Int) {
 		if mapping[addr] == nil {
 			mapping[addr] = amount
@@ -174,21 +156,21 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 			continue
 		}
 
-		validatorRewardTotal := new(big.Int).Set(vr.Reward)
-		distributedTotal := big.NewInt(0)
+		// 		validatorRewardTotal := new(big.Int).Set(vr.Reward)
+		distributedTotal := new(big.Int)
 
 		owner, _ := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, validator)
 		rewardForOwner := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardValidatorPercent))
-		rewardForOwner.Div(rewardForOwner, big100)
+		rewardForOwner.Div(rewardForOwner, common.Big100)
 		addBalance(stakeholderRewards, owner, rewardForOwner)
 		distributedTotal.Add(distributedTotal, rewardForOwner)
 
 		voters := statedb.VicGetValidatorVoters(vicConfig.ValidatorContract, validator)
-		voterRewardDistributed := big.NewInt(0)
+		voterRewardDistributed := new(big.Int)
 		if len(voters) > 0 {
 			totalVoterReward := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardVoterPercent))
-			totalVoterReward.Div(totalVoterReward, big100)
-			totalCap := big.NewInt(0)
+			totalVoterReward.Div(totalVoterReward, common.Big100)
+			totalCap := new(big.Int)
 			voterCaps := make(map[common.Address]*big.Int)
 
 			tip2019Block := config.TIP2019Block
@@ -201,7 +183,7 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 				voterCaps[voteAddr] = voterCap
 			}
 
-			if totalCap.Cmp(big0) > 0 {
+			if totalCap.Cmp(common.Big0) > 0 {
 				for addr, voteCap := range voterCaps {
 					if voteCap == nil || voteCap.Sign() <= 0 {
 						continue
@@ -217,17 +199,17 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 
 		if vicConfig.RewardFoundationAddress != (common.Address{}) && rewardFoundationPercent > 0 {
 			rewardForFoundation := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardFoundationPercent))
-			rewardForFoundation.Div(rewardForFoundation, big100)
+			rewardForFoundation.Div(rewardForFoundation, common.Big100)
 			addBalance(stakeholderRewards, vicConfig.RewardFoundationAddress, rewardForFoundation)
 			distributedTotal.Add(distributedTotal, rewardForFoundation)
 		}
 
-		if distributedTotal.Cmp(validatorRewardTotal) != 0 {
-			missing := new(big.Int).Sub(validatorRewardTotal, distributedTotal)
-			if missing.Cmp(big.NewInt(significantMismatch)) > 0 {
-				logger.Warn("CalcRewardsForStakeholders: significant reward distribution mismatch", "validator", validator.Hex(), "totalReward", validatorRewardTotal.String(), "distributed", distributedTotal.String(), "missing", missing.String())
-			}
-		}
+		// if distributedTotal.Cmp(validatorRewardTotal) != 0 {
+		// 	missing := new(big.Int).Sub(validatorRewardTotal, distributedTotal)
+		// 	if missing.Cmp(big.NewInt(100)) > 0 {
+		// 		logger.Warn("CalcRewardsForStakeholders: significant reward distribution mismatch", "validator", validator.Hex(), "totalReward", validatorRewardTotal.String(), "distributed", distributedTotal.String(), "missing", missing.String())
+		// 	}
+		// }
 	}
 
 	return stakeholderRewards, nil
