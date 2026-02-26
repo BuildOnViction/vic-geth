@@ -127,16 +127,20 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 		return errInvalidTimestamp
 	}
 
-	// Retrieve the snapshot needed to verify this header and cache it
-	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
-	if err != nil {
-		log.Debug("Failed to retrieve snapshot", "number", number, "err", err)
-		return err
-	}
-
 	// If the block is a checkpoint block, verify the signer list
 	if number%c.config.Epoch == 0 {
+		if header == nil {
+			log.Error("Failed to retrieve parent header for checkpoint verification")
+		}
+
+		if parents == nil {
+			log.Error("No parents provided for checkpoint verification")
+		}
+
 		chain := chain.(consensus.ChainReader)
+		if chain == nil {
+			log.Error("No chain reader provided for checkpoint verification")
+		}
 		err := c.verifyValidators(chain, header, parents)
 		if err != nil {
 			log.Debug("Failed to verify validators", "number", number, "err", err)
@@ -145,23 +149,25 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	}
 
 	// All basic checks passed, verify the seal and return
-	return c.verifySeal(chain, header, snap)
+	return c.verifySeal(chain, header, parents)
 
 }
 
 func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
 	number := header.Number.Uint64()
+	log.Debug("Verifying checkpoint validators", "number", number, "hash", header.Hash().Hex())
 	snap, err := c.snapshot(chain, header.Number.Uint64()-1, header.ParentHash, parents)
+	log.Debug("Snapshot for checkpoint verification", "number", snap.Number, "hash", snap.Hash, "signers", snap.Signers)
 	if err != nil {
 		return err
 	}
 
-	//[TO-DO] if backend is not set, skip validator verification. This is to avoid circular dependency between posv and viction. --- IGNORE ---
 	if c.backend == nil {
 		return nil
 	}
 
 	validators := snap.GetSigners()
+	log.Debug("Validators from snapshot", "number", number, "validators", validators)
 	retryCount := 0
 	for retryCount < 2 {
 		// compare penalties computed from state with header.Penalties
@@ -181,11 +187,13 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		// remove penalized validators in recent epochs
 		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
-			prevCheckpointBlockNumber := number - (i * c.config.Epoch)
-			prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-			penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
-			if len(penalties) > 0 {
-				validators = common.SetSubstract(validators, penalties)
+			if number > (i * c.config.Epoch) {
+				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
+				prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+				penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+				if len(penalties) > 0 {
+					validators = common.SetSubstract(validators, penalties)
+				}
 			}
 		}
 		// compare validators computed from state with header.Extra
@@ -214,7 +222,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements.
-func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, snap *Snapshot) error {
+func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	chain := chainH.(consensus.ChainReader)
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
@@ -234,6 +242,19 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
 		log.Debug("Failed to recover signer", "number", number, "err", err)
+		return err
+	}
+
+	var parent *types.Header
+	if len(parents) > 0 {
+		parent = parents[len(parents)-1]
+	} else {
+		parent = chain.GetHeader(header.ParentHash, number-1)
+	}
+
+	// Retrieve the snapshot needed to verify this header and cache it
+	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
+	if err != nil {
 		return err
 	}
 
@@ -259,12 +280,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		}
 	}
 
-	// Ensure that the difficulty corresponds to the turn-ness of the signer
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
-	difficulty := c.calcDifficulty(creator, parent.Number.Uint64(), parent.Hash(), chain)
+	difficulty := c.calcDifficulty(creator, parent, chain)
 	if header.Difficulty.Int64() != difficulty.Int64() {
 		return errInvalidDifficulty
 	}
