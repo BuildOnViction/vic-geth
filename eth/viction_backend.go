@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/tforce-io/tf-golib/stdx/mathxt/bigxt"
 )
 
 const SignMethodHex = "e341eaa4"
@@ -60,35 +59,74 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.Chai
 	return viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
 }
 
-// Calculate and distribute reward at checkpoint block.
+// PosvGetEpochReward calculates and distributes reward at checkpoint block.
 func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
+	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
 	blockNumber := header.Number.Uint64()
-	blockNumberBig := header.Number
 
-	if bigxt.IsLessThanOrEqualInt(blockNumberBig, new(big.Int).SetUint64(posvConfig.Epoch)) {
+	// Skip block 900 (1*epoch); first reward at block 1800 (2*epoch)
+	if blockNumber <= posvConfig.Epoch {
 		return epochRewards, nil
 	}
 
 	// Get initial reward
-	totalReward := viction.CalcDefaultRewardPerBlock((*big.Int)(vicConfig.RewardPerEpoch), blockNumber, posvConfig.BlocksPerYear())
+	initialRewardPerEpoch := (*big.Int)(vicConfig.RewardPerEpoch)
+	totalReward := viction.CalcDefaultRewardPerBlock(initialRewardPerEpoch, blockNumber, posvConfig.BlocksPerYear())
+
 	// Get additional reward for Saigon upgrade
-	if chain.Config().IsSaigon(blockNumberBig) {
-		saigonReward := viction.CalcSaigonRewardPerBlock((*big.Int)(vicConfig.SaigonRewardPerEpoch), chain.Config().SaigonBlock, blockNumber, posvConfig.BlocksPerYear())
+	if config.IsSaigon(header.Number) && vicConfig.SaigonRewardPerEpoch != nil {
+		saigonRewardPerEpoch := (*big.Int)(vicConfig.SaigonRewardPerEpoch)
+		saigonReward := viction.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, blockNumber, posvConfig.BlocksPerYear())
 		totalReward = new(big.Int).Add(totalReward, saigonReward)
 	}
 
 	// Calculate rewards for validators and stakeholders
-	validatorRewards, _ := viction.CalcRewardsForValidators(c, config, posvConfig, vicConfig, header, totalReward, chain, logger)
+	validatorRewards, err := viction.CalcRewardsForValidators(c, config, posvConfig, vicConfig, header, totalReward, chain, logger)
+	if err != nil {
+		return nil, err
+	}
 	epochRewards.ValidatorRewards = validatorRewards
 
-	stakeholderRewards, _ := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, state, logger)
+	stakeholderRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, statedb, logger)
+	if err != nil {
+		return nil, err
+	}
 	epochRewards.StakholderRewards = stakeholderRewards
 
 	return epochRewards, nil
+}
+
+// PosvAddBalanceRewards applies epoch rewards to the state by adding balances to all stakeholders.
+// It does NOT recalculate; caller should pass the epochReward returned by PosvGetEpochReward.
+func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state.StateDB, epochReward *posv.EpochReward) error {
+	blockNumber := header.Number.Uint64()
+
+	if epochReward == nil {
+		log.Debug("PosvAddBalanceRewards: no epoch rewards to apply", "block", blockNumber)
+		return nil
+	}
+	if state == nil {
+		return nil
+	}
+
+	// Apply stakeholder rewards to the state
+	totalRewardDistributed := big.NewInt(0)
+	rewardCount := 0
+
+	for addr, amount := range epochReward.StakholderRewards {
+		if amount == nil || amount.Sign() <= 0 {
+			continue
+		}
+		state.AddBalance(addr, amount)
+		totalRewardDistributed.Add(totalRewardDistributed, amount)
+		rewardCount++
+	}
+
+	log.Info("PosvAddBalanceRewards: applied epoch rewards", "block", blockNumber, "recipientCount", rewardCount, "totalReward", totalRewardDistributed.String())
+	return nil
 }
 
 // Get list of validators creating bad block or not creating block at all.

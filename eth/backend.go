@@ -140,6 +140,17 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 		p2pServer:         stack.Server(),
 	}
 
+	// Set PosvBackend if engine is Posv
+	if chainConfig.Posv != nil {
+		if posvEngine, ok := eth.engine.(*posv.Posv); ok {
+			// Set Ethereum instance as PosvBackend (implements PosvGetEpochReward)
+			posvEngine.SetBackend(eth)
+			log.Info("PosvBackend set on Posv engine")
+		} else {
+			log.Warn("Posv config present but engine is not Posv type", "engineType", fmt.Sprintf("%T", eth.engine))
+		}
+	}
+
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
 	if bcVersion != nil {
@@ -564,6 +575,9 @@ func (s *Ethereum) Stop() error {
 // GetIPCClient returns a new RPC client connected to the IPC endpoint.
 // Callers can wrap this with ethclient.NewClient(rpcClient) to get an ethclient.Client.
 func (s *Ethereum) GetIPCClient() (*rpc.Client, error) {
+	if s.blockchain == nil {
+		return nil, fmt.Errorf("blockchain not initialized")
+	}
 	if s.blockchain.IPCEndpoint == "" {
 		return nil, fmt.Errorf("IPC endpoint not configured")
 	}

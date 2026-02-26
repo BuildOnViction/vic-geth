@@ -2,14 +2,11 @@ package posv
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/big"
 	"math/rand"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -229,7 +226,25 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 // Set the backend instance into PoSV for handling some features that require accessing to chain state.
 // Must be called right after creation of PoSV.
 func (c *Posv) SetBackend(backend PosvBackend) {
+	log.Info("SetBackend: setting backend", "backend", backend)
 	c.backend = backend
+}
+
+// GetValidators returns the list of validators for the given header.
+// This is a public method to access validators from the backend.
+func (c *Posv) GetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
+	if c.backend == nil {
+		return nil, fmt.Errorf("posv backend not set")
+	}
+	return c.backend.PosvGetValidators(vicConfig, header, chain)
+}
+
+// GetEpoch returns the epoch length from the Posv config.
+func (c *Posv) GetEpoch() uint64 {
+	if c.config != nil && c.config.Epoch > 0 {
+		return c.config.Epoch
+	}
+	return epochLength // Default epoch length
 }
 
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
@@ -267,8 +282,8 @@ func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	return c.verifyHeaderWithCache(chain, header, nil)
 }
 
-func (c *Posv) calcDifficulty(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) *big.Int {
-	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parentNumber, parentHash, chain)
+func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, chain)
 	if err == nil {
 		distance := Distance(currentIndex, parentIndex, validatorCount)
 		return big.NewInt(int64(validatorCount - distance + 1))
@@ -287,8 +302,7 @@ func Distance(currentIndex, parentIndex, validatorCount int) int {
 
 // Check if the signer is inturn to mint current block. Also return context of the check including:
 // currentIndex, parentIndex, validatorCount.
-func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
-	parent := chain.GetHeader(parentHash, parentNumber)
+func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
 	checkpointHeader := GetCheckpointHeader(c.config, parent, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	validatorsCount := len(validators)
@@ -297,7 +311,7 @@ func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash c
 	}
 
 	parentIndex := -1
-	if parentNumber > 0 {
+	if parent.Number.Uint64() > 0 {
 		parentCreator, err := c.Author(parent)
 		if err != nil {
 			return false, 0, 0, 0, err
@@ -320,6 +334,10 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	header.Nonce = types.BlockNonce{}
 
 	number := header.Number.Uint64()
+
+	// Fetch parent header once for reuse throughout the function
+	parent := chain.GetHeader(header.ParentHash, number-1)
+
 	// Assemble the voting snapshot to check which votes make sense
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
@@ -349,8 +367,8 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	signer := c.signer
 	c.lock.RUnlock()
 
-	// Set the correct difficulty
-	header.Difficulty = c.calcDifficulty(signer, number-1, header.ParentHash, chain)
+	// Set the correct difficulty using the parent header fetched earlier
+	header.Difficulty = c.calcDifficulty(signer, parent, chain)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < ExtraVanity {
@@ -394,11 +412,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	// Mix digest is reserved for now, set to empty
 	header.MixDigest = common.Hash{}
 
-	// Ensure the timestamp has the correct delay
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
+	// Ensure the timestamp has the correct delay using the parent header fetched earlier
 	header.Time = parent.Time + c.config.Period
 
 	now := uint64(time.Now().Unix())
@@ -409,32 +423,10 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	return nil
 }
 
-func (c *Posv) FinalizeAndAssemble(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
+// FinalizeAndAssemble implements consensus.Engine, applying finalization and returning the block.
+func (c *Posv) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	chain := chainH.(consensus.ChainReader)
-	// set block reward
-	number := header.Number.Uint64()
-	rCheckpoint := chain.Config().Posv.Epoch
-
-	if number%rCheckpoint == 0 {
-		rewards, err := c.backend.PosvGetEpochReward(c, chain.Config(), c.config, chain.Config().Viction, header, chain, state, log.Root())
-		if err != nil {
-			return nil, err
-		}
-		if len(params.StoreRewardFolder) > 0 {
-			data, err := json.Marshal(rewards)
-			if err == nil {
-				err = ioutil.WriteFile(filepath.Join(params.StoreRewardFolder, header.Number.String()+"."+header.Hash().Hex()), data, 0644)
-			}
-			if err != nil {
-				log.Error("Error when save reward info ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			}
-		}
-	}
-	// the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
-
+	c.Finalize(chain, header, state, txs, uncles)
 	return types.NewBlock(header, txs, nil, receipts, new(trie.Trie)), nil
 }
 
@@ -443,36 +435,31 @@ func (c *Posv) Close() error {
 	return nil
 }
 
-// Finalize implements consensus.Engine, ensuring no uncles are set, nor block
-// rewards given, and returns the final block.
-func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	chain := chainH.(consensus.ChainReader)
-	// set block reward
-	number := header.Number.Uint64()
-	rCheckpoint := chain.Config().Posv.Epoch
-	//[TO-DO] Return nil if backend is not set, as this method is called by both miner and full node, and full node doesn't need to calculate reward. --- IGNORE ---
-	if c.backend == nil {
-		return
+// Finalize implements consensus.Engine, applying post-transaction state modifications
+// (epoch rewards at checkpoint blocks) and updating header. First reward at block 2*epoch (e.g. 1800).
+// Skips block 900 (1*epoch); only calculates and applies at blocks 1800, 2700, ... (2*epoch, 3*epoch, ...).
+func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
+	config := chain.Config()
+	if config != nil && config.Posv != nil && config.Viction != nil {
+		number := header.Number.Uint64()
+		epoch := config.Posv.Epoch
+
+		// Apply epoch rewards only at checkpoint blocks, skipping the first checkpoint (e.g. 900).
+		if epoch > 0 && number%epoch == 0 && number > epoch {
+			chainReader := chain.(consensus.ChainReader)
+			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chainReader, state, log.Root())
+			if err != nil {
+				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+			}
+			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			if err != nil {
+				log.Warn("Finalize: add balance rewards failed", "block", number, "err", err)
+			}
+		}
 	}
 
-	if number%rCheckpoint == 0 {
-		rewards, err := c.backend.PosvGetEpochReward(c, chain.Config(), c.config, chain.Config().Viction, header, chain, state, log.Root())
-		if err != nil {
-			log.Error("Error when getting epoch reward ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			return
-		}
-		if len(params.StoreRewardFolder) > 0 {
-			data, err := json.Marshal(rewards)
-			if err == nil {
-				err = ioutil.WriteFile(filepath.Join(params.StoreRewardFolder, header.Number.String()+"."+header.Hash().Hex()), data, 0644)
-			}
-			if err != nil {
-				log.Error("Error when save reward info ", "number", header.Number, "hash", header.Hash().Hex(), "err", err)
-			}
-		}
-	}
-	// the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	// Always update header fields after any state modifications.
+	header.Root = state.IntermediateRoot(config != nil && config.IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 
@@ -565,7 +552,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 // that a new block should have based on the previous blocks in the chain and the
 // current signer.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return c.calcDifficulty(c.signer, parent.Number.Uint64(), parent.Hash(), chain)
+	return c.calcDifficulty(c.signer, parent, chain)
 }
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
@@ -617,7 +604,6 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	go func() {
 		for i, header := range headers {
 			err := c.verifyHeaderWithCache(chain, header, headers[:i])
-
 			select {
 			case <-abort:
 				return
