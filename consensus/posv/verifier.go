@@ -2,7 +2,6 @@ package posv
 
 import (
 	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -176,7 +175,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if err != nil {
 			return err
 		}
-		fmt.Println("@@@@@@@@")
 
 		penaltiesBuff := EncodePenaltiesForHeader(penalties)
 		if !bytes.Equal(penaltiesBuff, header.Penalties) {
