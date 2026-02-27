@@ -249,16 +249,16 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, new(EthashConfig), nil, nil, nil}
+	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, new(EthashConfig), nil, nil, nil}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil, nil}
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil, nil}
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, new(EthashConfig), nil, nil, nil}
+	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, new(EthashConfig), nil, nil, nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int))
 
 	// StoreRewardFolder is the folder name to store epoch reward data.
@@ -346,7 +346,6 @@ type ChainConfig struct {
 	TIPTomoXBlock          *big.Int `json:"tipTomoXBlock,omitempty"`
 	TIPTomoXLendingBlock   *big.Int `json:"tipTomoXLendingBlock,omitempty"`
 	TIPTomoXCancelFeeBlock *big.Int `json:"tipTomoXCancelFeeBlock,omitempty"`
-	TomoXDeprecationBlock  *big.Int `json:"tomoxDeprecationBlock,omitempty"`
 
 	SaigonBlock *big.Int `json:"saigonBlock,omitempty"`
 	AtlasBlock  *big.Int `json:"atlasBlock,omitempty"`
@@ -411,7 +410,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, YOLO v2: %v, TIP2019: %v, TIPSigning: %v, TIPRandomize: %v, TIPBlacklist: %v, TIPTRC21Fee: %v, TIPFixSignerCheck: %v, TIPTomoX: %v, TIPTomoXLending: %v, TIPTomoXCancelFee: %v, TomoXDeprecation: %v, Saigon: %v, Atlas: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, YOLO v2: %v, TIP2019: %v, TIPSigning: %v, TIPRandomize: %v, TIPBlacklist: %v, TIPTRC21Fee: %v, TIPFixSignerCheck: %v, TIPTomoX: %v, TIPTomoXLending: %v, TIPTomoXCancelFee: %v, Saigon: %v, Atlas: %v, Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -434,7 +433,6 @@ func (c *ChainConfig) String() string {
 		c.TIPTomoXBlock,
 		c.TIPTomoXLendingBlock,
 		c.TIPTomoXCancelFeeBlock,
-		c.TomoXDeprecationBlock,
 		c.SaigonBlock,
 		c.AtlasBlock,
 		engine,
@@ -556,11 +554,6 @@ func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
 // IsTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
 func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
 	return isForked(c.TIPTomoXCancelFeeBlock, num)
-}
-
-// IsTomoXDeprecated returns whether num is either equal to the TomoXDeprecation fork block or greater.
-func (c *ChainConfig) IsTomoXDeprecated(num *big.Int) bool {
-	return isForked(c.TomoXDeprecationBlock, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -815,8 +808,7 @@ type Rules struct {
 	IsTIP2019, IsTIPSigning, IsTIPRandomize                 bool
 	IsTIPBlacklist, IsTIPTRC21Fee, IsTIPFixSignerCheck      bool
 	IsTIPTomoX, IsTIPTomoXLending, IsTIPTomoXCancelFee      bool
-	IsTomoXDeprecated                                       bool
-	IsSaigon, IsAtlas                                       bool
+	IsSaigon, IsAtlas                                       bool // Atlas also marks TomoX deprecation
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -846,9 +838,8 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsTIPTomoX:          c.IsTIPTomoX(num),
 		IsTIPTomoXLending:   c.IsTIPTomoXLending(num),
 		IsTIPTomoXCancelFee: c.IsTIPTomoXCancelFee(num),
-		IsTomoXDeprecated:   c.IsTomoXDeprecated(num),
 		IsSaigon:            c.IsSaigon(num),
-		IsAtlas:             c.IsAtlas(num),
+		IsAtlas:             c.IsAtlas(num), // Atlas also marks TomoX deprecation
 	}
 }
 
