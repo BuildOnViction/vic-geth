@@ -551,7 +551,7 @@ func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
 	return isForked(c.TIPTomoXLendingBlock, num)
 }
 
-// IsTIPTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
+// IsTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
 func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
 	return isForked(c.TIPTomoXCancelFeeBlock, num)
 }
@@ -808,7 +808,7 @@ type Rules struct {
 	IsTIP2019, IsTIPSigning, IsTIPRandomize                 bool
 	IsTIPBlacklist, IsTIPTRC21Fee, IsTIPFixSignerCheck      bool
 	IsTIPTomoX, IsTIPTomoXLending, IsTIPTomoXCancelFee      bool
-	IsSaigon, IsAtlas                                       bool
+	IsSaigon, IsAtlas                                       bool // Atlas also marks TomoX deprecation
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -839,7 +839,7 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsTIPTomoXLending:   c.IsTIPTomoXLending(num),
 		IsTIPTomoXCancelFee: c.IsTIPTomoXCancelFee(num),
 		IsSaigon:            c.IsSaigon(num),
-		IsAtlas:             c.IsAtlas(num),
+		IsAtlas:             c.IsAtlas(num), // Atlas also marks TomoX deprecation
 	}
 }
 

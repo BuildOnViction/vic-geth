@@ -1,0 +1,16 @@
+package common
+
+var (
+	// System Addresses
+	TomoXContract    = HexToAddress("0x0000000000000000000000000000000000000091") // 0x91
+	TradingState     = HexToAddress("0x0000000000000000000000000000000000000092") // 0x92
+	Lending          = HexToAddress("0x0000000000000000000000000000000000000093") // 0x93
+	LendingFinalized = HexToAddress("0x0000000000000000000000000000000000000094") // 0x94
+	TomoZContract    = HexToAddress("0x0000000000000000000000000000000000000089") // 0x89
+	BuyGasContract   = HexToAddress("0x000000000000000000000000000000000000008A") // 0x8A
+)
+
+// EmptyHash is the hash of an empty array.
+func EmptyHash() Hash {
+	return HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000")
+}
