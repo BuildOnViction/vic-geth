@@ -444,6 +444,20 @@ type ChainConfig struct {
 	GrayGlacierBlock    *big.Int `json:"grayGlacierBlock,omitempty"`    // Eip-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	MergeNetsplitBlock  *big.Int `json:"mergeNetsplitBlock,omitempty"`  // Virtual fork after The Merge to use as a network splitter
 
+	// Viction mainnet upgrades
+	TIP2019Block           *big.Int `json:"tip2019Block,omitempty"`
+	TIPSigningBlock        *big.Int `json:"tipSigningBlock,omitempty"`
+	TIPRandomizeBlock      *big.Int `json:"tipRandomizeBlock,omitempty"`
+	TIPBlacklistBlock      *big.Int `json:"tipBlacklistBlock,omitempty"`
+	TIPTRC21FeeBlock       *big.Int `json:"tipTRC21FeeBlock,omitempty"`
+	TIPFixSignerCheckBlock *big.Int `json:"tipFixSignerCheckBlock,omitempty"`
+	TIPTomoXBlock          *big.Int `json:"tipTomoXBlock,omitempty"`
+	TIPTomoXLendingBlock   *big.Int `json:"tipTomoXLendingBlock,omitempty"`
+	TIPTomoXCancelFeeBlock *big.Int `json:"tipTomoXCancelFeeBlock,omitempty"`
+
+	SaigonBlock *big.Int `json:"saigonBlock,omitempty"`
+	AtlasBlock  *big.Int `json:"atlasBlock,omitempty"`
+
 	// Fork scheduling was switched from blocks to timestamps here
 
 	ShanghaiTime *uint64 `json:"shanghaiTime,omitempty"` // Shanghai switch time (nil = no fork, 0 = already on shanghai)
@@ -492,6 +506,11 @@ type CliqueConfig struct {
 	Epoch  uint64 `json:"epoch"`  // Epoch length to reset votes and checkpoint
 }
 
+// String implements the stringer interface, returning the consensus engine details.
+func (c CliqueConfig) String() string {
+	return fmt.Sprintf("clique(period: %d, epoch: %d)", c.Period, c.Epoch)
+}
+
 // PosvConfig is the consensus engine configs for proof-of-stake based sealing.
 type PosvConfig struct {
 	Period uint64 `json:"period"` // Number of seconds between blocks to enforce
@@ -500,8 +519,13 @@ type PosvConfig struct {
 }
 
 // String implements the stringer interface, returning the consensus engine details.
-func (c CliqueConfig) String() string {
-	return fmt.Sprintf("clique(period: %d, epoch: %d)", c.Period, c.Epoch)
+func (c *PosvConfig) String() string {
+	return "posv"
+}
+
+// Number of blocks producer in a year (365 days) based on configured period.
+func (c *PosvConfig) BlocksPerYear() uint64 {
+	return 31536000 / c.Period
 }
 
 // Description returns a human-readable description of ChainConfig.
@@ -518,9 +542,9 @@ func (c *ChainConfig) Description() string {
 	case c.Ethash != nil:
 		banner += "Consensus: Beacon (proof-of-stake), merged from Ethash (proof-of-work)\n"
 	case c.Clique != nil:
-		banner += "Consensus: Beacon (proof-of-stake), merged from Clique (proof-of-authority)\n"
+		banner += "Consensus: Clique (proof-of-authority)\n"
 	case c.Posv != nil:
-		banner += "Consensus: Beacon (proof-of-stake), merged from PoSV (proof-of-stake)\n"
+		banner += "Consensus: PoSV (proof-of-stake)\n"
 	default:
 		banner += "Consensus: unknown\n"
 	}
@@ -541,6 +565,39 @@ func (c *ChainConfig) Description() string {
 	banner += fmt.Sprintf(" - Constantinople:              #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/constantinople.md)\n", c.ConstantinopleBlock)
 	banner += fmt.Sprintf(" - Petersburg:                  #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/petersburg.md)\n", c.PetersburgBlock)
 	banner += fmt.Sprintf(" - Istanbul:                    #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/istanbul.md)\n", c.IstanbulBlock)
+	if c.TIP2019Block != nil {
+		banner += fmt.Sprintf(" - TIP2019Block:                #%-8v\n", c.TIP2019Block)
+	}
+	if c.TIPSigningBlock != nil {
+		banner += fmt.Sprintf(" - TIPSigningBlock:             #%-8v\n", c.TIPSigningBlock)
+	}
+	if c.TIPRandomizeBlock != nil {
+		banner += fmt.Sprintf(" - TIPRandomizeBlock:           #%-8v\n", c.TIPRandomizeBlock)
+	}
+	if c.TIPBlacklistBlock != nil {
+		banner += fmt.Sprintf(" - TIPBlacklistBlock:           #%-8v\n", c.TIPBlacklistBlock)
+	}
+	if c.TIPTRC21FeeBlock != nil {
+		banner += fmt.Sprintf(" - TIPTRC21FeeBlock:            #%-8v\n", c.TIPTRC21FeeBlock)
+	}
+	if c.TIPFixSignerCheckBlock != nil {
+		banner += fmt.Sprintf(" - TIPFixSignerCheckBlock:      #%-8v\n", c.TIPFixSignerCheckBlock)
+	}
+	if c.TIPTomoXBlock != nil {
+		banner += fmt.Sprintf(" - TIPTomoXBlock:               #%-8v\n", c.TIPTomoXBlock)
+	}
+	if c.TIPTomoXLendingBlock != nil {
+		banner += fmt.Sprintf(" - TIPTomoXLendingBlock:        #%-8v\n", c.TIPTomoXLendingBlock)
+	}
+	if c.TIPTomoXCancelFeeBlock != nil {
+		banner += fmt.Sprintf(" - TIPTomoXCancelFeeBlock:      #%-8v\n", c.TIPTomoXCancelFeeBlock)
+	}
+	if c.SaigonBlock != nil {
+		banner += fmt.Sprintf(" - SaigonBlock:                 #%-8v\n", c.SaigonBlock)
+	}
+	if c.AtlasBlock != nil {
+		banner += fmt.Sprintf(" - AtlasBlock:                  #%-8v\n", c.AtlasBlock)
+	}
 	if c.MuirGlacierBlock != nil {
 		banner += fmt.Sprintf(" - Muir Glacier:                #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/muir-glacier.md)\n", c.MuirGlacierBlock)
 	}
@@ -649,6 +706,61 @@ func (c *ChainConfig) IsPetersburg(num *big.Int) bool {
 // IsIstanbul returns whether num is either equal to the Istanbul fork block or greater.
 func (c *ChainConfig) IsIstanbul(num *big.Int) bool {
 	return isBlockForked(c.IstanbulBlock, num)
+}
+
+// IsTIP2019 returns whether num is either equal to the TIP2019 fork block or greater.
+func (c *ChainConfig) IsTIP2019(num *big.Int) bool {
+	return isBlockForked(c.TIP2019Block, num)
+}
+
+// IsTIPSigning returns whether num is either equal to the TIPSigning fork block or greater.
+func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
+	return isBlockForked(c.TIPSigningBlock, num)
+}
+
+// IsTIPRandomize returns whether num is either equal to the TIPRandomize fork block or greater.
+func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
+	return isBlockForked(c.TIPRandomizeBlock, num)
+}
+
+// IsTIPBlacklist returns whether num is either equal to the TIPBlacklist fork block or greater.
+func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
+	return isBlockForked(c.TIPBlacklistBlock, num)
+}
+
+// IsTIPTRC21Fee returns whether num is either equal to the TIPTRC21Fee fork block or greater.
+func (c *ChainConfig) IsTIPTRC21Fee(num *big.Int) bool {
+	return isBlockForked(c.TIPTRC21FeeBlock, num)
+}
+
+// IsTIPFixSignerCheck returns whether num is either equal to the TIPFixSignerCheck fork block or greater.
+func (c *ChainConfig) IsTIPFixSignerCheck(num *big.Int) bool {
+	return isBlockForked(c.TIPFixSignerCheckBlock, num)
+}
+
+// IsTIPTomoX returns whether num is either equal to the TIPTomoX fork block or greater.
+func (c *ChainConfig) IsTIPTomoX(num *big.Int) bool {
+	return isBlockForked(c.TIPTomoXBlock, num)
+}
+
+// IsTIPTomoXLending returns whether num is either equal to the TIPTomoXLending fork block or greater.
+func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
+	return isBlockForked(c.TIPTomoXLendingBlock, num)
+}
+
+// IsTIPTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
+func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
+	return isBlockForked(c.TIPTomoXCancelFeeBlock, num)
+}
+
+// IsSaigon returns whether num is either equal to the Saigon fork block or greater.
+func (c *ChainConfig) IsSaigon(num *big.Int) bool {
+	return isBlockForked(c.SaigonBlock, num)
+}
+
+// IsAtlas returns whether num is either equal to the Atlas fork block or greater.
+func (c *ChainConfig) IsAtlas(num *big.Int) bool {
+	return isBlockForked(c.AtlasBlock, num)
 }
 
 // IsBerlin returns whether num is either equal to the Berlin fork block or greater.
@@ -768,6 +880,16 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "constantinopleBlock", block: c.ConstantinopleBlock},
 		{name: "petersburgBlock", block: c.PetersburgBlock},
 		{name: "istanbulBlock", block: c.IstanbulBlock},
+		{name: "tip2019Block", block: c.TIP2019Block},
+		{name: "tipSigningBlock", block: c.TIPSigningBlock},
+		{name: "tipRandomizeBlock", block: c.TIPRandomizeBlock},
+		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock},
+		{name: "tipTRC21FeeBlock", block: c.TIPTRC21FeeBlock},
+		{name: "tipTomoXBlock", block: c.TIPTomoXBlock},
+		{name: "tipTomoXLendingBlock", block: c.TIPTomoXLendingBlock},
+		{name: "tipTomoXCancelFeeBlock", block: c.TIPTomoXCancelFeeBlock},
+		{name: "saigonBlock", block: c.SaigonBlock},
+		{name: "atlasBlock", block: c.AtlasBlock},
 		{name: "muirGlacierBlock", block: c.MuirGlacierBlock, optional: true},
 		{name: "berlinBlock", block: c.BerlinBlock},
 		{name: "londonBlock", block: c.LondonBlock},
@@ -894,6 +1016,36 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, headNumber *big.Int, 
 	}
 	if isForkBlockIncompatible(c.IstanbulBlock, newcfg.IstanbulBlock, headNumber) {
 		return newBlockCompatError("Istanbul fork block", c.IstanbulBlock, newcfg.IstanbulBlock)
+	}
+	if isForkBlockIncompatible(c.TIP2019Block, newcfg.TIP2019Block, headNumber) {
+		return newBlockCompatError("TIP2019 fork block", c.TIP2019Block, newcfg.TIP2019Block)
+	}
+	if isForkBlockIncompatible(c.TIPSigningBlock, newcfg.TIPSigningBlock, headNumber) {
+		return newBlockCompatError("TIPSigning fork block", c.TIPSigningBlock, newcfg.TIPSigningBlock)
+	}
+	if isForkBlockIncompatible(c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock, headNumber) {
+		return newBlockCompatError("TIPRandomize fork block", c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock)
+	}
+	if isForkBlockIncompatible(c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock, headNumber) {
+		return newBlockCompatError("TIPBlacklist fork block", c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock)
+	}
+	if isForkBlockIncompatible(c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock, headNumber) {
+		return newBlockCompatError("TIPTRC21Fee fork block", c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock)
+	}
+	if isForkBlockIncompatible(c.TIPTomoXBlock, newcfg.TIPTomoXBlock, headNumber) {
+		return newBlockCompatError("TIPTomoX fork block", c.TIPTomoXBlock, newcfg.TIPTomoXBlock)
+	}
+	if isForkBlockIncompatible(c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock, headNumber) {
+		return newBlockCompatError("TIPTomoXLending fork block", c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock)
+	}
+	if isForkBlockIncompatible(c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock, headNumber) {
+		return newBlockCompatError("TIPTomoXCancelFee fork block", c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock)
+	}
+	if isForkBlockIncompatible(c.SaigonBlock, newcfg.SaigonBlock, headNumber) {
+		return newBlockCompatError("Saigon fork block", c.SaigonBlock, newcfg.SaigonBlock)
+	}
+	if isForkBlockIncompatible(c.AtlasBlock, newcfg.AtlasBlock, headNumber) {
+		return newBlockCompatError("Atlas fork block", c.AtlasBlock, newcfg.AtlasBlock)
 	}
 	if isForkBlockIncompatible(c.MuirGlacierBlock, newcfg.MuirGlacierBlock, headNumber) {
 		return newBlockCompatError("Muir Glacier fork block", c.MuirGlacierBlock, newcfg.MuirGlacierBlock)
@@ -1119,6 +1271,11 @@ type Rules struct {
 	IsBerlin, IsLondon                                      bool
 	IsMerge, IsShanghai, IsCancun, IsPrague, IsOsaka        bool
 	IsVerkle                                                bool
+
+	IsTIP2019, IsTIPSigning, IsTIPRandomize            bool
+	IsTIPBlacklist, IsTIPTRC21Fee, IsTIPFixSignerCheck bool
+	IsTIPTomoX, IsTIPTomoXLending, IsTIPTomoXCancelFee bool
+	IsSaigon, IsAtlas                                  bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1150,5 +1307,17 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsOsaka:          isMerge && c.IsOsaka(num, timestamp),
 		IsVerkle:         isVerkle,
 		IsEIP4762:        isVerkle,
+
+		IsTIP2019:           c.IsTIP2019(num),
+		IsTIPSigning:        c.IsTIPSigning(num),
+		IsTIPRandomize:      c.IsTIPRandomize(num),
+		IsTIPBlacklist:      c.IsTIPBlacklist(num),
+		IsTIPTRC21Fee:       c.IsTIPTRC21Fee(num),
+		IsTIPFixSignerCheck: c.IsTIPFixSignerCheck(num),
+		IsTIPTomoX:          c.IsTIPTomoX(num),
+		IsTIPTomoXLending:   c.IsTIPTomoXLending(num),
+		IsTIPTomoXCancelFee: c.IsTIPTomoXCancelFee(num),
+		IsSaigon:            c.IsSaigon(num),
+		IsAtlas:             c.IsAtlas(num),
 	}
 }
