@@ -117,14 +117,21 @@ func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, po
 	header *types.Header,
 	chain consensus.ChainReader, logger log.Logger,
 ) ([]common.Address, error) {
-	panic("not implemented")
+	if config.IsTIPSigning(header.Number) {
+		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, logger)
+	}
+	return viction.PenalizeValidatorsDefault(c, config, posvConfig, vicConfig, header, chain, logger)
 }
 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, logger log.Logger,
+	logger log.Logger,
 ) ([]common.Address, error) {
-	panic("not implemented")
+	state, err := s.blockchain.State()
+	if err != nil {
+		return []common.Address{}, err
+	}
+	return viction.GetValidators(vicConfig, state, logger)
 }
 
 // Check a transaction is Viction BlockSign transaction.

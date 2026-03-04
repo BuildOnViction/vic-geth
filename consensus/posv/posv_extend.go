@@ -17,13 +17,19 @@
 package posv
 
 import (
+	"bytes"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+const (
+	attestorHeaderItemLength = 4
 )
 
 // EpochReward stores number of sign made by each validator and rewards for
@@ -76,8 +82,36 @@ type PosvBackend interface {
 
 	// Get eligble validators from the state.
 	PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader, logger log.Logger,
+		logger log.Logger,
 	) ([]common.Address, error)
+}
+
+// Decode bytes with format of Block.Attestors into list of attestor numbers.
+func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
+	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
+	attestors := make([]int64, attestorCount)
+	for i := 0; i < attestorCount; i++ {
+		attestorBuff := bytes.Trim(attestorsBuff[i*attestorHeaderItemLength:(i+1)*attestorHeaderItemLength], "\x00")
+		attestorNumber, err := strconv.ParseInt(string(attestorBuff), 10, 64)
+		if err != nil {
+			return []int64{}
+		}
+		attestors[i] = attestorNumber
+	}
+
+	return attestors
+}
+
+// Decode bytes with format of Block.Penalties into list of addresses.
+func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
+	addressLengthInt := int(addressLength)
+	penaltyCount := len(penaltiesBuff) / addressLengthInt
+	penalties := make([]common.Address, penaltyCount)
+	for i := 0; i < penaltyCount; i++ {
+		penaltyBuff := penaltiesBuff[i*addressLengthInt : (i+1)*addressLengthInt]
+		penalties[i] = common.BytesToAddress(penaltyBuff)
+	}
+	return penalties
 }
 
 // Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
