@@ -53,12 +53,13 @@ type PosvBackend interface {
 
 	// Get block signers from the state.
 	PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader,
+		chain consensus.ChainReader, logger log.Logger,
 	) []*types.Transaction
 
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(c *Posv, config *params.ChainConfig,
 		header, checkpointHeader *types.Header,
+		logger log.Logger,
 	) (map[common.Address]common.Address, uint64, error)
 
 	// Calculate and distribute reward at the end of each epoch.
@@ -70,22 +71,24 @@ type PosvBackend interface {
 	// Penalize validators for creating bad block or not creating block at all.
 	PosvGetPenalties(c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 		header *types.Header,
-		chain consensus.ChainReader,
+		chain consensus.ChainReader, logger log.Logger,
 	) ([]common.Address, error)
 
 	// Get eligble validators from the state.
-	PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
+	PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header,
+		chain consensus.ChainReader, logger log.Logger,
 	) ([]common.Address, error)
 }
 
 // Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
 func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader) []*types.Transaction {
+	chain consensus.ChainReader, logger log.Logger,
+) []*types.Transaction {
 	blockHash := header.Hash()
 	if signers, ok := c.blockSigners.Get(blockHash); ok {
 		return signers
 	}
-	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
+	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain, logger)
 	c.blockSigners.Add(blockHash, signers)
 	return signers
 }

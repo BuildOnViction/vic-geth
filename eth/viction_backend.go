@@ -43,9 +43,8 @@ func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *typ
 }
 
 // Get block signers from the state.
-
 func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader,
+	chain consensus.ChainReader, logger log.Logger,
 ) []*types.Transaction {
 	blockNumber := header.Number.Uint64()
 	blockNumberBig := header.Number
@@ -70,22 +69,26 @@ func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *p
 }
 
 // Get creator-attestor pairs from the state.
-
 func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig,
 	header, checkpointHeader *types.Header,
+	logger log.Logger,
 ) (map[common.Address]common.Address, uint64, error) {
 	panic("not implemented")
 }
 
 // Calculate and distribute reward at the end of each epoch.
-
 func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header, state *state.StateDB,
+	header *types.Header,
 	chain consensus.ChainReader, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
 	blockNumber := header.Number.Uint64()
 	blockNumberBig := header.Number
+
+	state, err := s.blockchain.State()
+	if err != nil {
+		return epochRewards, err
+	}
 
 	if bigxt.IsLessThanOrEqualInt(blockNumberBig, new(big.Int).SetUint64(posvConfig.Epoch)) {
 		return epochRewards, nil
@@ -110,17 +113,16 @@ func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, 
 }
 
 // Penalize validators for creating bad block or not creating block at all.
-
 func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader,
+	chain consensus.ChainReader, logger log.Logger,
 ) ([]common.Address, error) {
 	panic("not implemented")
 }
 
 // Get eligble validators from the state.
-
-func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
+func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader, logger log.Logger,
 ) ([]common.Address, error) {
 	panic("not implemented")
 }

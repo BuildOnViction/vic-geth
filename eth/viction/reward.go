@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package eth implements the Ethereum protocol.
-
 package viction
 
 import (
@@ -62,7 +60,8 @@ func CalcSaigonRewardPerBlock(rewardPerEpoch *big.Int, saigonBlock *big.Int, num
 // Calculate rewards for all validators in the epoch.
 func CalcRewardsForValidators(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header, rewardPerEpoch *big.Int, chain consensus.ChainReader, logger log.Logger,
+	header *types.Header, rewardPerEpoch *big.Int,
+	chain consensus.ChainReader, logger log.Logger,
 ) (map[common.Address]*posv.ValidatorReward, error) {
 	blockNumber := header.Number.Uint64()
 	prevCheckpoint := blockNumber - (posvConfig.Epoch * 2)
@@ -77,7 +76,7 @@ func CalcRewardsForValidators(
 	for i := prevCheckpoint + (posvConfig.Epoch * 2) - 1; i >= startBlockNumber; i-- {
 		header = chain.GetHeader(header.ParentHash, i)
 		blockHashes[i] = header.Hash()
-		signData := c.GetSignDataForBlock(config, vicConfig, header, chain)
+		signData := c.GetSignDataForBlock(config, vicConfig, header, chain, logger)
 		for _, tx := range signData {
 			signedBlockHash := common.BytesToHash(tx.Data()[len(tx.Data())-32:])
 			signer, _ := tx.Sender()
