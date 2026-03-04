@@ -53,7 +53,7 @@ type PosvBackend interface {
 	// Get block signers from the state.
 	PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 		chain consensus.ChainReader,
-	) []types.Transaction
+	) []*types.Transaction
 
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(c *Posv, config *params.ChainConfig,
@@ -75,4 +75,30 @@ type PosvBackend interface {
 	// Get eligble validators from the state.
 	PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
 	) ([]common.Address, error)
+}
+
+// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
+func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader) []*types.Transaction {
+	blockHash := header.Hash()
+	if signers, ok := c.blockSigners.Get(blockHash); ok {
+		return signers
+	}
+	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
+	c.blockSigners.Add(blockHash, signers)
+	return signers
+}
+
+// Process block header Extra field of a checkpoint block to return the list of new validators.
+func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Address {
+	if header == nil {
+		return []common.Address{}
+	}
+
+	validators := make([]common.Address, (len(header.Extra)-extraVanity-extraSeal)/int(addressLength))
+	for i := 0; i < len(validators); i++ {
+		copy(validators[i][:], header.Extra[extraVanity+i*int(addressLength):])
+	}
+
+	return validators
 }

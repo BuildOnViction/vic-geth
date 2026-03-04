@@ -1,5 +1,7 @@
 // Copyright 2017 The go-ethereum Authors
 // This file is part of the go-ethereum library.
+// Copyright 2025 The Viction Authors
+// (modifications)
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -54,7 +56,9 @@ const (
 
 // PoSV proof-of-stake protocol constants.
 var (
+	addressLength          = uint64(20)  // Length of an address
 	epochLength            = uint64(900) // Default number of blocks after which to checkpoint and reset the pending votes
+	recentBlockSignCache   = 4096        // Number of recent blocks to cache sign data
 	recentBlockVerifyCache = 256         // Number of recent blocks to cache verfication results
 
 	extraVanity = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
@@ -170,10 +174,11 @@ type Posv struct {
 	config *params.PosvConfig // Consensus engine configuration parameters
 	db     ethdb.Database     // Database to store and retrieve snapshot checkpoints
 
-	recents          *lru.Cache[common.Hash, *Snapshot] // Snapshots for recent block to speed up reorgs
-	signatures       *sigLRU                            // Signatures of recent blocks to speed up mining
-	attestSignatures *sigLRU                            // Signatures of recent blocks to speed up mining
-	verifiedBlocks   *lru.Cache[common.Hash, bool]      // Status of recent blocks to speed up synching
+	recents          *lru.Cache[common.Hash, *Snapshot]            // Snapshots for recent block to speed up reorgs
+	signatures       *sigLRU                                       // Signatures of recent blocks to speed up mining
+	attestSignatures *sigLRU                                       // Signatures of recent blocks to speed up mining
+	blockSigners     *lru.Cache[common.Hash, []*types.Transaction] // All transactions signed for particular block of recent blocks cache
+	verifiedBlocks   *lru.Cache[common.Hash, bool]                 // Status of recent blocks to speed up synching
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
@@ -198,6 +203,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	recents := lru.NewCache[common.Hash, *Snapshot](inmemorySnapshots)
 	signatures := lru.NewCache[common.Hash, common.Address](inmemorySignatures)
 	attestSignatures := lru.NewCache[common.Hash, common.Address](inmemorySignatures)
+	blockSigners := lru.NewCache[common.Hash, []*types.Transaction](recentBlockSignCache)
 	verifiedBlocks := lru.NewCache[common.Hash, bool](recentBlockVerifyCache)
 
 	return &Posv{
@@ -207,6 +213,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 		recents:          recents,
 		signatures:       signatures,
 		attestSignatures: attestSignatures,
+		blockSigners:     blockSigners,
 		verifiedBlocks:   verifiedBlocks,
 
 		proposals: make(map[common.Address]bool),
