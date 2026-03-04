@@ -23,12 +23,12 @@ var (
 // verifyHeaderWithCache checks the cache for previously verified headers and
 // performs full verification if not found. Successfully verified headers are
 // cached to avoid redundant checks.
-func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	_, check := c.verifiedBlocks.Get(header.Hash())
 	if check {
 		return nil
 	}
-	err := c.verifyHeader(chain, header, parents)
+	err := c.verifyHeader(chain, header, parents, seal)
 	if err == nil {
 		c.verifiedBlocks.Add(header.Hash(), true)
 	}
@@ -39,7 +39,7 @@ func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
 // a batch of new headers.
-func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	if header.Number == nil {
 		return errUnknownBlock
 	}
@@ -48,9 +48,14 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	now := time.Now()
 	nowUnix := now.Unix()
 
-	// Don't waste time checking blocks from the future
-	if header.Time > uint64(nowUnix) {
-		return consensus.ErrFutureBlock
+	if seal {
+		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
+			return consensus.ErrFailValidatorSignature
+		}
+		// Don't waste time checking blocks from the future
+		if header.Time > uint64(nowUnix) {
+			return consensus.ErrFutureBlock
+		}
 	}
 
 	// Checkpoint blocks need to enforce zero beneficiary
@@ -98,14 +103,14 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 
 	// All basic checks passed, verify cascading fields
-	return c.verifyCascadingFields(chain, header, parents)
+	return c.verifyCascadingFields(chain, header, parents, seal)
 }
 
 // verifyCascadingFields verifies all the header fields that are not standalone,
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
-func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -142,14 +147,14 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 			log.Error("No chain reader provided for checkpoint verification")
 		}
 		err := c.verifyValidators(chain, header, parents)
+
 		if err != nil {
-			log.Debug("Failed to verify validators", "number", number, "err", err)
 			return err
 		}
 	}
 
 	// All basic checks passed, verify the seal and return
-	return c.verifySeal(chain, header, parents)
+	return c.verifySeal(chain, header, parents, seal)
 
 }
 
@@ -157,17 +162,15 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 	number := header.Number.Uint64()
 	log.Debug("Verifying checkpoint validators", "number", number, "hash", header.Hash().Hex())
 	snap, err := c.snapshot(chain, header.Number.Uint64()-1, header.ParentHash, parents)
-	log.Debug("Snapshot for checkpoint verification", "number", snap.Number, "hash", snap.Hash, "signers", snap.Signers)
 	if err != nil {
 		return err
 	}
-
 	if c.backend == nil {
 		return nil
 	}
-
 	validators := snap.GetSigners()
-	log.Debug("Validators from snapshot", "number", number, "validators", validators)
+
+	log.Info("Validators from snapshot", "number", number, "validators", validators)
 	retryCount := 0
 	for retryCount < 2 {
 		// compare penalties computed from state with header.Penalties
@@ -178,10 +181,13 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 
 		penaltiesBuff := EncodePenaltiesForHeader(penalties)
 		if !bytes.Equal(penaltiesBuff, header.Penalties) {
+			log.Error("Penalty mismatch", "number", number,
+				"computedPenalties", penalties, "headerPenalties", DecodePenaltiesFromHeader(header.Penalties))
 			return errInvalidCheckpointPenalties
 		}
 		// remove penalized validators in current epoch
 		if len(penalties) > 0 {
+			log.Info("Removing current epoch penalties", "number", number, "penalties", penalties)
 			validators = common.SetSubstract(validators, penalties)
 			header.Penalties = EncodePenaltiesForHeader(penalties)
 		}
@@ -189,30 +195,69 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
 			if number > (i * c.config.Epoch) {
 				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
-				prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-				penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+				prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+
+				// If not found in database, search in parents array (for batch validation)
+				if prevCheckpointHeader == nil && parents != nil {
+					for j := len(parents) - 1; j >= 0; j-- {
+						if parents[j].Number.Uint64() == prevCheckpointBlockNumber {
+							prevCheckpointHeader = parents[j]
+							break
+						}
+					}
+				}
+
+				if prevCheckpointHeader == nil {
+					break
+				}
+				penalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
 				if len(penalties) > 0 {
+					log.Debug("Removing recent epoch penalties", "number", number,
+						"epochAgo", i, "checkpointNumber", prevCheckpointBlockNumber, "penalties", penalties)
 					validators = common.SetSubstract(validators, penalties)
 				}
+
 			}
 		}
 		// compare validators computed from state with header.Extra
 		headerValidators := ExtractValidatorsFromCheckpointHeader(header)
 		validValidators := common.AreSimilarSlices(headerValidators, validators)
+
 		if validValidators {
 			break
 		}
 		// if not matched, try to get validators from smart contract and verify again
 		if retryCount == 0 {
+			// Get the gap block checkpoint which defines the current validators
 			gapBlockNumber := number - c.config.Gap
 			gapBlockHeader := chain.GetHeaderByNumber(gapBlockNumber)
+
+			// If not found in database, search in parents array (for batch validation)
+			if gapBlockHeader == nil && parents != nil {
+				for j := len(parents) - 1; j >= 0; j-- {
+					if parents[j].Number.Uint64() == gapBlockNumber {
+						gapBlockHeader = parents[j]
+						break
+					}
+				}
+			}
+
+			if gapBlockHeader == nil {
+				log.Warn("Gap block header not found for validator verification", "number", number, "gapBlockNumber", gapBlockNumber)
+				return errUnknownBlock
+			}
+
 			validators, err = c.backend.PosvGetValidators(chain.Config().Viction, gapBlockHeader, chain)
 			if err != nil {
 				return err
 			}
 		}
+
 		// maximum retry reached, return error
 		if retryCount == 1 {
+			log.Info("Comparing validators", "number", number, "retryCount", retryCount,
+				"headerValidators", headerValidators, "computedValidators", validators,
+				"match", validValidators)
 			return errInvalidCheckpointValidators
 		}
 		retryCount++
@@ -222,22 +267,29 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements.
-func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	chain := chainH.(consensus.ChainReader)
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {
 		return errUnknownBlock
 	}
-	// [TO-DO] skip function if backend is not set. This is to avoid circular dependency between posv and viction. --- IGNORE ---
 	if c.backend == nil {
 		return nil
 	}
-	// Resolve the authorization key and check against signers
-	validators, err := c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
-	if err != nil {
-		log.Debug("Failed to get validators", "number", number, "err", err)
-		return err
+
+	// Get validators from checkpoint header to avoid excessive IPC calls
+	var validators []common.Address
+	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
+	validators = ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	// Fallback to  call if checkpoint header not available
+	if len(validators) == 0 {
+		var err error
+		validators, err = c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
+		if err != nil {
+			log.Debug("Failed to get validators", "number", number, "err", err)
+			return err
+		}
 	}
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
@@ -250,6 +302,12 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		parent = parents[len(parents)-1]
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
+	}
+	difficulty := c.calcDifficulty(creator, parent, chain, parents)
+	if header.Number.Uint64() > 0 {
+		if header.Difficulty.Int64() != difficulty.Int64() {
+			return errInvalidDifficulty
+		}
 	}
 
 	// Retrieve the snapshot needed to verify this header and cache it
@@ -280,25 +338,20 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		}
 	}
 
-	difficulty := c.calcDifficulty(creator, parent, chain)
-	if header.Difficulty.Int64() != difficulty.Int64() {
-		return errInvalidDifficulty
-	}
-
 	// Enforce double validation
-	if number > c.config.Epoch {
+	if number > c.config.Epoch && seal {
 		attestor, err := c.Attestor(header)
 		if err != nil {
 			return err
 		}
-
-		checkpointHeader := GetCheckpointHeader(c.config, parent, chain)
+		log.Info("Verifying attestor", "number", number, "creator", creator.Hex(), "attestor", attestor.Hex(), "validators", validators)
 		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(c, chain.Config(), header, checkpointHeader)
 		if err != nil {
 			return err
 		}
 		assignedAttestor, ok := valAttPairs[creator]
 		if !ok || attestor != assignedAttestor {
+			log.Info("Invalid attestor", "number", number, "creator", creator.Hex(), "attestor", attestor.Hex(), "assignedAttestor", assignedAttestor.Hex(), "valAttPairs ", valAttPairs)
 			return errInvalidBlockAttestor
 		}
 	}

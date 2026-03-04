@@ -86,6 +86,9 @@ type Ethereum struct {
 
 	p2pServer *p2p.Server
 
+	ipcClient   *rpc.Client // Cached IPC client
+	ipcClientMu sync.Mutex  // Protects ipcClient
+
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
 
@@ -560,6 +563,14 @@ func (s *Ethereum) Stop() error {
 	// Stop all the peer-related stuff first.
 	s.protocolManager.Stop()
 
+	// Close cached IPC client if exists
+	s.ipcClientMu.Lock()
+	if s.ipcClient != nil {
+		s.ipcClient.Close()
+		s.ipcClient = nil
+	}
+	s.ipcClientMu.Unlock()
+
 	// Then stop everything else.
 	s.bloomIndexer.Close()
 	close(s.closeBloomHandler)
@@ -572,7 +583,7 @@ func (s *Ethereum) Stop() error {
 	return nil
 }
 
-// GetIPCClient returns a new RPC client connected to the IPC endpoint.
+// GetIPCClient returns a cached RPC client connected to the IPC endpoint.
 // Callers can wrap this with ethclient.NewClient(rpcClient) to get an ethclient.Client.
 func (s *Ethereum) GetIPCClient() (*rpc.Client, error) {
 	if s.blockchain == nil {
@@ -581,5 +592,20 @@ func (s *Ethereum) GetIPCClient() (*rpc.Client, error) {
 	if s.blockchain.IPCEndpoint == "" {
 		return nil, fmt.Errorf("IPC endpoint not configured")
 	}
-	return rpc.Dial(s.blockchain.IPCEndpoint)
+
+	s.ipcClientMu.Lock()
+	defer s.ipcClientMu.Unlock()
+
+	// Return cached client if available and connected
+	if s.ipcClient != nil {
+		return s.ipcClient, nil
+	}
+
+	// Create new client and cache it
+	client, err := rpc.Dial(s.blockchain.IPCEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	s.ipcClient = client
+	return s.ipcClient, nil
 }

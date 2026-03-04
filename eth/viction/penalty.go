@@ -55,7 +55,6 @@ func PenalizeValidatorsDefault(c *posv.Posv, config *params.ChainConfig, posvCon
 	return validators, nil
 }
 
-// [TO-DO]
 func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
 	chain consensus.ChainReader,
