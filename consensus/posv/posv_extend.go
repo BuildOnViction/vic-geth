@@ -18,6 +18,7 @@ package posv
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"strconv"
 
@@ -114,17 +115,23 @@ func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
 	return penalties
 }
 
-// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
-func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, logger log.Logger,
-) []*types.Transaction {
-	blockHash := header.Hash()
-	if signers, ok := c.blockSigners.Get(blockHash); ok {
-		return signers
+// Encode list of attestor numbers into bytes following format of Block.Attestors.
+func EncodeAttestorsForHeader(attestors []int64) []byte {
+	var attestorsBuff []byte
+	for _, attestor := range attestors {
+		attestorBuff := common.LeftPadBytes([]byte(fmt.Sprintf("%d", attestor)), attestorHeaderItemLength)
+		attestorsBuff = append(attestorsBuff, attestorBuff...)
 	}
-	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain, logger)
-	c.blockSigners.Add(blockHash, signers)
-	return signers
+	return attestorsBuff
+}
+
+// Encode list of penalized addresses into bytes following format of Block.Penalties.
+func EncodePenaltiesForHeader(penalties []common.Address) []byte {
+	var penaltiesBuff []byte
+	for _, attestor := range penalties {
+		penaltiesBuff = append(penaltiesBuff, attestor.Bytes()...)
+	}
+	return penaltiesBuff
 }
 
 // Process block header Extra field of a checkpoint block to return the list of new validators.
@@ -139,4 +146,17 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	}
 
 	return validators
+}
+
+// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
+func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader, logger log.Logger,
+) []*types.Transaction {
+	blockHash := header.Hash()
+	if signers, ok := c.blockSigners.Get(blockHash); ok {
+		return signers
+	}
+	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain, logger)
+	c.blockSigners.Add(blockHash, signers)
+	return signers
 }
