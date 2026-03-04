@@ -255,9 +255,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 
 		// maximum retry reached, return error
 		if retryCount == 1 {
-			log.Info("Comparing validators", "number", number, "retryCount", retryCount,
-				"headerValidators", headerValidators, "computedValidators", validators,
-				"match", validValidators)
 			return errInvalidCheckpointValidators
 		}
 		retryCount++
@@ -344,14 +341,13 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		if err != nil {
 			return err
 		}
-		log.Info("Verifying attestor", "number", number, "creator", creator.Hex(), "attestor", attestor.Hex(), "validators", validators)
 		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(c, chain.Config(), header, checkpointHeader)
 		if err != nil {
 			return err
 		}
 		assignedAttestor, ok := valAttPairs[creator]
 		if !ok || attestor != assignedAttestor {
-			log.Info("Invalid attestor", "number", number, "creator", creator.Hex(), "attestor", attestor.Hex(), "assignedAttestor", assignedAttestor.Hex(), "valAttPairs ", valAttPairs)
+			log.Info("Invalid attestor", "number", number, "creator", creator.Hex(), "attestor", attestor.Hex(), "assignedAttestor", assignedAttestor.Hex())
 			return errInvalidBlockAttestor
 		}
 	}

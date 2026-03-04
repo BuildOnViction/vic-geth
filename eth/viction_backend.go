@@ -2,6 +2,7 @@ package eth
 
 import (
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -9,9 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/tforce-io/tf-golib/stdx/mathxt/bigxt"
 )
 
 const SignMethodHex = "e341eaa4"
@@ -19,12 +20,11 @@ const SignMethodHex = "e341eaa4"
 // Get attestors from list of validators at checkpoint block.
 func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
-	rpcClient, err := s.GetIPCClient()
+	state, err := s.BlockChain().StateAt(header.Root)
 	if err != nil {
 		return nil, err
 	}
-	client := ethclient.NewClient(rpcClient)
-	return viction.GetAttestors(vicConfig, validators, client)
+	return viction.GetAttestors(vicConfig, validators, state)
 }
 
 // Get block signers from the state.
@@ -160,14 +160,36 @@ func IsVicBlockSingingTx(tx types.Transaction, vicConfig *params.VictionConfig) 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
 ) ([]common.Address, error) {
-	rpcClient, err := s.GetIPCClient()
+
+	state, err := s.BlockChain().StateAt(header.Root)
 	if err != nil {
-		return nil, err
+		return []common.Address{}, err
 	}
-	client := ethclient.NewClient(rpcClient)
-	state, err := s.BlockChain().State()
-	if err != nil {
-		return nil, err
+	contracrAddress := vicConfig.ValidatorContract
+	if contracrAddress == (common.Address{}) {
+		return []common.Address{}, viction.ErrNoContractAddress
 	}
-	return viction.GetValidators(vicConfig, state, client)
+	addresses := state.VicGetCandidates(contracrAddress)
+	candidates := []*posv.ValidatorInfo{}
+	for _, addr := range addresses {
+		if addr == (common.Address{}) {
+			continue
+		}
+		_, cap := state.VicGetValidatorInfo(contracrAddress, addr)
+		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return bigxt.IsGreaterThanOrEqualInt(candidates[i].Capacity, candidates[j].Capacity)
+	})
+	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
+	if len(candidates) > validatorMaxCountInt {
+		candidates = candidates[:validatorMaxCountInt]
+	}
+	validators := []common.Address{}
+	for _, candidate := range candidates {
+		validators = append(validators, candidate.Address)
+	}
+	return validators, nil
+
 }

@@ -3,18 +3,17 @@ package viction
 import (
 	"math/rand"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/contracts/randomize/contract"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/params"
 )
 
-func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, client bind.ContractBackend) ([]int64, error) {
+func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
 	randomizes := []int64{}
 	validatorCount := int64(len(validators))
 	if validatorCount > 0 {
 		for _, validator := range validators {
-			random, err := GetRandomizeOfValidator(vicConfig, validator, client)
+			random, err := GetRandomizeOfValidator(vicConfig, validator, state)
 			if err != nil {
 				return nil, err
 			}
@@ -29,21 +28,23 @@ func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, 
 	return nil, ErrNoValidator
 }
 
-func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.Address, client bind.ContractBackend) (int64, error) {
-	randomizeContract, err := contract.NewRandomize(vicConfig.RandomizerContract, client)
-	if err != nil {
-		return -1, err
+func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
+	randomizeContract := vicConfig.RandomizerContract
+	if randomizeContract == (common.Address{}) {
+		return -1, ErrNoContractAddress
 	}
 
-	opts := new(bind.CallOpts)
-	secrets, err := randomizeContract.GetSecret(opts, validator)
-	if err != nil {
-		return -1, err
+	secretsHash := state.VictionGetSecrets(randomizeContract, validator)
+	openingHash := state.VictionGetSecretOpening(randomizeContract, validator)
+
+	// Convert []common.Hash to [][32]byte
+	secrets := make([][32]byte, len(secretsHash))
+	for i, h := range secretsHash {
+		secrets[i] = h
 	}
-	opening, err := randomizeContract.GetOpening(opts, validator)
-	if err != nil {
-		return -1, err
-	}
+
+	// Convert common.Hash to [32]byte
+	opening := [32]byte(openingHash)
 
 	return DecryptRandomize(secrets, opening)
 }
