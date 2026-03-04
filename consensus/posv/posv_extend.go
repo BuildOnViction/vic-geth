@@ -48,6 +48,7 @@ type ValidatorReward struct {
 type PosvBackend interface {
 	// Get attestors from list of validators.
 	PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+		logger log.Logger,
 	) ([]int64, error)
 
 	// Get block signers from the state.

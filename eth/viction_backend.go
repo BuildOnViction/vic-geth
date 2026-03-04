@@ -32,10 +32,14 @@ import (
 )
 
 // Get attestors from list of validators.
-
 func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+	logger log.Logger,
 ) ([]int64, error) {
-	panic("not implemented")
+	state, err := s.blockchain.State()
+	if err != nil {
+		return []int64{}, err
+	}
+	return viction.GetAttestors(vicConfig, validators, state, logger)
 }
 
 // Get block signers from the state.
