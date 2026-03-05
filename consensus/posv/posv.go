@@ -226,7 +226,6 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 // Set the backend instance into PoSV for handling some features that require accessing to chain state.
 // Must be called right after creation of PoSV.
 func (c *Posv) SetBackend(backend PosvBackend) {
-	log.Info("SetBackend: setting backend", "backend", backend)
 	c.backend = backend
 }
 
@@ -248,7 +247,36 @@ func (c *Posv) GetEpoch() uint64 {
 }
 
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
-	return ecrecover(header, c.attestSignatures)
+	return ecrecover2(header, c.attestSignatures)
+}
+
+// ecrecover2 extracts the Ethereum account address from a Attestor header.
+func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+	// If the signature's already cached, return that
+	hash := header.Hash()
+
+	// hitrate while straight-forward sync is from 0.5 to 0.65
+	if address, known := sigcache.Get(hash); known {
+		return address.(common.Address), nil
+	}
+
+	// Retrieve the signature from the header extra-data
+	if len(header.Attestor) != ExtraSeal {
+		return common.Address{}, errMissingSignature
+	}
+	signature := header.Attestor
+
+	// Recover the public key and the Ethereum address
+	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
+
+	sigcache.Add(hash, signer)
+	return signer, nil
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
@@ -278,12 +306,12 @@ func PosvRLP(header *types.Header) []byte {
 }
 
 // VerifyHeader checks whether a header conforms to the consensus rules.
-func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, _ bool) error {
-	return c.verifyHeaderWithCache(chain, header, nil)
+func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, seal bool) error {
+	return c.verifyHeaderWithCache(chain, header, nil, seal)
 }
 
-func (c *Posv) calcDifficulty(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) *big.Int {
-	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parentNumber, parentHash, chain)
+func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, chain)
 	if err == nil {
 		distance := Distance(currentIndex, parentIndex, validatorCount)
 		return big.NewInt(int64(validatorCount - distance + 1))
@@ -302,8 +330,7 @@ func Distance(currentIndex, parentIndex, validatorCount int) int {
 
 // Check if the signer is inturn to mint current block. Also return context of the check including:
 // currentIndex, parentIndex, validatorCount.
-func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
-	parent := chain.GetHeader(parentHash, parentNumber)
+func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
 	checkpointHeader := GetCheckpointHeader(c.config, parent, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	validatorsCount := len(validators)
@@ -312,7 +339,7 @@ func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash c
 	}
 
 	parentIndex := -1
-	if parentNumber > 0 {
+	if parent.Number.Uint64() > 0 {
 		parentCreator, err := c.Author(parent)
 		if err != nil {
 			return false, 0, 0, 0, err
@@ -335,13 +362,15 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	header.Nonce = types.BlockNonce{}
 
 	number := header.Number.Uint64()
+
 	// Assemble the voting snapshot to check which votes make sense
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
 		return err
 	}
-	c.lock.RLock()
+
 	if number%c.config.Epoch != 0 {
+		c.lock.RLock()
 		// Gather all the proposals that make sense voting on
 		addresses := make([]common.Address, 0, len(c.proposals))
 		for address, authorize := range c.proposals {
@@ -358,14 +387,15 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 				copy(header.Nonce[:], nonceDropVote)
 			}
 		}
+		c.lock.RUnlock()
+	}
+	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
 	}
 
-	// Copy signer protected by mutex to avoid race condition
-	signer := c.signer
-	c.lock.RUnlock()
-
-	// Set the correct difficulty
-	header.Difficulty = c.calcDifficulty(signer, number-1, header.ParentHash, chain)
+	// Set the correct difficulty using the parent header fetched earlier
+	header.Difficulty = c.calcDifficulty(c.signer, parent, chain)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < ExtraVanity {
@@ -386,11 +416,13 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 		}
 		// remove penalized validators in recent epochs
 		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
-			prevCheckpointBlockNumber := number - (i * c.config.Epoch)
-			prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-			penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
-			if len(penalties) > 0 {
-				validators = common.SetSubstract(validators, penalties)
+			if number > i*c.config.Epoch {
+				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
+				prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+				penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+				if len(penalties) > 0 {
+					validators = common.SetSubstract(validators, penalties)
+				}
 			}
 		}
 		// Write the final list of validators to Extra field
@@ -398,7 +430,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 			header.Extra = append(header.Extra, validator[:]...)
 		}
 		// Write list of attestors to NewAttestors field
-		attestors, err := c.backend.PosvGetAttestors(*chain.Config().Viction, header, validators)
+		attestors, err := c.backend.PosvGetAttestors(chain.Config().Viction, header, validators)
 		if err != nil {
 			return err
 		}
@@ -409,11 +441,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	// Mix digest is reserved for now, set to empty
 	header.MixDigest = common.Hash{}
 
-	// Ensure the timestamp has the correct delay
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
+	// Ensure the timestamp has the correct delay using the parent header fetched earlier
 	header.Time = parent.Time + c.config.Period
 
 	now := uint64(time.Now().Unix())
@@ -553,7 +581,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 // that a new block should have based on the previous blocks in the chain and the
 // current signer.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return c.calcDifficulty(c.signer, parent.Number.Uint64(), parent.Hash(), chain)
+	return c.calcDifficulty(c.signer, parent, chain)
 }
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
@@ -568,7 +596,7 @@ func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) err
 // VerifySeal implements consensus.Engine, checking whether the signature contained
 // in the header satisfies the consensus protocol requirements.
 func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
-	return c.verifySeal(chain, header, nil)
+	return c.verifySeal(chain, header, nil, true)
 }
 
 // encodeSigHeader encodes the header fields relevant for signing.
@@ -604,8 +632,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 
 	go func() {
 		for i, header := range headers {
-			err := c.verifyHeaderWithCache(chain, header, headers[:i])
-
+			err := c.verifyHeaderWithCache(chain, header, headers[:i], seals[i])
 			select {
 			case <-abort:
 				return

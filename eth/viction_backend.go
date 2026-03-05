@@ -2,6 +2,7 @@ package eth
 
 import (
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -11,21 +12,42 @@ import (
 	"github.com/ethereum/go-ethereum/eth/viction"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/tforce-io/tf-golib/stdx/mathxt/bigxt"
 )
 
-// [TO-DO] PosvGetAttestors returns attestors encoded as bytes for the header.
-func (s *Ethereum) PosvGetAttestors(vicConfig params.VictionConfig, header *types.Header, validators []common.Address) ([]int64, error) {
-	return nil, nil
+const SignMethodHex = "e341eaa4"
+
+// Get attestors from list of validators at checkpoint block.
+func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+) ([]int64, error) {
+	state, err := s.BlockChain().StateAt(header.Root)
+	if err != nil {
+		return nil, err
+	}
+	return viction.GetAttestors(vicConfig, validators, state)
 }
 
-// [TO-DO] PosvGetBlockSignData returns block sign transactions for the given header.
-func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) []types.Transaction {
-	return []types.Transaction{}
+// Get block signers from the state.
+func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader,
+) []types.Transaction {
+	blockNumber := header.Number
+	block := chain.GetBlock(header.Hash(), blockNumber.Uint64())
+	data := []types.Transaction{}
+	transactions := block.Transactions()
+	for _, tx := range transactions {
+		if IsVicBlockSingingTx(*tx, vicConfig) {
+			data = append(data, *tx)
+		}
+	}
+	return data
 }
 
-// [TO-DO] PosvGetCreatorAttestorPairs returns creator-attestor pairs for double validation.
-func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig, header, checkpointHeader *types.Header) (map[common.Address]common.Address, uint64, error) {
-	return make(map[common.Address]common.Address), 0, nil
+// Get creator-attestor pairs from the state.
+func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig,
+	header, checkpointHeader *types.Header,
+) (map[common.Address]common.Address, uint64, error) {
+	return viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
 }
 
 // PosvGetEpochReward calculates and distributes reward at checkpoint block.
@@ -98,12 +120,70 @@ func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state
 	return nil
 }
 
-// [TO-DO] PosvGetPenalties returns list of penalized validators.
-func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
-	return []common.Address{}, nil
+// Get list of validators creating bad block or not creating block at all.
+func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	header *types.Header,
+	chain consensus.ChainReader,
+) ([]common.Address, error) {
+	if config.IsTIPSigning(header.Number) {
+		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain)
+	}
+	return viction.PenalizeValidatorsDefault(c, config, posvConfig, vicConfig, header, chain)
 }
 
-// [TO-DO] PosvGetValidators returns list of eligible validators from the state.
-func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
-	return nil, nil
+// Check a transaction is Viction BlockSign transaction.
+func IsVicBlockSingingTx(tx types.Transaction, vicConfig *params.VictionConfig) bool {
+	toAddr := tx.To()
+	if toAddr == nil || *toAddr != vicConfig.ValidatorBlockSignContract {
+		return false
+	}
+
+	data := tx.Data()
+	method := common.Bytes2Hex(data[0:4])
+
+	if method != SignMethodHex && len(data) >= 68 {
+		return false
+	}
+
+	return true
+}
+
+// Get eligble validators from the state.
+func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
+) ([]common.Address, error) {
+	if header == nil {
+		return []common.Address{}, nil
+	}
+
+	state, err := s.BlockChain().StateAt(header.Root)
+	if err != nil {
+		return []common.Address{}, err
+	}
+	contracrAddress := vicConfig.ValidatorContract
+	if contracrAddress == (common.Address{}) {
+		return []common.Address{}, viction.ErrNoContractAddress
+	}
+	addresses := state.VicGetCandidates(contracrAddress)
+	candidates := []*posv.ValidatorInfo{}
+	for _, addr := range addresses {
+		if addr == (common.Address{}) {
+			continue
+		}
+		_, cap := state.VicGetValidatorInfo(contracrAddress, addr)
+		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return bigxt.IsGreaterThanOrEqualInt(candidates[i].Capacity, candidates[j].Capacity)
+	})
+	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
+	if len(candidates) > validatorMaxCountInt {
+		candidates = candidates[:validatorMaxCountInt]
+	}
+	validators := []common.Address{}
+	for _, candidate := range candidates {
+		validators = append(validators, candidate.Address)
+	}
+	return validators, nil
+
 }

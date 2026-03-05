@@ -69,3 +69,48 @@ func (statedb *StateDB) VicGetValidatorVoterCap(contractAddress common.Address, 
 
 	return new(big.Int).SetBytes(statedb.GetState(contractAddress, voterElemSlot.Hash()).Bytes())
 }
+
+// VicGetCandidates retrieves all validator candidates from the contract
+// This corresponds to: function getCandidates() public view returns(address[])
+func (statedb *StateDB) VicGetCandidates(contractAddress common.Address) []common.Address {
+	candidatesSlot := StorageLocationFromSlot(vicValidatorStorageMap["candidates"])
+
+	// Get the array length
+	candidatesStateData := statedb.GetState(contractAddress, candidatesSlot.Hash())
+	arrayLength := candidatesStateData.Big().Uint64()
+	candidates := make([]common.Address, 0, arrayLength)
+	for i := uint64(0); i < arrayLength; i++ {
+		candidateSlot := StorageLocationOfDynamicArrayElement(candidatesSlot, i, 160)
+		candidateStateData := statedb.GetState(contractAddress, candidateSlot.Hash())
+		candidates = append(candidates, common.BytesToAddress(candidateStateData.Bytes()))
+	}
+	return candidates
+}
+
+// Return first part of secret submitted by an address. This value will be used in Commit phase.
+func (statedb *StateDB) VictionGetSecrets(contractAddress common.Address, address common.Address) []common.Hash {
+	secretsMappingSlot := StorageLocationFromSlot(vicRandomizeStorageMap["randomSecret"])
+	secretsArrSlot := StorageLocationOfMappingElement(secretsMappingSlot, address.Hash().Bytes())
+
+	// Get array length
+	secretsStateData := statedb.GetState(contractAddress, secretsArrSlot.Hash())
+	arrayLength := secretsStateData.Big().Uint64()
+
+	secrets := make([]common.Hash, 0, arrayLength)
+	for i := uint64(0); i < arrayLength; i++ {
+		secretSlot := StorageLocationOfDynamicArrayElement(secretsArrSlot, i, 256)
+		secretStateData := statedb.GetState(contractAddress, secretSlot.Hash())
+		secret := common.BytesToHash(secretStateData.Bytes())
+		secrets = append(secrets, secret)
+	}
+	return secrets
+}
+
+// Return second part of secret submitted by an address. This value will be used in Reveal phase.
+func (statedb *StateDB) VictionGetSecretOpening(contractAddress common.Address, address common.Address) common.Hash {
+	openingMappingSlot := StorageLocationFromSlot(vicRandomizeStorageMap["randomOpening"])
+	openingElemSlot := StorageLocationOfMappingElement(openingMappingSlot, address.Hash().Bytes())
+	openingStateData := statedb.GetState(contractAddress, openingElemSlot.Hash())
+	opening := common.BytesToHash(openingStateData.Bytes())
+	return opening
+}
