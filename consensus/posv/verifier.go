@@ -2,6 +2,7 @@ package posv
 
 import (
 	"bytes"
+	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -192,19 +193,8 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 			if number > (i * c.config.Epoch) {
 				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
 				prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-
-				// If not found in database, search in parents array (for batch validation)
-				if prevCheckpointHeader == nil && parents != nil {
-					for j := len(parents) - 1; j >= 0; j-- {
-						if parents[j].Number.Uint64() == prevCheckpointBlockNumber {
-							prevCheckpointHeader = parents[j]
-							break
-						}
-					}
-				}
-
 				if prevCheckpointHeader == nil {
-					break
+					return fmt.Errorf("couldn't retrieve previous checkpoint header for penalty verification")
 				}
 				penalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
 				if len(penalties) > 0 {
@@ -227,22 +217,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 			// Get the gap block checkpoint which defines the current validators
 			gapBlockNumber := number - c.config.Gap
 			gapBlockHeader := chain.GetHeaderByNumber(gapBlockNumber)
-
-			// If not found in database, search in parents array (for batch validation)
-			if gapBlockHeader == nil && parents != nil {
-				for j := len(parents) - 1; j >= 0; j-- {
-					if parents[j].Number.Uint64() == gapBlockNumber {
-						gapBlockHeader = parents[j]
-						break
-					}
-				}
-			}
-
-			if gapBlockHeader == nil {
-				log.Warn("Gap block header not found for validator verification", "number", number, "gapBlockNumber", gapBlockNumber)
-				return errUnknownBlock
-			}
-
 			validators, err = c.backend.PosvGetValidators(chain.Config().Viction, gapBlockHeader, chain)
 			if err != nil {
 				return err
@@ -273,7 +247,10 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 
 	// Get validators from checkpoint header to avoid excessive IPC calls
 	var validators []common.Address
-	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
+	checkpointHeader := GetCheckpointHeader(c.config, header, chain)
+	if checkpointHeader == nil {
+		return fmt.Errorf("couldn't find checkpoint header")
+	}
 	validators = ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
@@ -287,7 +264,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
-	difficulty := c.calcDifficulty(creator, parent, chain, parents)
+	difficulty := c.calcDifficulty(creator, parent, chain)
 	if header.Number.Uint64() > 0 {
 		if header.Difficulty.Int64() != difficulty.Int64() {
 			return errInvalidDifficulty

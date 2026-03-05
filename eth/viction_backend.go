@@ -151,6 +151,9 @@ func IsVicBlockSingingTx(tx types.Transaction, vicConfig *params.VictionConfig) 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
 ) ([]common.Address, error) {
+	if header == nil {
+		return []common.Address{}, nil
+	}
 
 	state, err := s.BlockChain().StateAt(header.Root)
 	if err != nil {

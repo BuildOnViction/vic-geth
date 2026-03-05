@@ -79,20 +79,13 @@ type PosvBackend interface {
 }
 
 // Check If the given block is a checkpoint block, return it, else return previous checkpoint block header.
-func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
+func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader) *types.Header {
 	blockNumber := header.Number.Uint64()
 	if blockNumber%posvConfig.Epoch == 0 {
 		return header
 	}
 	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
 	prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-	if prevCheckpointHeader == nil {
-		for _, parent := range parents {
-			if parent.Number.Uint64() == prevCheckpointBlockNumber {
-				return parent
-			}
-		}
-	}
 	return prevCheckpointHeader
 }
 

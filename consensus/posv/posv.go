@@ -310,8 +310,8 @@ func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	return c.verifyHeaderWithCache(chain, header, nil, seal)
 }
 
-func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *big.Int {
-	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, chain, parents)
+func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, chain)
 	if err == nil {
 		distance := Distance(currentIndex, parentIndex, validatorCount)
 		return big.NewInt(int64(validatorCount - distance + 1))
@@ -330,8 +330,8 @@ func Distance(currentIndex, parentIndex, validatorCount int) int {
 
 // Check if the signer is inturn to mint current block. Also return context of the check including:
 // currentIndex, parentIndex, validatorCount.
-func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) (bool, int, int, int, error) {
-	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, parents)
+func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
+	checkpointHeader := GetCheckpointHeader(c.config, parent, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	validatorsCount := len(validators)
 	if validatorsCount == 0 {
@@ -395,7 +395,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	}
 
 	// Set the correct difficulty using the parent header fetched earlier
-	header.Difficulty = c.calcDifficulty(c.signer, parent, chain, nil)
+	header.Difficulty = c.calcDifficulty(c.signer, parent, chain)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < ExtraVanity {
@@ -581,7 +581,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 // that a new block should have based on the previous blocks in the chain and the
 // current signer.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return c.calcDifficulty(c.signer, parent, chain, nil)
+	return c.calcDifficulty(c.signer, parent, chain)
 }
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
