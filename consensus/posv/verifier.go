@@ -275,15 +275,6 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	var validators []common.Address
 	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
 	validators = ExtractValidatorsFromCheckpointHeader(checkpointHeader)
-	// Fallback to  call if checkpoint header not available
-	if len(validators) == 0 {
-		var err error
-		validators, err = c.backend.PosvGetValidators(chain.Config().Viction, header, chain)
-		if err != nil {
-			log.Debug("Failed to get validators", "number", number, "err", err)
-			return err
-		}
-	}
 	creator, err := ecrecover(header, c.signatures)
 	if err != nil {
 		log.Debug("Failed to recover signer", "number", number, "err", err)
