@@ -36,6 +36,10 @@ type StateProcessor struct {
 	bc           *BlockChain         // Canonical block chain
 	engine       consensus.Engine    // Consensus engine used for block rewards
 	victionState *victionProcessorState
+
+	// tradingEngine holds the legacy TomoX blackbox for replaying historical
+	// orders during sync. Set via SetTradingEngine(). Nil when TomoX is not needed.
+	tradingEngine TradingEngine
 }
 
 // NewStateProcessor initialises a new StateProcessor.
@@ -83,8 +87,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
-		// Viction hook, apply Viction specific transactions
-		// Check for Viction specific transactions (BlockSigner, TomoX, etc)
+		// Apply Viction-specific system transactions (BlockSigner, TomoX).
 		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
 			return nil, nil, 0, err
@@ -97,7 +100,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			}
 		}
 
-		// Viction Hooks
+		// Execute Viction-specific post-transaction logic.
 		if err := p.afterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
 			return nil, nil, 0, err
 		}
@@ -107,7 +110,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
-	// Viction hooks
+	// Execute Viction-specific post-processing logic.
 	if err := p.afterProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}

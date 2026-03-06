@@ -129,3 +129,20 @@ type PoW interface {
 	// Hashrate returns the current mining hashrate of a PoW consensus engine.
 	Hashrate() float64
 }
+
+// ChainContext defines a small collection of methods needed by the legacy
+// TomoX trading engine. This interface is required for backward compatibility
+// with the legacy/tomox blackbox package.
+type ChainContext interface {
+	// Engine retrieves the chain's consensus engine.
+	Engine() Engine
+
+	// GetHeader returns the header corresponding to hash and number.
+	GetHeader(common.Hash, uint64) *types.Header
+
+	// CurrentHeader retrieves the current header from the local chain.
+	CurrentHeader() *types.Header
+
+	// Config retrieves the blockchain's chain configuration.
+	Config() *params.ChainConfig
+}

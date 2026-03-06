@@ -60,6 +60,11 @@ func (t *Trie) newFlag() nodeFlag {
 	return nodeFlag{dirty: true}
 }
 
+// Database returns the underlying trie database.
+func (t *Trie) Database() *Database {
+	return t.db
+}
+
 // New creates a trie with an existing root node from db.
 //
 // If root is the zero hash or the sha3 hash of an empty string, the

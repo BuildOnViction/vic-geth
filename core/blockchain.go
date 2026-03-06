@@ -684,6 +684,15 @@ func (bc *BlockChain) Processor() Processor {
 	return bc.processor
 }
 
+// SetTradingEngine injects the legacy TomoX trading engine into the block processor.
+// This enables historical block replay for pre-Atlas TomoX transactions.
+func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
+	if sp, ok := bc.processor.(*StateProcessor); ok {
+		sp.SetTradingEngine(engine)
+		log.Info("TomoX trading engine set on state processor")
+	}
+}
+
 // State returns a new mutable state based on the current HEAD block.
 func (bc *BlockChain) State() (*state.StateDB, error) {
 	return bc.StateAt(bc.CurrentBlock().Root())
