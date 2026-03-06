@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
-
-	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/params"
 
 	"sync"
 
@@ -88,7 +88,7 @@ func (tomox *TomoX) GetTradingStateRoot(block *types.Block, author common.Addres
 		if err != nil {
 			continue
 		}
-		if tx.To() != nil && tx.To().Hex() == common.TradingStateAddr && from.String() == author.String() {
+		if tx.To() != nil && tx.To().Hex() == params.TradingStateAddr && from.String() == author.String() {
 			if len(tx.Data()) >= 32 {
 				return common.BytesToHash(tx.Data()[:32]), nil
 			}
@@ -126,10 +126,10 @@ func (tomox *TomoX) GetAveragePriceLastEpoch(chain consensus.ChainContext, state
 
 // return tokenQuantity (after convert from TOMO to token), tokenPriceInTOMO, error
 func (tomox *TomoX) ConvertTOMOToToken(chain consensus.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address, quantity *big.Int) (*big.Int, *big.Int, error) {
-	if token.String() == common.TomoNativeAddress {
-		return quantity, common.BasePrice, nil
+	if token.String() == params.TomoNativeAddress {
+		return quantity, params.BasePrice, nil
 	}
-	tokenPriceInTomo, err := tomox.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(common.TomoNativeAddress))
+	tokenPriceInTomo, err := tomox.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(params.TomoNativeAddress))
 	if err != nil || tokenPriceInTomo == nil || tokenPriceInTomo.Sign() <= 0 {
 		return common.Big0, common.Big0, err
 	}

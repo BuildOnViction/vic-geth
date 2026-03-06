@@ -8,10 +8,41 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 )
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Legacy TomoX constants and helpers.
+//
+// Some of these share names with VictionConfig struct fields. They coexist
+// because legacy tradingstate utility functions are pure helpers without access
+// to a VictionConfig instance - they use these package-level defaults directly.
+// ──────────────────────────────────────────────────────────────────────────────
+
+var (
+	TomoNativeAddress      = "0x0000000000000000000000000000000000000001"
+	TradingStateAddr       = "0x0000000000000000000000000000000000000092"
+	BasePrice              = big.NewInt(1000000000000000000) // 1e18
+	RelayerLockedFund      = big.NewInt(25000)
+	TomoXBaseFee           = big.NewInt(10000) // 0.01% (in 1e8 precision)
+	RelayerFee             = big.NewInt(100)   // default relayer fee
+	RelayerCancelFee       = big.NewInt(100)   // default relayer cancel fee
+	TomoXBaseCancelFee     = big.NewInt(10000) // base cancel fee
+	RelayerRegistrationSMC = "0x0000000000000000000000000000000000000099"
+)
+
+// Uint64ToHash converts a uint64 to a Hash.
+func Uint64ToHash(n uint64) common.Hash {
+	return common.BigToHash(new(big.Int).SetUint64(n))
+}
+
+// EmptyHash checks if a hash is the zero hash.
+func EmptyHash(h common.Hash) bool {
+	return h == common.Hash{}
+}
+
 type VictionConfig struct {
 	AtlasVRC25MinCap *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
 
 	LendingContract            common.Address   `json:"lendingContract,omitempty"`
+	LendingFinalizedContract   common.Address   `json:"lendingFinalizedContract,omitempty"`
 	LendingInterestAmount      *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
 	LendingLiquidateTradeBlock uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
 
@@ -44,13 +75,14 @@ type VictionConfig struct {
 	SaigonFundRepeat     uint64           `json:"saigonFundRepeat,omitempty"`
 	SaigonRewardPerEpoch *math.Decimal256 `json:"saigonRewardPerEpoch,omitempty"`
 
-	TomoXBaseCancelFee *math.Decimal256 `json:"tomoxBaseCancelFee,omitempty"`
-	TomoXBaseFee       *math.Decimal256 `json:"tomoxBaseFee,omitempty"`
-	TomoXBasePrice     *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
-	TomoXBaseRecall    *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
-	TomoXContract      common.Address   `json:"tomoxContract,omitempty"`
-	TomoXTopupDenom    uint64           `json:"tomoxTopupDenom,omitempty"`
-	TomoXTopupNumer    uint64           `json:"tomoxTopupNumer,omitempty"`
+	TomoXBaseCancelFee   *math.Decimal256 `json:"tomoxBaseCancelFee,omitempty"`
+	TomoXBaseFee         *math.Decimal256 `json:"tomoxBaseFee,omitempty"`
+	TomoXBasePrice       *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
+	TomoXBaseRecall      *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
+	TomoXContract        common.Address   `json:"tomoxContract,omitempty"`
+	TomoXTopupDenom      uint64           `json:"tomoxTopupDenom,omitempty"`
+	TomoXTopupNumer      uint64           `json:"tomoxTopupNumer,omitempty"`
+	TradingStateContract common.Address   `json:"tradingStateContract,omitempty"`
 
 	ValidatorBlockSignContract     common.Address `json:"validatorBlockSignContract,omitempty"`
 	ValidatorContract              common.Address `json:"validatorContract,omitempty"`

@@ -36,6 +36,10 @@ type StateProcessor struct {
 	bc           *BlockChain         // Canonical block chain
 	engine       consensus.Engine    // Consensus engine used for block rewards
 	victionState *victionProcessorState
+
+	// tradingEngine holds the legacy TomoX blackbox for replaying historical
+	// orders during sync. Set via SetTradingEngine(). Nil when TomoX is not needed.
+	tradingEngine TradingEngine
 }
 
 // NewStateProcessor initialises a new StateProcessor.

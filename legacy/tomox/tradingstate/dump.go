@@ -18,11 +18,13 @@ package tradingstate
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
 	"math/big"
 	"sort"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 type DumpOrderList struct {
@@ -55,7 +57,7 @@ func (self *TradingStateDB) DumpAskTrie(orderBook common.Hash) (map[*big.Int]Dum
 	it := trie.NewIterator(exhangeObject.getAsksTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if common.EmptyHash(priceHash) {
+		if params.EmptyHash(priceHash) {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -98,7 +100,7 @@ func (self *TradingStateDB) DumpBidTrie(orderBook common.Hash) (map[*big.Int]Dum
 	it := trie.NewIterator(exhangeObject.getBidsTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if common.EmptyHash(priceHash) {
+		if params.EmptyHash(priceHash) {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -141,7 +143,7 @@ func (self *TradingStateDB) GetBids(orderBook common.Hash) (map[*big.Int]*big.In
 	it := trie.NewIterator(exhangeObject.getBidsTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if common.EmptyHash(priceHash) {
+		if params.EmptyHash(priceHash) {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -184,7 +186,7 @@ func (self *TradingStateDB) GetAsks(orderBook common.Hash) (map[*big.Int]*big.In
 	it := trie.NewIterator(exhangeObject.getAsksTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if common.EmptyHash(priceHash) {
+		if params.EmptyHash(priceHash) {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -222,7 +224,7 @@ func (self *stateOrderList) DumpOrderList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if common.EmptyHash(keyHash) {
+		if params.EmptyHash(keyHash) {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -233,7 +235,7 @@ func (self *stateOrderList) DumpOrderList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !common.EmptyHash(value) {
+		if !params.EmptyHash(value) {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -275,7 +277,7 @@ func (self *stateLendingBook) DumpOrderList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if common.EmptyHash(keyHash) {
+		if params.EmptyHash(keyHash) {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -286,7 +288,7 @@ func (self *stateLendingBook) DumpOrderList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !common.EmptyHash(value) {
+		if !params.EmptyHash(value) {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -309,7 +311,7 @@ func (self *liquidationPriceState) DumpLendingBook(db Database) (DumpLendingBook
 	it := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for it.Next() {
 		lendingBook := common.BytesToHash(it.Key)
-		if common.EmptyHash(lendingBook) {
+		if params.EmptyHash(lendingBook) {
 			continue
 		}
 		if _, exist := self.stateLendingBooks[lendingBook]; exist {
@@ -324,7 +326,7 @@ func (self *liquidationPriceState) DumpLendingBook(db Database) (DumpLendingBook
 		}
 	}
 	for lendingBook, stateLendingBook := range self.stateLendingBooks {
-		if !common.EmptyHash(lendingBook) {
+		if !params.EmptyHash(lendingBook) {
 			result.LendingBooks[lendingBook] = stateLendingBook.DumpOrderList(db)
 		}
 	}
@@ -340,7 +342,7 @@ func (self *TradingStateDB) DumpLiquidationPriceTrie(orderBook common.Hash) (map
 	it := trie.NewIterator(exhangeObject.getLiquidationPriceTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if common.EmptyHash(priceHash) {
+		if params.EmptyHash(priceHash) {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())

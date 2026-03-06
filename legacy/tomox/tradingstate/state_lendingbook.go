@@ -23,6 +23,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -118,7 +119,7 @@ func (self *stateLendingBook) getAllTradeIds(db Database) []common.Hash {
 		return tradeIds
 	}
 	for id, value := range self.cachedStorage {
-		if !common.EmptyHash(value) {
+		if !params.EmptyHash(value) {
 			tradeIds = append(tradeIds, id)
 		}
 	}

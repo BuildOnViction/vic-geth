@@ -6,16 +6,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
-
-	"github.com/ethereum/go-ethereum/consensus"
-
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func (tomox *TomoX) CommitOrder(header *types.Header, coinbase common.Address, chain consensus.ChainContext, statedb *state.StateDB, tradingStateDB *tradingstate.TradingStateDB, orderBook common.Hash, order *tradingstate.OrderItem) ([]map[string]string, []*tradingstate.OrderItem, error) {
@@ -236,24 +235,24 @@ func (tomox *TomoX) processOrderList(coinbase common.Address, chain consensus.Ch
 			maxTradedQuantity = tradingstate.CloneBigInt(amount)
 		}
 		var quotePrice *big.Int
-		if oldestOrder.QuoteToken.String() != common.TomoNativeAddress {
-			quotePrice = tradingStateDB.GetLastPrice(tradingstate.GetTradingOrderBookHash(oldestOrder.QuoteToken, common.HexToAddress(common.TomoNativeAddress)))
+		if oldestOrder.QuoteToken.String() != params.TomoNativeAddress {
+			quotePrice = tradingStateDB.GetLastPrice(tradingstate.GetTradingOrderBookHash(oldestOrder.QuoteToken, common.HexToAddress(params.TomoNativeAddress)))
 			log.Debug("TryGet quotePrice QuoteToken/TOMO", "quotePrice", quotePrice)
 			if quotePrice == nil || quotePrice.Sign() == 0 {
-				inversePrice := tradingStateDB.GetLastPrice(tradingstate.GetTradingOrderBookHash(common.HexToAddress(common.TomoNativeAddress), oldestOrder.QuoteToken))
+				inversePrice := tradingStateDB.GetLastPrice(tradingstate.GetTradingOrderBookHash(common.HexToAddress(params.TomoNativeAddress), oldestOrder.QuoteToken))
 				quoteTokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, oldestOrder.QuoteToken)
 				if err != nil || quoteTokenDecimal.Sign() == 0 {
 					return nil, nil, nil, fmt.Errorf("Fail to get tokenDecimal. Token: %v . Err: %v", oldestOrder.QuoteToken.String(), err)
 				}
 				log.Debug("TryGet inversePrice TOMO/QuoteToken", "inversePrice", inversePrice)
 				if inversePrice != nil && inversePrice.Sign() > 0 {
-					quotePrice = new(big.Int).Mul(common.BasePrice, quoteTokenDecimal)
+					quotePrice = new(big.Int).Mul(params.BasePrice, quoteTokenDecimal)
 					quotePrice = new(big.Int).Div(quotePrice, inversePrice)
 					log.Debug("TryGet quotePrice after get inversePrice TOMO/QuoteToken", "quotePrice", quotePrice, "quoteTokenDecimal", quoteTokenDecimal)
 				}
 			}
 		} else {
-			quotePrice = common.BasePrice
+			quotePrice = params.BasePrice
 		}
 		tradedQuantity, rejectMaker, settleBalanceResult, err := tomox.getTradeQuantity(quotePrice, coinbase, chain, statedb, order, &oldestOrder, maxTradedQuantity)
 		if err != nil && err == tradingstate.ErrQuantityTradeTooSmall {
@@ -371,20 +370,20 @@ func (tomox *TomoX) getTradeQuantity(quotePrice *big.Int, coinbase common.Addres
 	if err != nil || quoteTokenDecimal.Sign() == 0 {
 		return tradingstate.Zero, false, nil, fmt.Errorf("Fail to get tokenDecimal. Token: %v . Err: %v", makerOrder.QuoteToken.String(), err)
 	}
-	if makerOrder.QuoteToken.String() == common.TomoNativeAddress {
+	if makerOrder.QuoteToken.String() == params.TomoNativeAddress {
 		quotePrice = quoteTokenDecimal
 	}
 	if takerOrder.ExchangeAddress.String() == makerOrder.ExchangeAddress.String() {
-		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, new(big.Int).Mul(common.RelayerFee, big.NewInt(2)), statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, new(big.Int).Mul(params.RelayerFee, big.NewInt(2)), statedb); err != nil {
 			log.Debug("Reject order Taker Exchnage = Maker Exchange , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, false, nil, nil
 		}
 	} else {
-		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, common.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, params.RelayerFee, statedb); err != nil {
 			log.Debug("Reject order Taker , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, false, nil, nil
 		}
-		if err := tradingstate.CheckRelayerFee(makerOrder.ExchangeAddress, common.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(makerOrder.ExchangeAddress, params.RelayerFee, statedb); err != nil {
 			log.Debug("Reject order maker , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, true, nil, nil
 		}
@@ -428,7 +427,7 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 		// charge on the token he/she has before the trade, in this case: baseToken
 		// takerFee = quoteTokenQuantity*takerFeeRate/baseFee=(quantityToTrade*maker.Price/baseTokenDecimal) * makerFeeRate/baseFee
 		takerFee := big.NewInt(0).Mul(quoteTokenQuantity, takerFeeRate)
-		takerFee = big.NewInt(0).Div(takerFee, common.TomoXBaseFee)
+		takerFee = big.NewInt(0).Div(takerFee, params.TomoXBaseFee)
 		//takerOutTotal= quoteTokenQuantity + takerFee =  quantityToTrade*maker.Price/baseTokenDecimal + quantityToTrade*maker.Price/baseTokenDecimal * takerFeeRate/baseFee
 		// = quantityToTrade *  maker.Price/baseTokenDecimal ( 1 +  takerFeeRate/baseFee)
 		// = quantityToTrade * maker.Price * (baseFee + takerFeeRate ) / ( baseTokenDecimal * baseFee)
@@ -438,8 +437,8 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 			return quantityToTrade, false
 		} else if takerBalance.Cmp(takerOutTotal) < 0 && makerBalance.Cmp(makerOutTotal) >= 0 {
 			newQuantityTrade := new(big.Int).Mul(takerBalance, baseTokenDecimal)
-			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, common.TomoXBaseFee)
-			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(common.TomoXBaseFee, takerFeeRate))
+			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, params.TomoXBaseFee)
+			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(params.TomoXBaseFee, takerFeeRate))
 			newQuantityTrade = new(big.Int).Div(newQuantityTrade, makerPrice)
 			if newQuantityTrade.Sign() == 0 {
 				log.Debug("Reject order Taker , not enough balance ", "takerSide", takerSide, "takerBalance", takerBalance, "takerOutTotal", takerOutTotal)
@@ -451,8 +450,8 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 		} else {
 			// takerBalance.Cmp(takerOutTotal) < 0 && makerBalance.Cmp(makerOutTotal) < 0
 			newQuantityTrade := new(big.Int).Mul(takerBalance, baseTokenDecimal)
-			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, common.TomoXBaseFee)
-			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(common.TomoXBaseFee, takerFeeRate))
+			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, params.TomoXBaseFee)
+			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(params.TomoXBaseFee, takerFeeRate))
 			newQuantityTrade = new(big.Int).Div(newQuantityTrade, makerPrice)
 			if newQuantityTrade.Cmp(makerBalance) <= 0 {
 				if newQuantityTrade.Sign() == 0 {
@@ -475,7 +474,7 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 		// makerFee = quoteTokenQuantity * makerFeeRate / baseFee = quantityToTrade * makerPrice / baseTokenDecimal * makerFeeRate / baseFee
 		// charge on the token he/she has before the trade, in this case: quoteToken
 		makerFee := new(big.Int).Mul(quoteTokenQuantity, makerFeeRate)
-		makerFee = new(big.Int).Div(makerFee, common.TomoXBaseFee)
+		makerFee = new(big.Int).Div(makerFee, params.TomoXBaseFee)
 
 		takerOutTotal := quantityToTrade
 		// makerOutTotal = quoteTokenQuantity + makerFee  = quantityToTrade * makerPrice / baseTokenDecimal + quantityToTrade * makerPrice / baseTokenDecimal * makerFeeRate / baseFee
@@ -491,16 +490,16 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 			return takerBalance, false
 		} else if takerBalance.Cmp(takerOutTotal) >= 0 && makerBalance.Cmp(makerOutTotal) < 0 {
 			newQuantityTrade := new(big.Int).Mul(makerBalance, baseTokenDecimal)
-			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, common.TomoXBaseFee)
-			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(common.TomoXBaseFee, makerFeeRate))
+			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, params.TomoXBaseFee)
+			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(params.TomoXBaseFee, makerFeeRate))
 			newQuantityTrade = new(big.Int).Div(newQuantityTrade, makerPrice)
 			log.Debug("Reject order maker , not enough balance ", "makerBalance", makerBalance, " makerOutTotal", makerOutTotal)
 			return newQuantityTrade, true
 		} else {
 			// takerBalance.Cmp(takerOutTotal) < 0 && makerBalance.Cmp(makerOutTotal) < 0
 			newQuantityTrade := new(big.Int).Mul(makerBalance, baseTokenDecimal)
-			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, common.TomoXBaseFee)
-			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(common.TomoXBaseFee, makerFeeRate))
+			newQuantityTrade = new(big.Int).Mul(newQuantityTrade, params.TomoXBaseFee)
+			newQuantityTrade = new(big.Int).Div(newQuantityTrade, new(big.Int).Add(params.TomoXBaseFee, makerFeeRate))
 			newQuantityTrade = new(big.Int).Div(newQuantityTrade, makerPrice)
 			if newQuantityTrade.Cmp(takerBalance) <= 0 {
 				log.Debug("Reject order maker , not enough balance ", "takerSide", takerSide, "takerBalance", takerBalance, "makerBalance", makerBalance, " newQuantityTrade ", newQuantityTrade)
@@ -519,10 +518,10 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingsta
 	makerExOwner := tradingstate.GetRelayerOwner(makerOrder.ExchangeAddress, statedb)
 	matchingFee := big.NewInt(0)
 	// masternodes charges fee of both 2 relayers. If maker and Taker are on same relayer, that relayer is charged fee twice
-	matchingFee = new(big.Int).Add(matchingFee, common.RelayerFee)
-	matchingFee = new(big.Int).Add(matchingFee, common.RelayerFee)
+	matchingFee = new(big.Int).Add(matchingFee, params.RelayerFee)
+	matchingFee = new(big.Int).Add(matchingFee, params.RelayerFee)
 
-	if common.EmptyHash(takerExOwner.Hash()) || common.EmptyHash(makerExOwner.Hash()) {
+	if params.EmptyHash(takerExOwner.Hash()) || params.EmptyHash(makerExOwner.Hash()) {
 		return fmt.Errorf("Echange owner empty , Taker: %v , maker : %v ", takerExOwner, makerExOwner)
 	}
 	mapBalances := map[common.Address]map[common.Address]*big.Int{}
@@ -574,18 +573,18 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingsta
 	mapBalances[makerOrder.QuoteToken][makerExOwner] = newMakerFee
 
 	mapRelayerFee := map[common.Address]*big.Int{}
-	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(takerOrder.ExchangeAddress, common.RelayerFee, statedb, mapRelayerFee)
+	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(takerOrder.ExchangeAddress, params.RelayerFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[takerOrder.ExchangeAddress] = newRelayerTakerFee
-	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(makerOrder.ExchangeAddress, common.RelayerFee, statedb, mapRelayerFee)
+	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(makerOrder.ExchangeAddress, params.RelayerFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[makerOrder.ExchangeAddress] = newRelayerMakerFee
-	tradingstate.SetSubRelayerFee(takerOrder.ExchangeAddress, newRelayerTakerFee, common.RelayerFee, statedb)
-	tradingstate.SetSubRelayerFee(makerOrder.ExchangeAddress, newRelayerMakerFee, common.RelayerFee, statedb)
+	tradingstate.SetSubRelayerFee(takerOrder.ExchangeAddress, newRelayerTakerFee, params.RelayerFee, statedb)
+	tradingstate.SetSubRelayerFee(makerOrder.ExchangeAddress, newRelayerMakerFee, params.RelayerFee, statedb)
 
 	masternodeOwner := statedb.GetOwner(coinbase)
 	statedb.AddBalance(masternodeOwner, matchingFee)
@@ -609,7 +608,7 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingsta
 }
 
 func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB, chain consensus.ChainContext, coinbase common.Address, orderBook common.Hash, order *tradingstate.OrderItem) (error, bool) {
-	if err := tradingstate.CheckRelayerFee(order.ExchangeAddress, common.RelayerCancelFee, statedb); err != nil {
+	if err := tradingstate.CheckRelayerFee(order.ExchangeAddress, params.RelayerCancelFee, statedb); err != nil {
 		log.Debug("Relayer not enough fee when cancel order", "err", err)
 		return nil, true
 	}
@@ -653,10 +652,10 @@ func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tra
 		return err, false
 	}
 	// relayers pay TOMO for masternode
-	tradingstate.SubRelayerFee(originOrder.ExchangeAddress, common.RelayerCancelFee, statedb)
+	tradingstate.SubRelayerFee(originOrder.ExchangeAddress, params.RelayerCancelFee, statedb)
 	masternodeOwner := statedb.GetOwner(coinbase)
 	// relayers pay TOMO for masternode
-	statedb.AddBalance(masternodeOwner, common.RelayerCancelFee)
+	statedb.AddBalance(masternodeOwner, params.RelayerCancelFee)
 
 	relayerOwner := tradingstate.GetRelayerOwner(originOrder.ExchangeAddress, statedb)
 	switch originOrder.Side {
@@ -693,7 +692,7 @@ func getCancelFeeV1(baseTokenDecimal *big.Int, feeRate *big.Int, order *tradings
 		// ==> cancel fee = 2/10000
 		// order.Quantity already included baseToken decimal
 		cancelFee = new(big.Int).Mul(order.Quantity, feeRate)
-		cancelFee = new(big.Int).Div(cancelFee, common.TomoXBaseCancelFee)
+		cancelFee = new(big.Int).Div(cancelFee, params.TomoXBaseCancelFee)
 	} else {
 		// BUY 1 BTC => TOMO with Price : 10000
 		// quoteTokenQuantity = 10000 && fee rate =2
@@ -703,7 +702,7 @@ func getCancelFeeV1(baseTokenDecimal *big.Int, feeRate *big.Int, order *tradings
 		// Fee
 		// makerFee = quoteTokenQuantity * feeRate / baseFee = quantityToTrade * makerPrice / baseTokenDecimal * feeRate / baseFee
 		cancelFee = new(big.Int).Mul(quoteTokenQuantity, feeRate)
-		cancelFee = new(big.Int).Div(cancelFee, common.TomoXBaseCancelFee)
+		cancelFee = new(big.Int).Div(cancelFee, params.TomoXBaseCancelFee)
 	}
 	return cancelFee
 }
@@ -717,9 +716,9 @@ func (tomox *TomoX) getCancelFee(chain consensus.ChainContext, statedb *state.St
 	tokenPriceInTOMO := big.NewInt(0)
 	var err error
 	if order.Side == tradingstate.Ask {
-		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.BaseToken, common.RelayerCancelFee)
+		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.BaseToken, params.RelayerCancelFee)
 	} else {
-		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.QuoteToken, common.RelayerCancelFee)
+		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.QuoteToken, params.RelayerCancelFee)
 	}
 	if err != nil {
 		return common.Big0, common.Big0
@@ -747,38 +746,6 @@ func (tomox *TomoX) UpdateMediumPriceBeforeEpoch(epochNumber uint64, tradingStat
 			epochPriceResult[orderbook] = mediumPriceCurrent
 		}
 		tradingStateDB.SetMediumPrice(orderbook, tradingstate.Zero, tradingstate.Zero)
-	}
-	if tomox.IsSDKNode() {
-		if err := tomox.LogEpochPrice(epochNumber, epochPriceResult); err != nil {
-			log.Error("failed to update epochPrice", "err", err)
-		}
-	}
-	return nil
-}
-
-// put average price of epoch to mongodb for tracking liquidation trades
-// epochPriceResult: a map of epoch average price, key is orderbook hash , value is epoch average price
-// orderbook hash genereted from baseToken, quoteToken at tomochain/tomox/tradingstate/common.go:214
-func (tomox *TomoX) LogEpochPrice(epochNumber uint64, epochPriceResult map[common.Hash]*big.Int) error {
-	db := tomox.GetMongoDB()
-	db.InitBulk()
-
-	for orderbook, price := range epochPriceResult {
-		if price.Sign() <= 0 {
-			continue
-		}
-		epochPriceItem := &tradingstate.EpochPriceItem{
-			Epoch:     epochNumber,
-			Orderbook: orderbook,
-			Price:     price,
-		}
-		epochPriceItem.Hash = epochPriceItem.ComputeHash()
-		if err := db.PutObject(epochPriceItem.Hash, epochPriceItem); err != nil {
-			return err
-		}
-	}
-	if err := db.CommitBulk(); err != nil {
-		return err
 	}
 	return nil
 }
