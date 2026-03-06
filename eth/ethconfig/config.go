@@ -174,7 +174,7 @@ func CreateConsensusEngine(config *params.ChainConfig, db ethdb.Database) (conse
 		return beacon.New(clique.New(config.Clique, db)), nil
 	}
 	if config.Posv != nil {
-		return beacon.New(posv.New(config.Posv, db)), nil
+		return beacon.New(posv.New(config, config.Posv, db)), nil
 	}
 	if config.TerminalTotalDifficulty == nil {
 		log.Error("Geth only supports PoS networks. Please transition legacy networks using Geth v1.13.x.")

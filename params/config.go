@@ -490,6 +490,9 @@ type ChainConfig struct {
 	Clique             *CliqueConfig       `json:"clique,omitempty"`
 	Posv               *PosvConfig         `json:"posv,omitempty"`
 	BlobScheduleConfig *BlobScheduleConfig `json:"blobSchedule,omitempty"`
+
+	// Extra configs
+	Viction *VictionConfig `json:"viction,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.

@@ -171,6 +171,8 @@ func ecrecover(header *types.Header, sigcache *sigLRU) (common.Address, error) {
 // PoSV is the proof-of-authority consensus engine proposed to support the
 // Ethereum testnet following the Ropsten attacks.
 type Posv struct {
+	chainConfig *params.ChainConfig // Network configuration parameters
+
 	config *params.PosvConfig // Consensus engine configuration parameters
 	db     ethdb.Database     // Database to store and retrieve snapshot checkpoints
 
@@ -193,7 +195,7 @@ type Posv struct {
 
 // New creates a PoSV proof-of-stake consensus engine with the initial
 // signers set to the ones provided by the user.
-func New(config *params.PosvConfig, db ethdb.Database) *Posv {
+func New(chainConfig *params.ChainConfig, config *params.PosvConfig, db ethdb.Database) *Posv {
 	// Set any missing consensus parameters to their defaults
 	conf := *config
 	if conf.Epoch == 0 {
@@ -207,8 +209,9 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	verifiedBlocks := lru.NewCache[common.Hash, bool](recentBlockVerifyCache)
 
 	return &Posv{
-		config: &conf,
-		db:     db,
+		chainConfig: chainConfig,
+		config:      &conf,
+		db:          db,
 
 		recents:          recents,
 		signatures:       signatures,
@@ -530,7 +533,9 @@ func (c *Posv) verifySeal(snap *Snapshot, header *types.Header, parents []*types
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
-func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
+func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header) error {
+	chain := chainH.(consensus.ChainReader)
+
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}
@@ -575,9 +580,35 @@ func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	header.Extra = header.Extra[:extraVanity]
 
 	if number%c.config.Epoch == 0 {
-		for _, signer := range snap.signers() {
-			header.Extra = append(header.Extra, signer[:]...)
+		validators := snap.signers()
+		// remove penalized validators in current epoch
+		penalties, err := c.backend.PosvGetPenalties(c, c.chainConfig, c.config, c.chainConfig.Viction, header, chain, log.Root())
+		if err != nil {
+			return err
 		}
+		if len(penalties) > 0 {
+			validators = common.SetSubstract(validators, penalties)
+			header.Penalties = EncodePenaltiesForHeader(penalties)
+		}
+		// remove penalized validators in recent epochs
+		for i := uint64(1); i <= c.chainConfig.Viction.PenaltyEpochCount; i++ {
+			prevCheckpointBlockNumber := number - (i * c.config.Epoch)
+			prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+			penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+			if len(penalties) > 0 {
+				validators = common.SetSubstract(validators, penalties)
+			}
+		}
+		// Write the final list of validators to Extra field
+		for _, validator := range validators {
+			header.Extra = append(header.Extra, validator[:]...)
+		}
+		// Write list of attestors to NewAttestors field
+		attestors, err := c.backend.PosvGetAttestors(c.chainConfig.Viction, header, validators, log.Root())
+		if err != nil {
+			return err
+		}
+		header.NewAttestors = EncodeAttestorsForHeader(attestors)
 	}
 	header.Extra = append(header.Extra, make([]byte, extraSeal)...)
 

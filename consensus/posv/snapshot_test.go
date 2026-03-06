@@ -419,7 +419,7 @@ func (tt *posvTest) run(t *testing.T) {
 	}
 	genesis.Config = &config
 
-	engine := New(config.Posv, rawdb.NewMemoryDatabase())
+	engine := New(&config, config.Posv, rawdb.NewMemoryDatabase())
 	engine.fakeDiff = true
 
 	_, blocks, _ := core.GenerateChainWithGenesis(genesis, engine, len(tt.votes), func(j int, gen *core.BlockGen) {
