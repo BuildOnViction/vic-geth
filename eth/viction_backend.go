@@ -73,7 +73,7 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.Chai
 	header, checkpointHeader *types.Header,
 	logger log.Logger,
 ) (map[common.Address]common.Address, uint64, error) {
-	panic("not implemented")
+	return viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
 }
 
 // Calculate and distribute reward at the end of each epoch.

@@ -25,12 +25,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
-	errEmptyValidators = fmt.Errorf("validators is empty")
+	errInvalidBlockAttestor        = fmt.Errorf("invalid block attestor")
+	errEmptyValidators             = fmt.Errorf("validators is empty")
+	errInvalidCheckpointPenalties  = fmt.Errorf("invalid penalty list on checkpoint block")
+	errInvalidCheckpointValidators = fmt.Errorf("invalid validator list on checkpoint block")
 )
 
 const (
@@ -91,6 +95,11 @@ type PosvBackend interface {
 	) ([]common.Address, error)
 }
 
+// Recover the attesor address from a block header
+func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
+	return ecrecover2(header, c.attestSignatures)
+}
+
 // Decode bytes with format of Block.Attestors into list of attestor numbers.
 func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
 	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
@@ -146,6 +155,16 @@ func EncodePenaltiesForHeader(penalties []common.Address) []byte {
 	return penaltiesBuff
 }
 
+// Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
+func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
+	if header == nil {
+		return []int64{}
+	}
+
+	attestors := DecodeAttestorsFromHeader(header.NewAttestors)
+	return attestors
+}
+
 // Process block header Extra field of a checkpoint block to return the list of new validators.
 func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Address {
 	if header == nil {
@@ -158,6 +177,17 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	}
 
 	return validators
+}
+
+// Check If the given block is a checkpoint block, return it, else return previous checkpoint block header.
+func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader) *types.Header {
+	blockNumber := header.Number.Uint64()
+	if blockNumber%posvConfig.Epoch == 0 {
+		return header
+	}
+	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
+	prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+	return prevCheckpointHeader
 }
 
 // Get list of validators from checkpoint block header. If the given block is not a checkpoint block,
@@ -216,4 +246,33 @@ func (c *Posv) calcDifficulty(signer common.Address, parentNumber uint64, parent
 		return big.NewInt(int64(validatorCount - distance + 1))
 	}
 	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
+}
+
+// ecrecover2 extracts the Ethereum account address from a Attestor header.
+func ecrecover2(header *types.Header, sigcache *sigLRU) (common.Address, error) {
+	// If the signature's already cached, return that
+	hash := header.Hash()
+
+	// hitrate while straight-forward sync is from 0.5 to 0.65
+	if address, known := sigcache.Peek(hash); known {
+		return address, nil
+	}
+
+	// Retrieve the signature from the header extra-data
+	if len(header.Attestor) != extraSeal {
+		return common.Address{}, errMissingSignature
+	}
+	signature := header.Attestor
+
+	// Recover the public key and the Ethereum address
+	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
+
+	sigcache.Add(hash, signer)
+	return signer, nil
 }
