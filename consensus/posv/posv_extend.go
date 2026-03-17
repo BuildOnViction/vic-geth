@@ -29,6 +29,10 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+var (
+	errEmptyValidators = fmt.Errorf("validators is empty")
+)
+
 const (
 	attestorHeaderItemLength = 4
 )
@@ -115,6 +119,14 @@ func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
 	return penalties
 }
 
+// Return the distance between current index and parent index in the circular list of validators.
+func Distance(currentIndex, parentIndex, validatorCount int) int {
+	if currentIndex > parentIndex {
+		return currentIndex - parentIndex
+	}
+	return validatorCount + currentIndex - parentIndex
+}
+
 // Encode list of attestor numbers into bytes following format of Block.Attestors.
 func EncodeAttestorsForHeader(attestors []int64) []byte {
 	var attestorsBuff []byte
@@ -148,6 +160,18 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	return validators
 }
 
+// Get list of validators from checkpoint block header. If the given block is not a checkpoint block,
+// then get list of validators from previous checkpoint block header.
+func GetNearestCheckpointValidators(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader) []common.Address {
+	blockNumber := header.Number.Uint64()
+	if blockNumber%posvConfig.Epoch == 0 {
+		return ExtractValidatorsFromCheckpointHeader(header)
+	}
+	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
+	prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+	return ExtractValidatorsFromCheckpointHeader(prevCheckpointHeader)
+}
+
 // Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
 func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, logger log.Logger,
@@ -159,4 +183,37 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	signers := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain, logger)
 	c.blockSigners.Add(blockHash, signers)
 	return signers
+}
+
+// Check if the signer is inturn to mint current block. Also return context of the check including:
+// currentIndex, parentIndex, validatorCount.
+func (c *Posv) IsMyTurn(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) (bool, int, int, int, error) {
+	parent := chain.GetHeader(parentHash, parentNumber)
+	validators := GetNearestCheckpointValidators(c.config, parent, chain)
+	validatorsCount := len(validators)
+	if validatorsCount == 0 {
+		return false, -1, -1, 0, errEmptyValidators
+	}
+
+	parentIndex := -1
+	if parentNumber > 0 {
+		parentCreator, err := c.Author(parent)
+		if err != nil {
+			return false, 0, 0, 0, err
+		}
+		parentIndex = common.IndexOf(validators, parentCreator)
+	}
+	currentIndex := common.IndexOf(validators, signer)
+
+	inturn := (parentIndex+1)%validatorsCount == currentIndex
+	return inturn, currentIndex, parentIndex, validatorsCount, nil
+}
+
+func (c *Posv) calcDifficulty(signer common.Address, parentNumber uint64, parentHash common.Hash, chain consensus.ChainHeaderReader) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parentNumber, parentHash, chain)
+	if err == nil {
+		distance := Distance(currentIndex, parentIndex, validatorCount)
+		return big.NewInt(int64(validatorCount - distance + 1))
+	}
+	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
 }

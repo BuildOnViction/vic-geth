@@ -571,7 +571,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	c.lock.RUnlock()
 
 	// Set the correct difficulty
-	header.Difficulty = calcDifficulty(snap, signer)
+	header.Difficulty = c.calcDifficulty(signer, number-1, header.ParentHash, chain)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -669,21 +669,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 // * DIFF_NOTURN(2) if BLOCK_NUMBER % SIGNER_COUNT != SIGNER_INDEX
 // * DIFF_INTURN(1) if BLOCK_NUMBER % SIGNER_COUNT == SIGNER_INDEX
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
-	if err != nil {
-		return nil
-	}
-	c.lock.RLock()
-	signer := c.signer
-	c.lock.RUnlock()
-	return calcDifficulty(snap, signer)
-}
-
-func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
-	if snap.inturn(snap.Number+1, signer) {
-		return new(big.Int).Set(diffInTurn)
-	}
-	return new(big.Int).Set(diffNoTurn)
+	return c.calcDifficulty(c.signer, parent.Number.Uint64(), parent.Hash(), chain)
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
