@@ -75,7 +75,7 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
-	if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+	if evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber) {
 		for _, interpreter := range evm.interpreters {
 			if interpreter.CanRun(contract.Code) {
 				if evm.interpreter != interpreter {
@@ -243,7 +243,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		if evm.chainRules.IsByzantium {
 			precompiles = PrecompiledContractsByzantium
 		}
-		if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+		if evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber) {
 			if evm.chainRules.IsIstanbul {
 				precompiles = PrecompiledContractsIstanbul
 			}
@@ -400,7 +400,7 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	// We could change this, but for now it's left for legacy reasons
 	var snapshot = evm.StateDB.Snapshot()
 
-	if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+	if evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber) {
 		// We do an AddBalance of zero here, just in order to trigger a touch.
 		// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
 		// but is the correct thing to do and matters on other networks, in tests, and potential
@@ -423,7 +423,7 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
 		if evm.ChainConfig().IsTIPTomoX(evm.Context.BlockNumber) {
-			ret, err = run(evm, contract, input, evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber))
+			ret, err = run(evm, contract, input, evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber))
 		} else {
 			ret, err = run(evm, contract, input, true)
 		}
