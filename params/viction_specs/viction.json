@@ -13,6 +13,7 @@
     "tipBlacklistBlock": 9349100,
     "tipTRC21FeeBlock": 13523400,
     "tipFixSignerCheckBlock": 14458500,
+    "tipTomoXCancelFeeBlock": 30915660,
     "petersburgBlock": 30915660,
     "istanbulBlock": 30915660,
     "saigonBlock": 86158494,
