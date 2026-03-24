@@ -556,6 +556,11 @@ func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
 	return isForked(c.TIPTomoXCancelFeeBlock, num)
 }
 
+// IsTomoXCancellationFeeEnabled is an alias for IsTIPTomoXCancelFee (TomoX cancellation fee fork).
+func (c *ChainConfig) IsTomoXCancellationFeeEnabled(num *big.Int) bool {
+	return isForked(c.TIPTomoXCancelFeeBlock, num)
+}
+
 // CheckCompatible checks whether scheduled fork transitions have been imported
 // with a mismatching chain configuration.
 func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *ConfigCompatError {

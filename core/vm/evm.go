@@ -75,20 +75,23 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
-	for _, interpreter := range evm.interpreters {
-		if interpreter.CanRun(contract.Code) {
-			if evm.interpreter != interpreter {
-				// Ensure that the interpreter pointer is set back
-				// to its current value upon return.
-				defer func(i Interpreter) {
-					evm.interpreter = i
-				}(evm.interpreter)
-				evm.interpreter = interpreter
+	if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+		for _, interpreter := range evm.interpreters {
+			if interpreter.CanRun(contract.Code) {
+				if evm.interpreter != interpreter {
+					// Ensure that the interpreter pointer is set back
+					// to its current value upon return.
+					defer func(i Interpreter) {
+						evm.interpreter = i
+					}(evm.interpreter)
+					evm.interpreter = interpreter
+				}
+				return interpreter.Run(contract, input, readOnly)
 			}
-			return interpreter.Run(contract, input, readOnly)
 		}
+		return nil, errors.New("no compatible interpreter")
 	}
-	return nil, errors.New("no compatible interpreter")
+	return evm.interpreter.Run(contract, input, false)
 }
 
 // BlockContext provides the EVM with auxiliary information. Once provided
@@ -233,10 +236,19 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		return nil, gas, ErrInsufficientBalance
 	}
 	snapshot := evm.StateDB.Snapshot()
-	p, isPrecompile := evm.precompile(addr)
+	var precompiles map[common.Address]PrecompiledContract
 
 	if !evm.StateDB.Exist(addr) {
-		if !isPrecompile && evm.chainRules.IsEIP158 && value.Sign() == 0 {
+		precompiles = PrecompiledContractsHomestead
+		if evm.chainRules.IsByzantium {
+			precompiles = PrecompiledContractsByzantium
+		}
+		if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+			if evm.chainRules.IsIstanbul {
+				precompiles = PrecompiledContractsIstanbul
+			}
+		}
+		if precompiles[addr] == nil && evm.chainRules.IsEIP158 && value.Sign() == 0 {
 			// Calling a non existing account, don't do anything, but ping the tracer
 			if evm.vmConfig.Debug && evm.depth == 0 {
 				evm.vmConfig.Tracer.CaptureStart(caller.Address(), addr, false, input, gas, value)
@@ -256,7 +268,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		}(gas, time.Now())
 	}
 
-	if isPrecompile {
+	if p := precompiles[addr]; p != nil {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
@@ -388,11 +400,13 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	// We could change this, but for now it's left for legacy reasons
 	var snapshot = evm.StateDB.Snapshot()
 
-	// We do an AddBalance of zero here, just in order to trigger a touch.
-	// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
-	// but is the correct thing to do and matters on other networks, in tests, and potential
-	// future scenarios
-	evm.StateDB.AddBalance(addr, big0)
+	if evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber) {
+		// We do an AddBalance of zero here, just in order to trigger a touch.
+		// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
+		// but is the correct thing to do and matters on other networks, in tests, and potential
+		// future scenarios
+		evm.StateDB.AddBalance(addr, big0)
+	}
 
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
@@ -408,7 +422,11 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
-		ret, err = run(evm, contract, input, true)
+		if evm.ChainConfig().IsTIPTomoX(evm.Context.BlockNumber) {
+			ret, err = run(evm, contract, input, evm.ChainConfig().IsTomoXCancellationFeeEnabled(evm.Context.BlockNumber))
+		} else {
+			ret, err = run(evm, contract, input, true)
+		}
 		gas = contract.Gas
 	}
 	if err != nil {
