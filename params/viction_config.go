@@ -69,7 +69,6 @@ type VictionConfig struct {
 	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorMaxCount              uint64         `json:"validatorMaxCount,omitempty"`
 	ValidatorSignInterval          uint64         `json:"validatorSignInterval,omitempty"`
-	LimitTimeFinality              uint64         `json:"limitTimeFinality,omitempty"`
 
 	VRC25GasPrice *math.Decimal256 `json:"vrc25GasPrice,omitempty"`
 	VRC25Contract common.Address   `json:"vrc25Contract,omitempty"`
