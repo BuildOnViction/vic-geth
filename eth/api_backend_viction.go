@@ -2,26 +2,24 @@
 package eth
 
 import (
-	"fmt"
-	"math/big"
+	"errors"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/posv"
-	"github.com/ethereum/go-ethereum/eth/viction"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
-func (s *EthAPIBackend) GetRewardByHash(hash common.Hash) *posv.EpochReward {
+func (s *EthAPIBackend) GetRewardByHash(hash common.Hash) (*posv.EpochReward, error) {
 	header := s.eth.blockchain.GetHeaderByHash(hash)
 	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
-		return nil
+		return nil, errors.New("header is not a checkpoint block")
 	}
 	engine := s.Engine().(*posv.Posv)
 	statedb, err := s.eth.blockchain.StateAt(header.Root)
 	if err != nil {
 		log.Info("Failed to get state at", "hash", hash, "error", err)
-		return nil
+		return nil, err
 	}
 	epochReward, err := s.eth.PosvGetEpochReward(
 		engine,
@@ -34,146 +32,146 @@ func (s *EthAPIBackend) GetRewardByHash(hash common.Hash) *posv.EpochReward {
 		log.New(),
 	)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	if epochReward == nil {
-		return nil
+		return nil, errors.New("epoch reward is nil")
 	}
-	return epochReward
+	return epochReward, nil
 
 }
 
-// GetVotersRewards return a map of voters of snapshot at given block hash
-// there is a function engine.HookReward nearly does the same thing but
-// it does change the stateDB too - so can't use it here
-// Steps:
-// 1. Checking back to state of last checkpoint
-// 2. Get list signers + reward at that checkpoint
-// 3. Find out the list signers_reward for input masternode's reward
-// 4. Calculate voters's rewards for input masternode
-func (b *EthAPIBackend) GetVotersRewards(masternodeAddr common.Address, blockHash common.Hash) map[common.Address]*big.Int {
-	chain := b.eth.blockchain
-	block := chain.GetBlockByHash(blockHash)
-	if block == nil {
-		return nil
+func (s *EthAPIBackend) GetAttestorsPairsByHash(hash common.Hash) (map[common.Address]common.Address, error) {
+	posvConfig := s.eth.blockchain.Config().Posv
+	header := s.eth.blockchain.GetHeaderByHash(hash)
+	if header == nil {
+		return nil, errors.New("header not found")
 	}
-	number := block.Number().Uint64()
-	engine := b.Engine().(*posv.Posv)
-	foundationWalletAddr := b.ChainConfig().Viction.RewardFoundationAddress
-	lastCheckpointNumber := number - (number % b.ChainConfig().Posv.Epoch) - b.ChainConfig().Posv.Epoch // calculate for 2 epochs ago
-	lastCheckpointBlock := chain.GetBlockByNumber(lastCheckpointNumber)
-	rCheckpoint := b.ChainConfig().Posv.Epoch
-
-	state, err := chain.StateAt(lastCheckpointBlock.Root())
-	if err != nil {
-		fmt.Println("ERROR Trying to getting state at", lastCheckpointNumber, " Error ", err)
-		return nil
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	if checkpointHeader == nil {
+		return nil, errors.New("checkpoint header not found")
 	}
-
-	if foundationWalletAddr == (common.Address{}) {
-		log.Error("Foundation Wallet Address is empty", "error", foundationWalletAddr)
-		return nil
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
 	}
-
-	if lastCheckpointNumber <= 0 || lastCheckpointNumber-rCheckpoint <= 0 || foundationWalletAddr == (common.Address{}) {
-		return nil
-	}
-
-	// Get initial reward
-	rewardPerEpoch := (*big.Int)(b.ChainConfig().Viction.RewardPerEpoch)
-	initialRewardPerEpoch := new(big.Int).Mul(rewardPerEpoch, new(big.Int).SetUint64(params.Ether))
-	chainReward := viction.CalcDefaultRewardPerBlock(initialRewardPerEpoch, lastCheckpointNumber, b.ChainConfig().Posv.BlocksPerYear())
-
-	// Get additional reward for Saigon upgrade
-	if chain.Config().IsSaigon(block.Number()) {
-		saigonRewardPerEpoch := new(big.Int).Mul((*big.Int)(b.ChainConfig().Viction.SaigonRewardPerEpoch), new(big.Int).SetUint64(params.Ether))
-		chainReward = new(big.Int).Add(chainReward, viction.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, b.ChainConfig().SaigonBlock, lastCheckpointNumber, b.ChainConfig().Posv.BlocksPerYear()))
-	}
-
-	if err != nil {
-		log.Crit("Fail to get signers for reward checkpoint", "error", err)
-		return nil
-	}
-
-	rewardForValidators, err := viction.CalcRewardsForValidators(engine, b.ChainConfig(), b.ChainConfig().Posv, b.ChainConfig().Viction, lastCheckpointBlock.Header(), chainReward, chain, log.New())
-	if err != nil {
-		log.Crit("Fail to calculate reward for signers", "error", err)
-		return nil
-	}
-
-	if len(rewardForValidators) <= 0 {
-		return nil
-	}
-
-	// Add reward for coin voters of input validator.
-	voterResults, err := viction.CalcRewardsForStakeholders(engine, b.ChainConfig(), b.ChainConfig().Posv, b.ChainConfig().Viction, lastCheckpointBlock.Header(), rewardForValidators, state, log.New())
-	if err != nil {
-		log.Crit("Fail to calculate reward for stakeholders", "error", err)
-		return nil
-	}
-
-	return voterResults
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	return pairs, err
 }
 
-// GetVotersCap return all voters's capability at a checkpoint
-func (b *EthAPIBackend) GetVotersCap(checkpoint *big.Int, masterAddr common.Address, voters []common.Address) map[common.Address]*big.Int {
-	chain := b.eth.blockchain
-	checkpointBlock := chain.GetBlockByNumber(checkpoint.Uint64())
-	state, err := chain.StateAt(checkpointBlock.Root())
+func (s *EthAPIBackend) GetAttestorsPairsByNumber(number rpc.BlockNumber) (map[common.Address]common.Address, error) {
+	var blockNumber uint64
+	switch number {
+	case rpc.LatestBlockNumber:
+		blockNumber = s.CurrentBlock().NumberU64()
+	case rpc.PendingBlockNumber:
+		return nil, errors.New("pending block number is not supported")
+	default:
+		if number < 0 {
+			return nil, errors.New("invalid block number")
+		}
+		blockNumber = uint64(number)
+	}
 
+	posvConfig := s.eth.blockchain.Config().Posv
+	header := s.eth.blockchain.GetHeaderByNumber(blockNumber)
+	if header == nil {
+		return nil, errors.New("header not found")
+	}
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	if checkpointHeader == nil {
+		return nil, errors.New("checkpoint header not found")
+	}
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	return pairs, err
+}
+
+func (s *EthAPIBackend) GetAttestorsByHashAtCheckPoint(hash common.Hash) ([]int64, error) {
+	header := s.eth.blockchain.GetHeaderByHash(hash)
+	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
+		return nil, errors.New("header is not a checkpoint block")
+	}
+	_, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(header)
+	attestors, err := s.eth.PosvGetAttestors(s.eth.blockchain.Config().Viction, header, validators)
+	return attestors, err
+}
+
+func (s *EthAPIBackend) GetAttestorsByNumberAtCheckPoint(number rpc.BlockNumber) ([]int64, error) {
+	var blockNumber uint64
+	switch number {
+	case rpc.LatestBlockNumber:
+		blockNumber = s.CurrentBlock().NumberU64()
+	case rpc.PendingBlockNumber:
+		return nil, errors.New("pending block number is not supported")
+	default:
+		if number < 0 {
+			return nil, errors.New("invalid block number")
+		}
+		blockNumber = uint64(number)
+	}
+	header := s.eth.blockchain.GetHeaderByNumber(blockNumber)
+	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
+		return nil, errors.New("header not found")
+	}
+	_, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(header)
+	attestors, err := s.eth.PosvGetAttestors(s.eth.blockchain.Config().Viction, header, validators)
+	return attestors, err
+}
+
+func (s *EthAPIBackend) GetPenaltiesByHashAtCheckPoint(hash common.Hash) ([]common.Address, error) {
+	header := s.eth.blockchain.GetHeaderByHash(hash)
+	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
+		return nil, errors.New("header is not a checkpoint block")
+	}
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	validators, err := engine.GetSignersAtHash(s.eth.blockchain, header.Hash())
 	if err != nil {
-		fmt.Println("ERROR Trying to getting state at", checkpoint, " Error ", err)
-		return nil
+		return nil, err
 	}
-
-	voterCaps := make(map[common.Address]*big.Int)
-	for _, voteAddr := range voters {
-		voterCap := state.VicGetValidatorVoterCap(b.ChainConfig().Viction.ValidatorContract, masterAddr, voteAddr)
-		voterCaps[voteAddr] = voterCap
-	}
-	return voterCaps
+	penalties, err := s.eth.PosvGetPenalties(engine, s.eth.blockchain.Config(), s.eth.blockchain.Config().Posv, s.eth.blockchain.Config().Viction, header, s.eth.blockchain, validators)
+	return penalties, err
 }
 
-// GetMasternodesCap return a cap of all masternode at a checkpoint
-func (b *EthAPIBackend) GetMasternodesCap(checkpoint uint64) map[common.Address]*big.Int {
-	checkpointBlock := b.eth.blockchain.GetBlockByNumber(checkpoint)
-	state, err := b.eth.blockchain.StateAt(checkpointBlock.Root())
-
+func (s *EthAPIBackend) GetPenaltiesByNumberAtCheckPoint(number rpc.BlockNumber) ([]common.Address, error) {
+	var blockNumber uint64
+	switch number {
+	case rpc.LatestBlockNumber:
+		blockNumber = s.CurrentBlock().NumberU64()
+	case rpc.PendingBlockNumber:
+		return nil, errors.New("pending block number is not supported")
+	default:
+		if number < 0 {
+			return nil, errors.New("invalid block number")
+		}
+		blockNumber = uint64(number)
+	}
+	header := s.eth.blockchain.GetHeaderByNumber(blockNumber)
+	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
+		return nil, errors.New("header is not a checkpoint block")
+	}
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	validators, err := engine.GetSignersAtHash(s.eth.blockchain, header.Hash())
 	if err != nil {
-		fmt.Println("ERROR Trying to getting state at", checkpoint, " Error ", err)
-		return nil
+		return nil, err
 	}
-
-	validators := state.VicGetCandidates(b.ChainConfig().Viction.ValidatorContract)
-
-	validatorCaps := make(map[common.Address]*big.Int)
-	for _, validator := range validators {
-		_, validatorCap := state.VicGetValidatorInfo(b.ChainConfig().Viction.ValidatorContract, validator)
-		validatorCaps[validator] = validatorCap
-	}
-
-	return validatorCaps
-}
-
-func (b *EthAPIBackend) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool {
-	return b.eth.blockchain.AreTwoBlockSamePath(bh1, bh2)
-}
-
-// GetBlocksHashCache returns cached block hash candidates at a given height.
-func (b *EthAPIBackend) GetBlocksHashCache(blockNr uint64) []common.Hash {
-	return b.eth.blockchain.GetBlocksHashFromBlockCache(blockNr)
-}
-
-// GetEpochDuration return latest generating velocity epoch by minute
-// ie 30min for each epoch
-func (b *EthAPIBackend) GetEpochDuration() *big.Int {
-	chain := b.eth.blockchain
-	block := chain.CurrentBlock()
-	number := block.Number().Uint64()
-	lastCheckpointNumber := number - (number % b.ChainConfig().Posv.Epoch)
-	lastCheckpointBlockTime := chain.GetBlockByNumber(lastCheckpointNumber).Time()
-	secondToLastCheckpointNumber := lastCheckpointNumber - b.ChainConfig().Posv.Epoch
-	secondToLastCheckpointBlockTime := chain.GetBlockByNumber(secondToLastCheckpointNumber).Time()
-
-	return new(big.Int).Sub(new(big.Int).SetUint64(lastCheckpointBlockTime), new(big.Int).SetUint64(secondToLastCheckpointBlockTime))
+	penalties, err := s.eth.PosvGetPenalties(engine, s.eth.blockchain.Config(), s.eth.blockchain.Config().Posv, s.eth.blockchain.Config().Viction, header, s.eth.blockchain, validators)
+	return penalties, err
 }

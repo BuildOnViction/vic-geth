@@ -954,16 +954,34 @@ web3._extend({
 				params: 1
 			}),
 			new web3._extend.Method({
-				name: 'getVotersRewards',
-				call: 'eth_getVotersRewards',
-				params: 2,
-				inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputHashFormatter]
+				name: 'getAttestorsPairsByHash',
+				call: 'eth_getAttestorsPairsByHash',
 				params: 1
 			}),
 			new web3._extend.Method({
-				name: 'getMasternodesCap',
-				call: 'eth_getMasternodesCap',
+				name: 'getAttestorsPairsByNumber',
+				call: 'eth_getAttestorsPairsByNumber',
 				params: 1
+			}),
+			new web3._extend.Method({
+				name: 'getAttestorsByHashAtCheckPoint',
+				call: 'eth_getAttestorsByHashAtCheckPoint',
+				params: 1
+			}),
+			new web3._extend.Method({
+				name: 'getAttestorsByNumberAtCheckPoint',
+				call: 'eth_getAttestorsByNumberAtCheckPoint',
+				params: 1
+			}),
+			new web3._extend.Method({
+				name: 'getPenaltiesByHashAtCheckPoint',
+				call: 'eth_getPenaltiesByHashAtCheckPoint',
+				params: 1,
+			}),
+			new web3._extend.Method({
+				name: 'getPenaltiesByNumberAtCheckPoint',
+				call: 'eth_getPenaltiesByNumberAtCheckPoint',
+				params: 1,
 			}),
 	],
 	properties: [
