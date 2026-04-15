@@ -144,31 +144,3 @@ func (bc *BlockChain) UpdateM1() error {
 	}
 	return nil
 }
-
-// GetBlocksHashCache get all block's hashes with same level
-// just work with latest blocksHashCacheLimit
-func (bc *BlockChain) GetBlocksHashFromBlockCache(number uint64) []common.Hash {
-	blockCache, ok := bc.blockCache.Get(number)
-	if !ok {
-		return nil
-	}
-	block, ok := blockCache.(*types.Block)
-	if !ok || block == nil {
-		return nil
-	}
-	return []common.Hash{block.Hash()}
-}
-
-// AreTwoBlockSamePath check if two blocks are same path
-// Assume block 1 is ahead block 2 so we need to check parentHash
-func (bc *BlockChain) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool {
-	bl1 := bc.GetBlockByHash(bh1)
-	bl2 := bc.GetBlockByHash(bh2)
-	toBlockLevel := bl2.Number().Uint64()
-
-	for bl1.Number().Uint64() > toBlockLevel {
-		bl1 = bc.GetBlockByHash(bl1.ParentHash())
-	}
-
-	return (bl1.Hash() == bl2.Hash())
-}
