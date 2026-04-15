@@ -13,9 +13,6 @@
     "tipBlacklistBlock": 9349100,
     "tipTRC21FeeBlock": 13523400,
     "tipFixSignerCheckBlock": 14458500,
-    "tipTomoXBlock": 20581700,
-    "tipTomoXLendingBlock": 21430200,
-    "tipTomoXCancelFeeBlock": 30915660,
     "petersburgBlock": 30915660,
     "istanbulBlock": 30915660,
     "saigonBlock": 86158494,
@@ -38,6 +35,7 @@
       "rewardFoundationPercent": 10,
       "rewardPerEpoch": "0xd8d726b7177a80000",
       "rewardValidatorPercent": 40,
+      "limitTimeFinality" : 30,
       "rewardVoterPercent": 50,
       "tomoxContract": "0x0000000000000000000000000000000000000091",
       "tradingStateContract": "0x0000000000000000000000000000000000000092",
@@ -48,7 +46,6 @@
       "validatorMinBlockPerEpochCount": 1,
       "validatorSignInterval": 15,
       "vrc25Contract": "0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee",
-      "vrc25GasPrice": "250000000",
-      "lendingLiquidateTradeBlock": 100
+      "vrc25GasPrice": "250000000"
     }
   }
