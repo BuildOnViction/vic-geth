@@ -194,16 +194,3 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	c.BlockSigners.Add(blockHash, signers)
 	return signers, nil
 }
-
-// GetSignersAtHash returns validator signers from snapshot at a given block hash.
-func (c *Posv) GetSignersAtHash(chain consensus.ChainHeaderReader, hash common.Hash) ([]common.Address, error) {
-	header := chain.GetHeaderByHash(hash)
-	if header == nil {
-		return nil, errUnknownBlock
-	}
-	snap, err := c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
-	if err != nil {
-		return nil, err
-	}
-	return snap.GetSigners(), nil
-}

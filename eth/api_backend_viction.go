@@ -99,9 +99,8 @@ func (s *EthAPIBackend) GetAttestorsByHashAtCheckPoint(hash common.Hash) ([]int6
 	if !ok {
 		return nil, errors.New("engine is not a posv engine")
 	}
-	validators := posv.ExtractValidatorsFromCheckpointHeader(header)
-	attestors, err := s.eth.PosvGetAttestors(s.eth.blockchain.Config().Viction, header, validators)
-	return attestors, err
+	attestors := posv.ExtractAttestorsFromCheckpointHeader(header)
+	return attestors, nil
 }
 
 func (s *EthAPIBackend) GetAttestorsByNumberAtCheckPoint(number rpc.BlockNumber) ([]int64, error) {
@@ -125,9 +124,8 @@ func (s *EthAPIBackend) GetAttestorsByNumberAtCheckPoint(number rpc.BlockNumber)
 	if !ok {
 		return nil, errors.New("engine is not a posv engine")
 	}
-	validators := posv.ExtractValidatorsFromCheckpointHeader(header)
-	attestors, err := s.eth.PosvGetAttestors(s.eth.blockchain.Config().Viction, header, validators)
-	return attestors, err
+	attestors := posv.ExtractAttestorsFromCheckpointHeader(header)
+	return attestors, nil
 }
 
 func (s *EthAPIBackend) GetPenaltiesByHashAtCheckPoint(hash common.Hash) ([]common.Address, error) {
@@ -135,16 +133,13 @@ func (s *EthAPIBackend) GetPenaltiesByHashAtCheckPoint(hash common.Hash) ([]comm
 	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
 		return nil, errors.New("header is not a checkpoint block")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
+	_, ok := s.Engine().(*posv.Posv)
 	if !ok {
 		return nil, errors.New("engine is not a posv engine")
 	}
-	validators, err := engine.GetSignersAtHash(s.eth.blockchain, header.Hash())
-	if err != nil {
-		return nil, err
-	}
-	penalties, err := s.eth.PosvGetPenalties(engine, s.eth.blockchain.Config(), s.eth.blockchain.Config().Posv, s.eth.blockchain.Config().Viction, header, s.eth.blockchain, validators)
-	return penalties, err
+
+	penalties := posv.DecodePenaltiesFromHeader(header.Penalties)
+	return penalties, nil
 }
 
 func (s *EthAPIBackend) GetPenaltiesByNumberAtCheckPoint(number rpc.BlockNumber) ([]common.Address, error) {
@@ -164,14 +159,11 @@ func (s *EthAPIBackend) GetPenaltiesByNumberAtCheckPoint(number rpc.BlockNumber)
 	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
 		return nil, errors.New("header is not a checkpoint block")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
+	_, ok := s.Engine().(*posv.Posv)
 	if !ok {
 		return nil, errors.New("engine is not a posv engine")
 	}
-	validators, err := engine.GetSignersAtHash(s.eth.blockchain, header.Hash())
-	if err != nil {
-		return nil, err
-	}
-	penalties, err := s.eth.PosvGetPenalties(engine, s.eth.blockchain.Config(), s.eth.blockchain.Config().Posv, s.eth.blockchain.Config().Viction, header, s.eth.blockchain, validators)
-	return penalties, err
+
+	penalties := posv.DecodePenaltiesFromHeader(header.Penalties)
+	return penalties, nil
 }
