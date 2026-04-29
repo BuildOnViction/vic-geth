@@ -55,7 +55,7 @@ func (tomox *TomoX) ApplyOrder(header *types.Header, coinbase common.Address, ch
 		}
 	}()
 
-	if err := order.VerifyOrder(statedb); err != nil {
+	if err := order.VerifyOrder(tomox.config.Viction.RelayerRegistrationSMC, statedb); err != nil {
 		rejects = append(rejects, order)
 		return trades, rejects, nil
 	}
@@ -373,22 +373,22 @@ func (tomox *TomoX) getTradeQuantity(quotePrice *big.Int, coinbase common.Addres
 		quotePrice = quoteTokenDecimal
 	}
 	if takerOrder.ExchangeAddress.String() == makerOrder.ExchangeAddress.String() {
-		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, new(big.Int).Mul(tradingstate.RelayerFee, big.NewInt(2)), statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, takerOrder.ExchangeAddress, new(big.Int).Mul(tradingstate.RelayerFee, big.NewInt(2)), statedb); err != nil {
 			log.Debug("Reject order Taker Exchnage = Maker Exchange , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, false, nil, nil
 		}
 	} else {
-		if err := tradingstate.CheckRelayerFee(takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
 			log.Debug("Reject order Taker , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, false, nil, nil
 		}
-		if err := tradingstate.CheckRelayerFee(makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
 			log.Debug("Reject order maker , relayer not enough fee ", "err", err)
 			return tradingstate.Zero, true, nil, nil
 		}
 	}
-	takerFeeRate := tradingstate.GetExRelayerFee(takerOrder.ExchangeAddress, statedb)
-	makerFeeRate := tradingstate.GetExRelayerFee(makerOrder.ExchangeAddress, statedb)
+	takerFeeRate := tradingstate.GetExRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, takerOrder.ExchangeAddress, statedb)
+	makerFeeRate := tradingstate.GetExRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, makerOrder.ExchangeAddress, statedb)
 	var takerBalance, makerBalance *big.Int
 	switch takerOrder.Side {
 	case tradingstate.Bid:
@@ -409,7 +409,7 @@ func (tomox *TomoX) getTradeQuantity(quotePrice *big.Int, coinbase common.Addres
 		settleBalanceResult, err = tradingstate.GetSettleBalance(quotePrice, takerOrder.Side, takerFeeRate, makerOrder.BaseToken, makerOrder.QuoteToken, makerOrder.Price, makerFeeRate, baseTokenDecimal, quoteTokenDecimal, quantity)
 		log.Debug("GetSettleBalance", "settleBalanceResult", settleBalanceResult, "err", err)
 		if err == nil {
-			err = DoSettleBalance(coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
+			err = DoSettleBalance(tomox.config.Viction.RelayerRegistrationSMC, tomox.config.Viction.ValidatorContract, coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
 		}
 		return quantity, rejectMaker, settleBalanceResult, err
 	}
@@ -512,9 +512,9 @@ func GetTradeQuantity(takerSide string, takerFeeRate *big.Int, takerBalance *big
 	}
 }
 
-func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingstate.OrderItem, settleBalance *tradingstate.SettleBalance, statedb *state.StateDB) error {
-	takerExOwner := tradingstate.GetRelayerOwner(takerOrder.ExchangeAddress, statedb)
-	makerExOwner := tradingstate.GetRelayerOwner(makerOrder.ExchangeAddress, statedb)
+func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coinbase common.Address, takerOrder, makerOrder *tradingstate.OrderItem, settleBalance *tradingstate.SettleBalance, statedb *state.StateDB) error {
+	takerExOwner := tradingstate.GetRelayerOwner(relayerSMC, takerOrder.ExchangeAddress, statedb)
+	makerExOwner := tradingstate.GetRelayerOwner(relayerSMC, makerOrder.ExchangeAddress, statedb)
 	matchingFee := big.NewInt(0)
 	// masternodes charges fee of both 2 relayers. If maker and Taker are on same relayer, that relayer is charged fee twice
 	matchingFee = new(big.Int).Add(matchingFee, tradingstate.RelayerFee)
@@ -572,20 +572,20 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingsta
 	mapBalances[makerOrder.QuoteToken][makerExOwner] = newMakerFee
 
 	mapRelayerFee := map[common.Address]*big.Int{}
-	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
+	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[takerOrder.ExchangeAddress] = newRelayerTakerFee
-	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
+	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[makerOrder.ExchangeAddress] = newRelayerMakerFee
-	tradingstate.SetSubRelayerFee(takerOrder.ExchangeAddress, newRelayerTakerFee, tradingstate.RelayerFee, statedb)
-	tradingstate.SetSubRelayerFee(makerOrder.ExchangeAddress, newRelayerMakerFee, tradingstate.RelayerFee, statedb)
+	tradingstate.SetSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, newRelayerTakerFee, tradingstate.RelayerFee, statedb)
+	tradingstate.SetSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, newRelayerMakerFee, tradingstate.RelayerFee, statedb)
 
-	masternodeOwner, _ := statedb.VicGetValidatorInfo(common.HexToAddress(tradingstate.ValidatorContract), coinbase)
+	masternodeOwner, _ := statedb.VicGetValidatorInfo(validatorSMC, coinbase)
 	log.Debug("DoSettleBalance masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "matchingFee", matchingFee)
 	statedb.AddBalance(masternodeOwner, matchingFee)
 
@@ -608,7 +608,7 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *tradingsta
 }
 
 func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB, chain tradingstate.ChainContext, coinbase common.Address, orderBook common.Hash, order *tradingstate.OrderItem) (error, bool) {
-	if err := tradingstate.CheckRelayerFee(order.ExchangeAddress, tradingstate.RelayerCancelFee, statedb); err != nil {
+	if err := tradingstate.CheckRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, order.ExchangeAddress, tradingstate.RelayerCancelFee, statedb); err != nil {
 		log.Debug("Relayer not enough fee when cancel order", "err", err)
 		return nil, true
 	}
@@ -634,7 +634,7 @@ func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tra
 		return nil, false
 	}
 	log.Debug("ProcessCancelOrder", "baseToken", originOrder.BaseToken, "quoteToken", originOrder.QuoteToken)
-	feeRate := tradingstate.GetExRelayerFee(originOrder.ExchangeAddress, statedb)
+	feeRate := tradingstate.GetExRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, originOrder.ExchangeAddress, statedb)
 	tokenCancelFee, tokenPriceInTOMO := common.Big0, common.Big0
 	if !chain.Config().IsTIPTomoXCancelFee(header.Number) { // TomoX cancellation fee hardfork
 		tokenCancelFee = getCancelFeeV1(baseTokenDecimal, feeRate, &originOrder)
@@ -652,13 +652,13 @@ func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tra
 		return err, false
 	}
 	// relayers pay TOMO for masternode
-	tradingstate.SubRelayerFee(originOrder.ExchangeAddress, tradingstate.RelayerCancelFee, statedb)
-	masternodeOwner, _ := statedb.VicGetValidatorInfo(common.HexToAddress(tradingstate.ValidatorContract), coinbase)
+	tradingstate.SubRelayerFee(tomox.config.Viction.RelayerRegistrationSMC, originOrder.ExchangeAddress, tradingstate.RelayerCancelFee, statedb)
+	masternodeOwner, _ := statedb.VicGetValidatorInfo(tomox.config.Viction.ValidatorContract, coinbase)
 	log.Debug("ProcessCancelOrder masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "cancelFee", tradingstate.RelayerCancelFee)
 	// relayers pay TOMO for masternode
 	statedb.AddBalance(masternodeOwner, tradingstate.RelayerCancelFee)
 
-	relayerOwner := tradingstate.GetRelayerOwner(originOrder.ExchangeAddress, statedb)
+	relayerOwner := tradingstate.GetRelayerOwner(tomox.config.Viction.RelayerRegistrationSMC, originOrder.ExchangeAddress, statedb)
 	switch originOrder.Side {
 	case tradingstate.Ask:
 		// users pay token (which they have) for relayer
@@ -728,7 +728,7 @@ func (tomox *TomoX) getCancelFee(chain tradingstate.ChainContext, statedb *state
 }
 
 func (tomox *TomoX) UpdateMediumPriceBeforeEpoch(epochNumber uint64, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB) error {
-	mapPairs, err := tradingstate.GetAllTradingPairs(statedb)
+	mapPairs, err := tradingstate.GetAllTradingPairs(tomox.config.Viction.RelayerRegistrationSMC, statedb)
 	log.Debug("UpdateMediumPriceBeforeEpoch", "len(mapPairs)", len(mapPairs))
 
 	if err != nil {
