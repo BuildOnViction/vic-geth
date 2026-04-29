@@ -25,7 +25,7 @@
       "epoch": 900,
       "gap": 5
     },
-     "viction": {
+    "viction": {
       "lendingContract": "0x0000000000000000000000000000000000000093",
       "lendingFinalizedContract": "0x0000000000000000000000000000000000000094",
       "penaltyComebackBlockCount": 150,
