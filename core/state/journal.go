@@ -62,23 +62,18 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		// Undo the changes made by the operation
 		j.entries[i].revert(statedb)
 
-		
-		// Note: we've removed the dirty-tracking cleanup here to match the legacy
-		// victionchain behavior. In standard Geth, we would decrement the dirty
-		// counter and potentially remove the account from the dirty set. By keeping
-		// the account in the dirty set, we ensure that EIP-158's 'deleteEmptyObjects'
-		// logic in Finalise(true) will correctly process and delete accounts that
-		// were touched but reverted to empty (like the 0x01 precompile).
-		// TODO : enable dirty-tracking cleanup once we have a better understanding 
-		// of the implications and can ensure it doesn't interfere with Viction's 
-		// unique account handling.
-
-		// Drop any dirty tracking induced by the change
-		// if addr := j.entries[i].dirtied(); addr != nil {
-		// 	if j.dirties[*addr]--; j.dirties[*addr] == 0 {
-		// 		delete(j.dirties, *addr)
-		// 	}
-		// }
+		// Drop any dirty tracking induced by the change, but only if the
+		// account was not already dirty before this journal epoch (i.e., not
+		// already in stateObjectsDirty from a prior Finalise).
+		if addr := j.entries[i].dirtied(); addr != nil {
+			if j.dirties[*addr]--; j.dirties[*addr] == 0 {
+				// Only remove from journal.dirties if it's NOT already committed
+				// in stateObjectsDirty (from a prior Finalise in this block).
+				if _, alreadyDirty := statedb.stateObjectsDirty[*addr]; !alreadyDirty {
+					delete(j.dirties, *addr)
+				}
+			}
+		}
 	}
 	j.entries = j.entries[:snapshot]
 }
