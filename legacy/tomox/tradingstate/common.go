@@ -29,14 +29,12 @@ const (
 // because legacy tradingstate utility functions are pure helpers without access
 // to a VictionConfig instance - they use these package-level defaults directly.
 var (
-	BasePrice              = big.NewInt(1000000000000000000)                     // 1e18
-	RelayerLockedFund      = big.NewInt(20000)                                   // 20000 VIC
-	TomoXBaseFee           = big.NewInt(10000)                                   // 1 / TomoXBaseFee
-	RelayerFee             = big.NewInt(1000000000000000)                        // 0.001 VIC
-	RelayerCancelFee       = big.NewInt(100000000000000)                         // 0.0001 VIC
-	TomoXBaseCancelFee     = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (TomoXBaseFee * 10)
-	RelayerRegistrationSMC = "0x16c63b79f9C8784168103C0b74E6A59EC2de4a02"
-	ValidatorContract      = "0x0000000000000000000000000000000000000088"
+	BasePrice          = big.NewInt(1000000000000000000)                     // 1e18
+	RelayerLockedFund  = big.NewInt(20000)                                   // 20000 VIC
+	TomoXBaseFee       = big.NewInt(10000)                                   // 1 / TomoXBaseFee
+	RelayerFee         = big.NewInt(1000000000000000)                        // 0.001 VIC
+	RelayerCancelFee   = big.NewInt(100000000000000)                         // 0.0001 VIC
+	TomoXBaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (TomoXBaseFee * 10)
 )
 
 var (

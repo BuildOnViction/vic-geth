@@ -122,12 +122,12 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 	autoTopUpTrades = []*lendingstate.LendingTrade{}
 	autoRecallTrades = []*lendingstate.LendingTrade{}
 
-	allPairs, err := lendingstate.GetAllLendingPairs(statedb)
+	allPairs, err := lendingstate.GetAllLendingPairs(l.config.Viction.LendingRegistrationSMC, statedb)
 	if err != nil {
 		log.Debug("Not found all trading pairs", "error", err)
 		return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, nil
 	}
-	allLendingBooks, err := lendingstate.GetAllLendingBooks(statedb)
+	allLendingBooks, err := lendingstate.GetAllLendingBooks(l.config.Viction.LendingRegistrationSMC, statedb)
 	if err != nil {
 		log.Debug("Not found all lending books", "error", err)
 		return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, nil
@@ -206,7 +206,7 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 			highestLiquidatePrice, liquidationData = tradingState.GetHighestLiquidationPriceData(orderbook, collateralPrice)
 		}
 		// recall trades
-		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(statedb, lendingPair.CollateralToken)
+		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(l.config.Viction.LendingRegistrationSMC, statedb, lendingPair.CollateralToken)
 		recalLiquidatePrice := new(big.Int).Mul(collateralPrice, lendingstate.BaseRecall)
 		recalLiquidatePrice = new(big.Int).Div(recalLiquidatePrice, recallRate)
 		newLiquidatePrice := new(big.Int).Mul(collateralPrice, liquidationRate)
