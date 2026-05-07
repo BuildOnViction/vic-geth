@@ -390,6 +390,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	defer msg.Discard()
 
 	// Handle the message depending on its contents
+	log.Debug("Received eth message", "code", msg.Code, "size", msg.Size, "peer", p.id)
 	switch {
 	case msg.Code == StatusMsg:
 		// Status messages should never arrive after the handshake
@@ -481,6 +482,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				query.Origin.Number += query.Skip + 1
 			}
 		}
+		log.Debug("Sending block headers to peer", "count", len(headers), "peer", p.id)
 		return p.SendBlockHeaders(headers)
 
 	case msg.Code == BlockHeadersMsg:
@@ -561,6 +563,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				bytes += len(data)
 			}
 		}
+		log.Debug("Sending block bodies to peer", "count", len(bodies), "peer", p.id)
 		return p.SendBlockBodiesRLP(bodies)
 
 	case msg.Code == BlockBodiesMsg:
@@ -813,6 +816,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		pm.txFetcher.Enqueue(p.id, txs, msg.Code == PooledTransactionsMsg)
 
 	default:
+		log.Warn("Received unknown message code from peer", "code", msg.Code, "peer", p.id, "version", p.version)
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
 	return nil

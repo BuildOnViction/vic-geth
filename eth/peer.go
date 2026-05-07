@@ -469,6 +469,8 @@ func (p *peer) SendNewBlock(block *types.Block, td *big.Int) error {
 		p.knownBlocks.Pop()
 	}
 	p.knownBlocks.Add(block.Hash())
+	// Ensure the block header is marked as PoSV so it encodes with 18 fields.
+	block.SetPosv(true)
 	return p2p.Send(p.rw, NewBlockMsg, []interface{}{block, td})
 }
 
@@ -489,6 +491,11 @@ func (p *peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 
 // SendBlockHeaders sends a batch of block headers to the remote peer.
 func (p *peer) SendBlockHeaders(headers []*types.Header) error {
+	// Ensure all headers are marked as PoSV so they encode with 18 fields.
+	// This is needed for compatibility with victionchain peers which expect 18 fields.
+	for _, h := range headers {
+		h.Posv = true
+	}
 	return p2p.Send(p.rw, BlockHeadersMsg, headers)
 }
 
