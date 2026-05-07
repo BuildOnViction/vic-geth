@@ -54,3 +54,12 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	}
 	return bytes.Equal(data[0:4], signMethodSelector)
 }
+
+func (tx *Transaction) IsSpecialTransaction() bool {
+	if tx.To() == nil {
+		return false
+	}
+	addr := *tx.To()
+	return addr == common.HexToAddress("0x0000000000000000000000000000000000000090") ||
+		addr == common.HexToAddress("0x0000000000000000000000000000000000000089")
+}

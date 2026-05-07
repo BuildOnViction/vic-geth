@@ -361,6 +361,10 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 	// Initialize a price and received time based heap with the head transactions
 	heads := make(TxByPriceAndTime, 0, len(txs))
 	for from, accTxs := range txs {
+		if len(accTxs) == 0 {
+			delete(txs, from)
+			continue
+		}
 		heads = append(heads, accTxs[0])
 		// Ensure the sender address is from the signer
 		acc, _ := Sender(signer, accTxs[0])
@@ -377,6 +381,53 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 		heads:  heads,
 		signer: signer,
 	}
+}
+
+// ExtractSpecialTransactionsForPosv extracts special transactions for POSV
+// signer allowlist from pending account queues.
+//
+// If an account is in signers, all transactions up to the last special
+// transaction in its nonce-ordered queue are extracted, and removed from txs.
+func ExtractSpecialTransactionsForPosv(
+	signer Signer,
+	txs map[common.Address]Transactions,
+	signers map[common.Address]struct{},
+) Transactions {
+	if len(signers) == 0 {
+		return Transactions{}
+	}
+	specialTxs := Transactions{}
+	for from, accTxs := range txs {
+		if len(accTxs) == 0 {
+			delete(txs, from)
+			continue
+		}
+		acc, _ := Sender(signer, accTxs[0])
+		if _, ok := signers[acc]; !ok {
+			continue
+		}
+		lastSpecialTx := -1
+		for i, tx := range accTxs {
+			if tx.IsSpecialTransaction() {
+				lastSpecialTx = i
+			}
+		}
+		if lastSpecialTx < 0 {
+			continue
+		}
+
+		specialTxs = append(specialTxs, accTxs[:lastSpecialTx+1]...)
+		normalTxs := accTxs[lastSpecialTx+1:]
+		if len(normalTxs) > 0 {
+			txs[acc] = normalTxs
+		} else {
+			delete(txs, acc)
+		}
+		if from != acc {
+			delete(txs, from)
+		}
+	}
+	return specialTxs
 }
 
 // Peek returns the next transaction by price.

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -23,6 +24,8 @@ func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, 
 		if err != nil {
 			return nil, err
 		}
+		log.Info("[POSV randomize] computed attestor indices",
+			"validators", validatorCount, "randomizes", randomizes, "attestors", attestors)
 		return attestors, nil
 	}
 	return nil, ErrNoValidator
@@ -46,7 +49,15 @@ func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.A
 	// Convert common.Hash to [32]byte
 	opening := [32]byte(openingHash)
 
-	return DecryptRandomize(secrets, opening)
+	result, err := DecryptRandomize(secrets, opening)
+	if err != nil {
+		log.Info("[POSV randomize] failed to decrypt validator secret",
+			"validator", validator, "secrets", len(secretsHash), "err", err)
+		return result, err
+	}
+	log.Info("[POSV randomize] decrypted validator random",
+		"validator", validator, "secrets", len(secretsHash), "hasOpening", openingHash != common.Hash{}, "random", result)
+	return result, nil
 }
 
 func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, error) {
