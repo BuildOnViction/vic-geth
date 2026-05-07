@@ -917,6 +917,10 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 			f.dropPeer(peer)
 			return
 		}
+		// Check if block needs M2 attestor: block number > epoch and no attestor yet
+		if !posvNeedHook && f.applyPOSVAttestorHook != nil && len(block.Attestor()) == 0 {
+			posvNeedHook = true
+		}
 		log.Info("[Fetcher-POSV] first header verify done", "peer", peer, "number", block.NumberU64(), "hash", hash,
 			"needAttestorHook", posvNeedHook, "parent", block.ParentHash())
 		if posvNeedHook {
@@ -929,24 +933,25 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 			if attestorAppended {
 				log.Info("[Fetcher-POSV]:Propagated block POSV attestor appended", "number", updatedBlock.Number(), "hash", updatedBlock.Hash())
 			}
-			// Not this node's attestor duty (or could not sign): skip import without
-			// dropping the peer, same idea as Viction when !isM2.
+			// Not this node's attestor duty (or could not sign): import the block
+			// anyway without M2 attestation to maintain compatibility with nodes
+			// that do not implement the M2 mechanism (e.g. victionchain).
 			if !attestorAppended {
-				log.Warn("[Fetcher-POSV] skip local import: hook did not append M2 (see [POSV-M2] logs)", "peer", peer,
+				log.Info("[Fetcher-POSV] not assigned attestor, importing block without M2", "peer", peer,
 					"number", block.NumberU64(), "hash", hash, "diff", block.Difficulty().String(), "parent", block.ParentHash())
 				// Still relay the creator-signed block so the assigned attestor (or any
-				// peer that can append) may receive it. Without this, a skip node becomes
-				// a dead end in propagation and the chain can stall until sync/reorg.
+				// peer that can append) may receive it.
 				go f.broadcastBlock(block, true)
-				return
-			}
-			importBlock = updatedBlock
-			log.Info("[Fetcher-POSV]:attestorAppended", "block", importBlock.NumberU64(), "attestor", hex.EncodeToString(importBlock.Attestor()))
+				importBlock = block
+			} else {
+				importBlock = updatedBlock
+				log.Info("[Fetcher-POSV]:attestorAppended", "block", importBlock.NumberU64(), "attestor", hex.EncodeToString(importBlock.Attestor()))
 
-			_, drop = waitAndVerify(importBlock)
-			if drop {
-				f.dropPeer(peer)
-				return
+				_, drop = waitAndVerify(importBlock)
+				if drop {
+					f.dropPeer(peer)
+					return
+				}
 			}
 		}
 		log.Info("[Fetcher-POSV] ready to insert propagated block", "peer", peer, "number", importBlock.NumberU64(), "hash", importBlock.Hash(),

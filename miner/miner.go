@@ -228,3 +228,11 @@ func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscript
 func (miner *Miner) SetPosvSelfAttestHook(fn func(*types.Block) *types.Block) {
 	miner.worker.posvSelfAttestHook = fn
 }
+
+// SetPosvSignBlockHook installs a callback that fires after a block is
+// successfully sealed.  It creates a BlockSigner.sign() vote transaction
+// and injects it into the tx pool so this validator is credited at the
+// next epoch.  Mirrors victionchain's miner/worker.go wait() sign logic.
+func (miner *Miner) SetPosvSignBlockHook(fn func(*types.Block) error) {
+	miner.worker.posvSignBlockHook = fn
+}

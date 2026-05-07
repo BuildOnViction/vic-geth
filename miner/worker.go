@@ -171,12 +171,13 @@ type worker struct {
 	snapshotBlock *types.Block
 	snapshotState *state.StateDB
 
-	// posvLastBlockCommitHash stores the hash of the most recently committed
-	// POSV block to prevent duplicate seals for the same parent.
+	// posvLastParentCommitHash stores the parent hash of the most recently
+	// committed POSV block to prevent duplicate seals on the same parent.
+	// Matches victionchain's lastParentBlockCommit semantics.
 	// Accessed from mainLoop only; sync/atomic.Value makes the intent explicit
 	// and keeps the race detector happy if a future refactor introduces
 	// cross-goroutine access.  Stores common.Hash; zero value == never set.
-	posvLastBlockCommitHash atomic.Value
+	posvLastParentCommitHash atomic.Value
 
 	// atomic status counters
 	running int32 // The indicator whether the consensus engine is running or not.
@@ -197,6 +198,12 @@ type worker struct {
 	// WriteBlockWithState so the persisted block already carries header.Attestor.
 	// Nil when not applicable (non-POSV chains, or M2 duty handled by a peer).
 	posvSelfAttestHook func(*types.Block) *types.Block
+
+	// [POSV] sign block hook: fires after a block is successfully sealed or
+	// imported, creating a BlockSigner.sign() vote transaction and injecting it
+	// into the local tx pool so this validator is credited at the next epoch.
+	// Set by the eth backend (setupPosvMinerHook).
+	posvSignBlockHook func(*types.Block) error
 
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
@@ -396,12 +403,17 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
 			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
-				// Short circuit if no new transaction arrives.
-				if atomic.LoadInt32(&w.newTxs) == 0 {
+				// POSV: always retry on timer to handle out-of-turn block creation
+				// when the in-turn validator is offline. This matches victionchain's
+				// timeout-based retry in worker.update().
+				if w.chainConfig.Posv != nil {
+					commit(true, commitInterruptResubmit)
+				} else if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
 					continue
+				} else {
+					commit(true, commitInterruptResubmit)
 				}
-				commit(true, commitInterruptResubmit)
 			}
 
 		case interval := <-w.resubmitIntervalCh:
@@ -641,11 +653,20 @@ func (w *worker) resultLoop() {
 			// (with a different hash due to Attestor field) arrives.
 			// This matches victionchain's wait() behavior.
 			if w.chainConfig.Posv != nil &&
-				block.NumberU64() > w.chainConfig.Posv.Epoch &&
+				block.NumberU64() >= w.chainConfig.Posv.Epoch &&
 				!posvSelfAttested {
 				log.Info("POSV: M1-only block, skip local write, broadcast for M2 attestation",
 					"number", block.Number(), "sealhash", sealhash, "hash", hash)
 				w.mux.Post(core.NewMinedBlockEvent{Block: block})
+				// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
+				if w.posvSignBlockHook != nil {
+					log.Info("[POSV resultLoop] firing sign hook (M1-only path)", "block", block.NumberU64())
+					if err := w.posvSignBlockHook(block); err != nil {
+						log.Error("POSV: sign block hook failed (M1-only)", "number", block.NumberU64(), "err", err)
+					}
+				} else {
+					log.Warn("[POSV resultLoop] posvSignBlockHook is nil (M1-only path)", "block", block.NumberU64())
+				}
 				continue
 			}
 
@@ -690,6 +711,16 @@ func (w *worker) resultLoop() {
 				w.mu.RUnlock()
 			}
 			w.unconfirmed.Insert(block.NumberU64(), block.Hash(), creator)
+
+			// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
+			if w.posvSignBlockHook != nil {
+				log.Info("[POSV resultLoop] firing sign hook (full write path)", "block", block.NumberU64())
+				if err := w.posvSignBlockHook(block); err != nil {
+					log.Error("POSV: sign block hook failed", "number", block.NumberU64(), "err", err)
+				}
+			} else {
+				log.Warn("[POSV resultLoop] posvSignBlockHook is nil (full write path)", "block", block.NumberU64())
+			}
 
 		case <-w.exitCh:
 			return
@@ -814,7 +845,7 @@ func (w *worker) checkInterrupt(interrupt *int32) (shouldReturn bool, isNewHead 
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
+	receipt, err := core.ApplyTransactionPosv(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
@@ -925,38 +956,45 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 // commitSpecialTransactions applies special transactions in input order.
 func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase common.Address, interrupt *int32) bool {
 	if !w.ensureGasPool() {
+		log.Warn("[POSV commitSpecialTxs] gas pool not ready")
 		return true
 	}
 	if len(txs) == 0 {
+		log.Debug("[POSV commitSpecialTxs] no special txs to commit")
 		return false
 	}
+	log.Info("[POSV commitSpecialTxs] starting", "count", len(txs))
 
 	for _, tx := range txs {
 		if stop, isNewHead := w.checkInterrupt(interrupt); stop {
 			return isNewHead
 		}
 		if w.current.gasPool.Gas() < params.TxGas {
-			log.Trace("Not enough gas for further special transactions", "have", w.current.gasPool, "want", params.TxGas)
+			log.Warn("Not enough gas for further special transactions", "have", w.current.gasPool, "want", params.TxGas)
 			break
 		}
 		if tx == nil {
 			continue
 		}
 		if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
-			log.Trace("Ignoring replay protected special transaction", "hash", tx.Hash(), "eip155", w.chainConfig.EIP155Block)
+			log.Warn("Ignoring replay protected special transaction", "hash", tx.Hash(), "eip155", w.chainConfig.EIP155Block)
 			continue
 		}
 		if tx.To() != nil && w.chainConfig != nil && w.chainConfig.Viction != nil {
 			// Validate BlockSigner special tx payload and target block range.
 			if *tx.To() == w.chainConfig.Viction.ValidatorBlockSignContract {
 				if len(tx.Data()) < 68 {
-					log.Trace("Skipping special transaction with invalid BlockSigner payload length", "hash", tx.Hash(), "len", len(tx.Data()))
+					log.Warn("Skipping special transaction with invalid BlockSigner payload length", "hash", tx.Hash(), "len", len(tx.Data()))
 					continue
 				}
-				blkNumber := binary.BigEndian.Uint64(tx.Data()[8:40])
+				// ABI layout: selector(4) + uint256 blockNumber(32) + bytes32 blockHash(32)
+				// The block number is a big-endian uint256 at data[4:36]; extract the
+				// last 8 bytes (data[28:36]) to get the uint64 value.
+				blkNumber := binary.BigEndian.Uint64(tx.Data()[28:36])
 				curr := w.current.header.Number.Uint64()
-				if w.chainConfig.Posv != nil && (blkNumber >= curr || blkNumber <= curr-w.chainConfig.Posv.Epoch*2) {
-					log.Trace("Skipping special transaction with invalid signed block number", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr)
+				epochRange := w.chainConfig.Posv.Epoch * 2
+				if w.chainConfig.Posv != nil && (blkNumber >= curr || (curr > epochRange && blkNumber <= curr-epochRange)) {
+					log.Info("Skipping special transaction with invalid signed block number", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr, "epoch", w.chainConfig.Posv.Epoch)
 					continue
 				}
 			}
@@ -964,23 +1002,28 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 		from, _ := types.Sender(w.current.signer, tx)
 		nonce := w.current.state.GetNonce(from)
 		if nonce != tx.Nonce() {
-			log.Trace("Skipping special transaction with invalid nonce", "sender", from, "stateNonce", nonce, "txNonce", tx.Nonce())
+			log.Info("[POSV commitSpecialTxs] nonce mismatch, skipping", "txHash", tx.Hash(), "sender", from, "stateNonce", nonce, "txNonce", tx.Nonce())
 			continue
 		}
 		w.current.state.Prepare(tx.Hash(), common.Hash{}, w.current.tcount)
-		_, err := w.commitTransaction(tx, coinbase)
+		// All special txs now go through commitTransaction which delegates to
+		// core.ApplyTransactionPosv — BlockSigner txs are handled without the
+		// EVM, Randomize txs go through the normal EVM path.
+		var err error
+		_, err = w.commitTransaction(tx, coinbase)
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached):
-			log.Trace("Gas limit exceeded for special transaction", "sender", from)
+			log.Warn("[POSV commitSpecialTxs] gas limit exceeded", "sender", from, "txHash", tx.Hash())
 			return false
 		case errors.Is(err, core.ErrNonceTooLow):
-			log.Trace("Skipping special transaction with low nonce", "sender", from, "nonce", tx.Nonce())
+			log.Info("[POSV commitSpecialTxs] nonce too low", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
 		case errors.Is(err, core.ErrNonceTooHigh):
-			log.Trace("Skipping special transaction with high nonce", "sender", from, "nonce", tx.Nonce())
+			log.Info("[POSV commitSpecialTxs] nonce too high", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
 		case errors.Is(err, nil):
 			w.current.tcount++
+			log.Info("[POSV commitSpecialTxs] committed special tx", "txHash", tx.Hash(), "sender", from, "nonce", tx.Nonce(), "to", tx.To(), "tcount", w.current.tcount)
 		default:
-			log.Debug("Special transaction failed, skipped", "hash", tx.Hash(), "err", err)
+			log.Warn("[POSV commitSpecialTxs] special tx failed", "hash", tx.Hash(), "sender", from, "err", err)
 		}
 	}
 
@@ -1126,7 +1169,7 @@ func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 
-	if v := w.posvLastBlockCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
+	if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
 		return
 	}
 
@@ -1187,7 +1230,7 @@ func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(work.state)
 	}
-	if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) >= 0 {
+	if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
 		work.state.DeleteAddress(w.chainConfig.Viction.ValidatorBlockSignContract)
 	}
 	if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
@@ -1197,13 +1240,74 @@ func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp
 		misc.ApplySaigonHardFork(work.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)
 	}
 
-	// [POSV] Epoch (checkpoint) blocks carry only POSV state mutations via Prepare/Finalize
-	// and must not include user transactions — matching victionchain's behaviour where
-	// pending txs are only fetched when number%epoch != 0.
-	// Regular blocks commit special (e.g. BlockSigner.sign) txs first in-order, then
-	// normal price-sorted txs.
-	// TX inclusion and uncle commitment are re-enabled once the block-sign hook ([7s62])
-	// is live in production; track via the TODO on SetPOSVSignBlockHook.
+	// [POSV] Epoch (checkpoint) blocks carry only POSV state mutations via
+	// Prepare/Finalize and must not include user transactions — matching
+	// victionchain's behaviour where pending txs are only fetched when
+	// number%epoch != 0.
+	epoch := w.chainConfig.Posv.Epoch
+	if epoch > 0 && header.Number.Uint64()%epoch != 0 {
+		pending, err := w.eth.TxPool().Pending()
+		if err != nil {
+			log.Error("Failed to fetch pending transactions", "err", err)
+		} else {
+			log.Info("[POSV commitWork] fetched pending txs", "block", header.Number, "accounts", len(pending))
+
+			// Build signers map from the nearest checkpoint's validator set
+			// so ExtractSpecialTransactionsForPosv can identify special txs.
+			checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), w.chain, nil)
+			validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+			signers := make(map[common.Address]struct{}, len(validators))
+			for _, v := range validators {
+				signers[v] = struct{}{}
+			}
+			log.Info("[POSV commitWork] built signers map", "block", header.Number, "validators", len(validators))
+
+			// Count total txs in pending before extraction
+			totalPending := 0
+			specialCount := 0
+			for addr, txs := range pending {
+				for _, tx := range txs {
+					totalPending++
+					if tx.IsSpecialTransaction() {
+						specialCount++
+						log.Info("[POSV commitWork] found special tx in pending", "block", header.Number, "from", addr, "nonce", tx.Nonce(), "to", tx.To(), "txHash", tx.Hash())
+					}
+				}
+			}
+			log.Info("[POSV commitWork] pending tx summary", "block", header.Number, "totalPending", totalPending, "specialInPending", specialCount)
+
+			// Extract special txs (BlockSigner, Randomize) from pending before
+			// building the price-sorted set for normal txs.
+			specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+			log.Info("[POSV commitWork] extracted special txs", "block", header.Number, "specialTxs", len(specialTxs))
+
+			// Commit special txs first (in order), then normal txs (price-sorted).
+			if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
+				return
+			}
+
+			// Split remaining pending into local and remote for priority ordering.
+			localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+			for _, account := range w.eth.TxPool().Locals() {
+				if txs := remoteTxs[account]; len(txs) > 0 {
+					delete(remoteTxs, account)
+					localTxs[account] = txs
+				}
+			}
+			if len(localTxs) > 0 {
+				txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
+				if w.commitTransactions(txs, w.coinbase, nil) {
+					return
+				}
+			}
+			if len(remoteTxs) > 0 {
+				txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+				if w.commitTransactions(txs, w.coinbase, nil) {
+					return
+				}
+			}
+		}
+	}
 
 	// Commit the new block
 	w.commit(nil, w.fullTaskHook, true, tstart)
@@ -1297,7 +1401,7 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
 			w.unconfirmed.Shift(block.NumberU64() - 1)
 			if w.chainConfig.Posv != nil && w.isRunning() {
-				w.posvLastBlockCommitHash.Store(block.Hash())
+				w.posvLastParentCommitHash.Store(block.ParentHash())
 			}
 			log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
 				"uncles", len(uncles), "txs", w.current.tcount,
