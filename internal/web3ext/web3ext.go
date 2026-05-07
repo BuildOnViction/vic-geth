@@ -964,24 +964,14 @@ web3._extend({
 				params: 1
 			}),
 			new web3._extend.Method({
-				name: 'getAttestorsByHashAtCheckPoint',
-				call: 'eth_getAttestorsByHashAtCheckPoint',
-				params: 1
+    			name: 'getBlockFinalityByHash',
+    			call: 'eth_getBlockFinalityByHash',
+    			params: 1
 			}),
 			new web3._extend.Method({
-				name: 'getAttestorsByNumberAtCheckPoint',
-				call: 'eth_getAttestorsByNumberAtCheckPoint',
-				params: 1
-			}),
-			new web3._extend.Method({
-				name: 'getPenaltiesByHashAtCheckPoint',
-				call: 'eth_getPenaltiesByHashAtCheckPoint',
-				params: 1,
-			}),
-			new web3._extend.Method({
-				name: 'getPenaltiesByNumberAtCheckPoint',
-				call: 'eth_getPenaltiesByNumberAtCheckPoint',
-				params: 1,
+    			name: 'getBlockFinalityByNumber',
+    			call: 'eth_getBlockFinalityByNumber',
+    			params: 1
 			}),
 	],
 	properties: [
