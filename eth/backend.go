@@ -199,6 +199,22 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	}
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)
 
+	// Wire up IsSigner callback for POSV special tx fast-path promotion.
+	if chainConfig.Posv != nil {
+		eth.txPool.IsSigner = func(addr common.Address) bool {
+			current := eth.blockchain.CurrentHeader()
+			if current == nil {
+				return false
+			}
+			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, eth.blockchain, nil)
+			if cp == nil {
+				return false
+			}
+			validators := posv.ExtractValidatorsFromCheckpointHeader(cp)
+			return common.IndexOf(validators, addr) != -1
+		}
+	}
+
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit
 	checkpoint := config.Checkpoint

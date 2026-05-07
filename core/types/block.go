@@ -172,11 +172,11 @@ func (h *Header) HashNoValidator() common.Hash {
 // POSV fields are only included if Posv is true or fields are not nil (for backward compatibility with standard Ethereum).
 // For Viction chains, POSV fields should always be initialized as empty slices and Posv set to true.
 func (h *Header) EncodeRLP(w io.Writer) error {
-	// Check if POSV fields are present (Posv flag or fields not nil)
+	// Check if this is a PoSV block (Viction format with 18 fields)
 	hasPosvFields := h.Posv || h.NewAttestors != nil || h.Attestor != nil || h.Penalties != nil
 
 	if !hasPosvFields {
-		// Standard Ethereum format - encode without POSV fields
+		// Standard Ethereum format (15 fields) - compatible with clique, ethash, etc.
 		return rlp.Encode(w, []interface{}{
 			h.ParentHash,
 			h.UncleHash,
@@ -196,8 +196,9 @@ func (h *Header) EncodeRLP(w io.Writer) error {
 		})
 	}
 
-	// Viction format - include POSV fields
-	// Ensure all POSV fields are initialized (use empty slices if nil)
+	// Viction/PoSV format (18 fields).
+	// Ensure all PoSV fields are initialized (use empty slices if nil)
+	// so victionchain's decoder always sees exactly 18 fields.
 	newAttestors := h.NewAttestors
 	if newAttestors == nil {
 		newAttestors = []byte{}
@@ -576,6 +577,7 @@ func (b *Block) NewAttestors() []byte     { return common.CopyBytes(b.header.New
 func (b *Block) Attestor() []byte         { return common.CopyBytes(b.header.Attestor) }
 func (b *Block) Penalties() []byte        { return common.CopyBytes(b.header.Penalties) }
 func (b *Block) Posv() bool               { return b.header.Posv }
+func (b *Block) SetPosv(v bool)           { b.header.Posv = v }
 
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
