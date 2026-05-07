@@ -25,6 +25,7 @@ type VictionConfig struct {
 	LendingFinalizedContract   common.Address   `json:"lendingFinalizedContract,omitempty"`
 	LendingInterestAmount      *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
 	LendingLiquidateTradeBlock uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
+	LimitTimeFinality          uint64           `json:"limitTimeFinality,omitempty"`
 
 	PenaltyComebackBlockCount uint64 `json:"penaltyComebackBlockCount,omitempty"`
 	PenaltyEpochCount         uint64 `json:"penaltyEpochCount,omitempty"`

@@ -28,6 +28,7 @@
      "viction": {
       "lendingContract": "0x0000000000000000000000000000000000000093",
       "lendingFinalizedContract": "0x0000000000000000000000000000000000000094",
+      "limitTimeFinality": 30,
       "penaltyComebackBlockCount": 150,
       "penaltyEpochCount": 4,
       "randomizerCommitNthBlock": 800,

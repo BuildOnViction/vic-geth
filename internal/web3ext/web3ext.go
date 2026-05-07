@@ -22,7 +22,7 @@ var Modules = map[string]string{
 	"admin":      AdminJs,
 	"chequebook": ChequebookJs,
 	"clique":     CliqueJs,
-	"posv":       Posv_JS,
+	"posv":       PosvJs,
 	"viction":    VictionJs,
 	"ethash":     EthashJs,
 	"debug":      DebugJs,
@@ -119,7 +119,7 @@ web3._extend({
 	]
 });
 `
-const Posv_JS = `
+const PosvJs = `
 web3._extend({
 	property: 'posv',
 	methods: [
