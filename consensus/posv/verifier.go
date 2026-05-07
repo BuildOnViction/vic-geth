@@ -54,9 +54,6 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	nowUnix := now.Unix()
 
 	if seal {
-		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
-			return consensus.ErrNoValidatorSignature
-		}
 		// Don't waste time checking blocks from the future
 		if header.Time > uint64(nowUnix) {
 			return consensus.ErrFutureBlock
@@ -83,6 +80,13 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		return errMissingVanity
 	}
 	if len(header.Extra) < ExtraVanity+ExtraSeal {
+		log.Error("[POSV] verifyHeader: Extra too short for seal",
+			"number", header.Number, "extraLen", len(header.Extra),
+			"extra", hexutil.Encode(header.Extra),
+			"attestorLen", len(header.Attestor),
+			"newAttestorsLen", len(header.NewAttestors),
+			"posv", header.Posv,
+			"hash", header.Hash().Hex())
 		return errMissingSignature
 	}
 	// Ensure that the extra-data contains a signer list on checkpoint, but none otherwise
