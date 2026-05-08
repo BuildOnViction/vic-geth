@@ -25,7 +25,7 @@
       "epoch": 900,
       "gap": 5
     },
-     "viction": {
+    "viction": {
       "lendingContract": "0x0000000000000000000000000000000000000093",
       "lendingFinalizedContract": "0x0000000000000000000000000000000000000094",
       "limitTimeFinality": 30,
@@ -36,11 +36,13 @@
       "randomizerFinaleNthBlock": 900,
       "randomizerRevealNthBlock": 850,
       "rewardFoundationAddress": "0x0000000000000000000000000000000000000068",
+      "relayerRegistrationSMC": "0x16c63b79f9C8784168103C0b74E6A59EC2de4a02",
       "rewardFoundationPercent": 10,
       "rewardPerEpoch": "0xd8d726b7177a80000",
       "rewardValidatorPercent": 40,
       "rewardVoterPercent": 50,
       "tomoxContract": "0x0000000000000000000000000000000000000091",
+      "tomoxListingSMC": "0xDE34dD0f536170993E8CFF639DdFfCF1A85D3E53",
       "tradingStateContract": "0x0000000000000000000000000000000000000092",
       "trc21GasPrice": "2500",
       "validatorBlockSignContract": "0x0000000000000000000000000000000000000089",
@@ -50,6 +52,13 @@
       "validatorSignInterval": 15,
       "vrc25Contract": "0x8c0faeb5C6bEd2129b8674F262Fd45c4e9468bee",
       "vrc25GasPrice": "250000000",
-      "lendingLiquidateTradeBlock": 100
+      "atlasVRC25MinCap": "1",
+      "lendingLiquidateTradeBlock": 100,
+      "lendingRegistrationSMC": "0x7d761afd7ff65a79e4173897594a194e3c506e57",
+      "saigonFundAddress": "0xeDC9f7873a33763c84b82157B034988728445a0E",
+      "saigonFundAmount": "0x108b2a2c28029094000000",
+      "saigonFundInterval": 13800000,
+      "saigonFundRepeat": 4,
+      "saigonRewardPerEpoch": "0xd8d726b7177a80000"
     }
   }

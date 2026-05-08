@@ -79,7 +79,7 @@ func (tomox *TomoX) GetTokenDecimal(chain tradingstate.ChainContext, statedb *st
 	}
 	var decimals uint8
 	defer func() {
-		log.Debug("GetTokenDecimal from ", "relayerSMC", tradingstate.RelayerRegistrationSMC, "tokenAddr", tokenAddr.Hex(), "decimals", decimals)
+		log.Debug("GetTokenDecimal from ", "tokenAddr", tokenAddr.Hex(), "decimals", decimals)
 	}()
 	contractABI, err := GetTokenAbi()
 	if err != nil {

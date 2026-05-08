@@ -19,8 +19,6 @@ package tradingstate
 import (
 	"fmt"
 
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie"
 
@@ -91,17 +89,7 @@ func (t *TomoXTrie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
 }
 
 func (t *TomoXTrie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error) {
-	// Convert legacy []byte limit to int maxCount (default to large number)
-	maxCount := 10000
-
-	if len(limit) > 0 {
-		// Use the limit as a byte-encoded int
-		maxCount = int(new(big.Int).SetBytes(limit).Int64())
-		if maxCount <= 0 {
-			maxCount = 10000
-		}
-	}
-	return t.trie.TryGetAllLeftKeyAndValue(maxCount)
+	return t.trie.TryGetAllLeftKeyAndValue(limit)
 }
 
 // TryGetBestRightKey returns the value of max left leaf

@@ -18,7 +18,6 @@ package lendingstate
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie"
@@ -89,23 +88,9 @@ func (t *TomoXTrie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
 	return t.trie.TryGetBestLeftKeyAndValue()
 }
 
-// TryGetAllLeftKeyAndValue is included for interface symmetry with TradingStateDB.Trie.
-// NOTE: The `limit` parameter semantics here differ from victionchain: the underlying
-// vic-geth trie implementation interprets limit as a count (max entries), not a key upper bound.
-// This method is not called by any lending state code path and must not be called
-// with a key-bound argument — doing so will silently return all entries.
+// TryGetAllLeftKeyAndValue returns all leaves whose key is strictly less than limit.
 func (t *TomoXTrie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error) {
-	// Convert legacy []byte limit to int maxCount (default to large number)
-	maxCount := 10000
-
-	if len(limit) > 0 {
-		// Use the limit as a byte-encoded int
-		maxCount = int(new(big.Int).SetBytes(limit).Int64())
-		if maxCount <= 0 {
-			maxCount = 10000
-		}
-	}
-	return t.trie.TryGetAllLeftKeyAndValue(maxCount)
+	return t.trie.TryGetAllLeftKeyAndValue(limit)
 }
 
 // TryGetBestRightKeyAndValue returns the value of max right leaf

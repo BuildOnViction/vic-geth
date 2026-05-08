@@ -74,11 +74,11 @@ type LendingItem struct {
 	ExtraData       string         `json:"extraData"`
 }
 
-func (l *LendingItem) VerifyLendingItem(state *state.StateDB) error {
+func (l *LendingItem) VerifyLendingItem(lendingSMC common.Address, relayerSMC common.Address, state *state.StateDB) error {
 	if err := l.VerifyLendingStatus(); err != nil {
 		return err
 	}
-	if valid, _ := IsValidPair(state, l.Relayer, l.LendingToken, l.Term); valid == false {
+	if valid, _ := IsValidPair(lendingSMC, state, l.Relayer, l.LendingToken, l.Term); valid == false {
 		return fmt.Errorf("invalid pair . LendToken %s . Term: %v", l.LendingToken.Hex(), l.Term)
 	}
 	if l.Status == LendingStatusNew {
@@ -95,7 +95,7 @@ func (l *LendingItem) VerifyLendingItem(state *state.StateDB) error {
 				return err
 			}
 			if l.Side == Borrowing {
-				if err := l.VerifyCollateral(state); err != nil {
+				if err := l.VerifyCollateral(lendingSMC, state); err != nil {
 					return err
 				}
 			}
@@ -106,7 +106,7 @@ func (l *LendingItem) VerifyLendingItem(state *state.StateDB) error {
 			}
 		}
 	}
-	if !IsValidRelayer(state, l.Relayer) {
+	if !IsValidRelayer(lendingSMC, relayerSMC, state, l.Relayer) {
 		return fmt.Errorf("VerifyLendingItem: invalid relayer. address: %s", l.Relayer.Hex())
 	}
 	return nil
@@ -119,12 +119,12 @@ func (l *LendingItem) VerifyLendingSide() error {
 	return nil
 }
 
-func (l *LendingItem) VerifyCollateral(state *state.StateDB) error {
+func (l *LendingItem) VerifyCollateral(lendingSMC common.Address, state *state.StateDB) error {
 	if l.CollateralToken.String() == EmptyAddress || l.CollateralToken.String() == l.LendingToken.String() {
 		return fmt.Errorf("invalid collateral %s", l.CollateralToken.Hex())
 	}
 	validCollateral := false
-	collateralList, _ := GetCollaterals(state, l.Relayer, l.LendingToken, l.Term)
+	collateralList, _ := GetCollaterals(lendingSMC, state, l.Relayer, l.LendingToken, l.Term)
 	for _, collateral := range collateralList {
 		if l.CollateralToken.String() == collateral.String() {
 			validCollateral = true
@@ -208,11 +208,11 @@ func (l *LendingItem) EncodedSide() *big.Int {
 	return big.NewInt(1)
 }
 
-func VerifyBalance(isTomoXLendingFork bool, statedb *state.StateDB, lendingStateDb *LendingStateDB,
+func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *state.StateDB, lendingStateDb *LendingStateDB,
 	orderType, side, status string, userAddress, relayer, lendingToken, collateralToken common.Address,
 	quantity, lendingTokenDecimal, collateralTokenDecimal, lendTokenTOMOPrice, collateralPrice *big.Int,
 	term uint64, lendingId uint64, lendingTradeId uint64) error {
-	borrowingFeeRate := GetFee(statedb, relayer)
+	borrowingFeeRate := GetFee(lendingSMC, statedb, relayer)
 	switch orderType {
 	case TopUp:
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
@@ -288,7 +288,7 @@ func VerifyBalance(isTomoXLendingFork bool, statedb *state.StateDB, lendingState
 		case Borrowing:
 			switch status {
 			case LendingStatusNew:
-				depositRate, _, _ := GetCollateralDetail(statedb, collateralToken)
+				depositRate, _, _ := GetCollateralDetail(lendingSMC, statedb, collateralToken)
 				settleBalanceResult, err := GetSettleBalance(isTomoXLendingFork, Borrowing, lendTokenTOMOPrice, collateralPrice, depositRate, borrowingFeeRate, lendingToken, collateralToken, lendingTokenDecimal, collateralTokenDecimal, quantity)
 				if err != nil {
 					return err

@@ -1,3 +1,4 @@
+// Copyright 2026 The Vic-geth Authors
 package types
 
 import (
@@ -9,30 +10,31 @@ import (
 // signMethodSelector is the 4-byte function selector for sign(uint256,bytes32).
 var signMethodSelector = common.Hex2Bytes("e341eaa4")
 
-// IsTomoXApplyTransaction returns true if the transaction is directed to the given TomoXContract address.
-func (tx *Transaction) IsTomoXApplyTransaction(contractAddress common.Address) bool {
+// IsTradingTransaction returns true if the tx is a TomoX order-matching batch (0x91).
+// tomoXContract must come from ChainConfig.Viction.TomoXContract.
+func (tx *Transaction) IsTradingTransaction(tomoXContract common.Address) bool {
 	if tx.To() == nil {
 		return false
 	}
-	return *tx.To() == contractAddress
+	return *tx.To() == tomoXContract
 }
 
-// IsSkipNonceTransaction returns true if the transaction is a system transaction that skips nonce checking.
-func (tx *Transaction) IsSkipNonceTransaction(contractAddress common.Address) bool {
-	return tx.IsTomoXApplyTransaction(contractAddress)
-}
-
-// IsTradingTransaction checks if a target address is one of the designated system exchange contracts
-func IsTradingTransaction(to *common.Address) bool {
-	if to == nil {
+// IsLendingTransaction returns true if the tx is a TomoZ lending order-matching batch (0x93).
+// lendingContract must come from ChainConfig.Viction.LendingContract.
+func (tx *Transaction) IsLendingTransaction(lendingContract common.Address) bool {
+	if tx.To() == nil {
 		return false
 	}
+	return *tx.To() == lendingContract
+}
 
-	addr := *to
-	return addr == common.HexToAddress("0x0000000000000000000000000000000000000091") || // TomoXContract
-		addr == common.HexToAddress("0x0000000000000000000000000000000000000092") || // TradingState
-		addr == common.HexToAddress("0x0000000000000000000000000000000000000093") || // Lending
-		addr == common.HexToAddress("0x0000000000000000000000000000000000000094") // LendingFinalized
+// IsLendingFinalizedTradeTransaction returns true if the tx is a TomoZ finalized-trade commit (0x94).
+// lendingFinalizedContract must come from ChainConfig.Viction.LendingFinalizedContract.
+func (tx *Transaction) IsLendingFinalizedTradeTransaction(lendingFinalizedContract common.Address) bool {
+	if tx.To() == nil {
+		return false
+	}
+	return *tx.To() == lendingFinalizedContract
 }
 
 // IsSigningTransaction returns true if the transaction is a block-signer
@@ -50,10 +52,5 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	if len(data) != 68 {
 		return false
 	}
-
-	if !bytes.Equal(data[0:4], signMethodSelector) {
-		return false
-	}
-
-	return true
+	return bytes.Equal(data[0:4], signMethodSelector)
 }

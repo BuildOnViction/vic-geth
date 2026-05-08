@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 const (
@@ -29,14 +29,12 @@ const (
 // because legacy tradingstate utility functions are pure helpers without access
 // to a VictionConfig instance - they use these package-level defaults directly.
 var (
-	BasePrice              = big.NewInt(1000000000000000000) // 1e18
-	RelayerLockedFund      = big.NewInt(25000)
-	TomoXBaseFee           = big.NewInt(10000) // 0.01% (in 1e8 precision)
-	RelayerFee             = big.NewInt(100)   // default relayer fee
-	RelayerCancelFee       = big.NewInt(100)   // default relayer cancel fee
-	TomoXBaseCancelFee     = big.NewInt(10000) // base cancel fee
-	RelayerRegistrationSMC = "0x0000000000000000000000000000000000000099"
-	ValidatorContract      = "0x0000000000000000000000000000000000000088"
+	BasePrice          = big.NewInt(1000000000000000000)                     // 1e18
+	RelayerLockedFund  = big.NewInt(20000)                                   // 20000 VIC
+	TomoXBaseFee       = big.NewInt(10000)                                   // 1 / TomoXBaseFee
+	RelayerFee         = big.NewInt(1000000000000000)                        // 0.001 VIC
+	RelayerCancelFee   = big.NewInt(100000000000000)                         // 0.0001 VIC
+	TomoXBaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (TomoXBaseFee * 10)
 )
 
 var (

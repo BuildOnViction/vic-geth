@@ -26,6 +26,7 @@ type VictionConfig struct {
 	LendingInterestAmount      *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
 	LendingLiquidateTradeBlock uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
 	LimitTimeFinality          uint64           `json:"limitTimeFinality,omitempty"`
+	LendingRegistrationSMC     common.Address   `json:"lendingRegistrationSMC,omitempty"`
 
 	PenaltyComebackBlockCount uint64 `json:"penaltyComebackBlockCount,omitempty"`
 	PenaltyEpochCount         uint64 `json:"penaltyEpochCount,omitempty"`
@@ -44,6 +45,7 @@ type VictionConfig struct {
 	RelayerCancelFee        *math.Decimal256 `json:"relayerCancelFee,omitempty"`
 	RelayerContract         common.Address   `json:"relayerContract,omitempty"`
 	RelayerFee              *math.Decimal256 `json:"relayerFee,omitempty"`
+	RelayerRegistrationSMC  common.Address   `json:"relayerRegistrationSMC,omitempty"`
 	RelayerLendingFee       *math.Decimal256 `json:"relayerLendingFee,omitempty"`
 	RelayerLendingCancelFee *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
 	RelayerLockedFund       *math.Decimal256 `json:"relayerLockedFund,omitempty"`
@@ -61,6 +63,7 @@ type VictionConfig struct {
 	TomoXBasePrice       *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
 	TomoXBaseRecall      *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
 	TomoXContract        common.Address   `json:"tomoxContract,omitempty"`
+	TomoXListingSMC      common.Address   `json:"tomoxListingSMC,omitempty"`
 	TomoXTopupDenom      uint64           `json:"tomoxTopupDenom,omitempty"`
 	TomoXTopupNumer      uint64           `json:"tomoxTopupNumer,omitempty"`
 	TradingStateContract common.Address   `json:"tradingStateContract,omitempty"`

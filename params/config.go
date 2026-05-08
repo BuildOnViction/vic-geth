@@ -551,6 +551,18 @@ func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
 	return isForked(c.TIPTomoXLendingBlock, num)
 }
 
+// IsTomoXEnabled returns true when TomoX order processing is active: after TIPTomoX
+// and before Atlas (matching victionchain's IsTomoXEnabled semantics exactly).
+func (c *ChainConfig) IsTomoXEnabled(num *big.Int) bool {
+	return isForked(c.TIPTomoXBlock, num) && !isForked(c.AtlasBlock, num)
+}
+
+// IsTomoXLendingEnabled returns true when TomoZ lending order processing is active:
+// after TIPTomoXLending and before Atlas.
+func (c *ChainConfig) IsTomoXLendingEnabled(num *big.Int) bool {
+	return isForked(c.TIPTomoXLendingBlock, num) && !isForked(c.AtlasBlock, num)
+}
+
 // IsTIPTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
 func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
 	return isForked(c.TIPTomoXCancelFeeBlock, num)

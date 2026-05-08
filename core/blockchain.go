@@ -1046,6 +1046,9 @@ func (bc *BlockChain) Stop() {
 			log.Error("Dangling trie nodes after full cleanup")
 		}
 	}
+	// Flush any pending TomoX/TomoZ trie roots that haven't reached the
+	// TriesInMemory commit threshold yet.
+	bc.stopViction()
 	// Ensure all live cached entries be saved into disk, so that we can skip
 	// cache warmup when node restarts.
 	if bc.cacheConfig.TrieCleanJournal != "" {
@@ -1884,13 +1887,6 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 				}(time.Now(), followup, throwaway, &followupInterrupt)
 			}
 		}
-		// Viction pre-process hook: epoch-gated lending liquidations must run BEFORE
-		// bc.processor.Process() so that statedb mutations are visible to transactions.
-		if err := bc.beforeProcessViction(block, statedb); err != nil {
-			bc.reportBlock(block, nil, err)
-			atomic.StoreUint32(&followupInterrupt, 1)
-			return it.index, err
-		}
 		// Process block using the parent state as reference point
 		substart := time.Now()
 		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
@@ -1933,6 +1929,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		status, err := bc.writeBlockWithState(block, receipts, logs, statedb, false)
 		atomic.StoreUint32(&followupInterrupt, 1)
 		if err != nil {
+			return it.index, err
+		}
+		// Commit TomoX/TomoZ trie nodes to their LevelDB backing stores.
+		// This must happen after writeBlockWithState so the next block's
+		// beforeProcess can open the trading/lending trie from the correct root.
+		if err := bc.commitVictionState(block); err != nil {
 			return it.index, err
 		}
 

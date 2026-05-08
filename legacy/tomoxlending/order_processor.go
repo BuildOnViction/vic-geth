@@ -57,7 +57,7 @@ func (l *Lending) ApplyOrder(header *types.Header, coinbase common.Address, chai
 		}
 	}()
 
-	if err := order.VerifyLendingItem(statedb); err != nil {
+	if err := order.VerifyLendingItem(l.config.Viction.LendingRegistrationSMC, l.config.Viction.RelayerRegistrationSMC, statedb); err != nil {
 		log.Debug("invalid lending order", "order", lendingstate.ToJSON(order), "err", err)
 		rejects = append(rejects, order)
 		return trades, rejects, nil
@@ -258,16 +258,16 @@ func (l *Lending) processOrderList(header *types.Header, coinbase common.Address
 			maxTradedQuantity = lendingstate.CloneBigInt(amount)
 		}
 		collateralToken := order.CollateralToken
-		borrowFee := lendingstate.GetFee(statedb, order.Relayer)
+		borrowFee := lendingstate.GetFee(l.config.Viction.LendingRegistrationSMC, statedb, order.Relayer)
 		if order.Side == lendingstate.Investing {
 			collateralToken = oldestOrder.CollateralToken
-			borrowFee = lendingstate.GetFee(statedb, oldestOrder.Relayer)
+			borrowFee = lendingstate.GetFee(l.config.Viction.LendingRegistrationSMC, statedb, oldestOrder.Relayer)
 		}
 		if collateralToken.String() == lendingstate.EmptyAddress {
 			return nil, nil, nil, fmt.Errorf("empty collateral")
 		}
 		collateralPrice := tradingstate.BasePrice
-		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(statedb, collateralToken)
+		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(l.config.Viction.LendingRegistrationSMC, statedb, collateralToken)
 		if depositRate == nil || depositRate.Sign() <= 0 {
 			return nil, nil, nil, fmt.Errorf("invalid depositRate %v", depositRate)
 		}
@@ -447,16 +447,16 @@ func (l *Lending) getLendQuantity(
 		return lendingstate.Zero, lendingstate.Zero, false, nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", collateralToken.String(), err)
 	}
 	if takerOrder.Relayer.String() == makerOrder.Relayer.String() {
-		if err := lendingstate.CheckRelayerFee(takerOrder.Relayer, new(big.Int).Mul(lendingstate.RelayerLendingFee, big.NewInt(2)), statedb); err != nil {
+		if err := lendingstate.CheckRelayerFee(l.config.Viction.RelayerRegistrationSMC, takerOrder.Relayer, new(big.Int).Mul(lendingstate.RelayerLendingFee, big.NewInt(2)), statedb); err != nil {
 			log.Debug("Reject order Taker Exchnage = Maker Exchange , relayer not enough fee ", "err", err)
 			return lendingstate.Zero, lendingstate.Zero, false, nil, nil
 		}
 	} else {
-		if err := lendingstate.CheckRelayerFee(takerOrder.Relayer, lendingstate.RelayerLendingFee, statedb); err != nil {
+		if err := lendingstate.CheckRelayerFee(l.config.Viction.RelayerRegistrationSMC, takerOrder.Relayer, lendingstate.RelayerLendingFee, statedb); err != nil {
 			log.Debug("Reject order Taker , relayer not enough fee ", "err", err)
 			return lendingstate.Zero, lendingstate.Zero, false, nil, nil
 		}
-		if err := lendingstate.CheckRelayerFee(makerOrder.Relayer, lendingstate.RelayerLendingFee, statedb); err != nil {
+		if err := lendingstate.CheckRelayerFee(l.config.Viction.RelayerRegistrationSMC, makerOrder.Relayer, lendingstate.RelayerLendingFee, statedb); err != nil {
 			log.Debug("Reject order maker , relayer not enough fee ", "err", err)
 			return lendingstate.Zero, lendingstate.Zero, true, nil, nil
 		}
@@ -484,7 +484,7 @@ func (l *Lending) getLendQuantity(
 		settleBalanceResult, err := lendingstate.GetSettleBalance(isTomoXLendingFork, takerOrder.Side, lendTokenTOMOPrice, collateralPrice, depositRate, borrowFee, lendToken, collateralToken, LendingTokenDecimal, collateralTokenDecimal, quantity)
 		log.Debug("GetSettleBalance", "settleBalanceResult", settleBalanceResult, "err", err)
 		if err == nil {
-			err = DoSettleBalance(coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
+			err = DoSettleBalance(l.config.Viction.RelayerRegistrationSMC, l.config.Viction.ValidatorContract, coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
 		}
 		if err != nil {
 			return quantity, lendingstate.Zero, rejectMaker, nil, err
@@ -572,9 +572,9 @@ func GetLendQuantity(takerSide string, collateralTokenDecimal *big.Int, depositR
 	}
 }
 
-func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *lendingstate.LendingItem, settleBalance *lendingstate.LendingSettleBalance, statedb *state.StateDB) error {
-	takerExOwner := lendingstate.GetRelayerOwner(takerOrder.Relayer, statedb)
-	makerExOwner := lendingstate.GetRelayerOwner(makerOrder.Relayer, statedb)
+func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coinbase common.Address, takerOrder, makerOrder *lendingstate.LendingItem, settleBalance *lendingstate.LendingSettleBalance, statedb *state.StateDB) error {
+	takerExOwner := lendingstate.GetRelayerOwner(relayerSMC, takerOrder.Relayer, statedb)
+	makerExOwner := lendingstate.GetRelayerOwner(relayerSMC, makerOrder.Relayer, statedb)
 	matchingFee := big.NewInt(0)
 	// masternodes only charge borrower relayer fee
 	matchingFee = new(big.Int).Add(matchingFee, lendingstate.RelayerLendingFee)
@@ -585,11 +585,11 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *lendingsta
 	mapBalances := map[common.Address]map[common.Address]*big.Int{}
 	//Checking balance
 	if takerOrder.Side == lendingstate.Borrowing {
-		relayerFee, err := lendingstate.CheckSubRelayerFee(takerOrder.Relayer, lendingstate.RelayerLendingFee, statedb, map[common.Address]*big.Int{})
+		relayerFee, err := lendingstate.CheckSubRelayerFee(relayerSMC, takerOrder.Relayer, lendingstate.RelayerLendingFee, statedb, map[common.Address]*big.Int{})
 		if err != nil {
 			return err
 		}
-		lendingstate.SetSubRelayerFee(takerOrder.Relayer, relayerFee, lendingstate.RelayerLendingFee, statedb)
+		lendingstate.SetSubRelayerFee(relayerSMC, takerOrder.Relayer, relayerFee, lendingstate.RelayerLendingFee, statedb)
 		newTakerInTotal, err := lendingstate.CheckAddTokenBalance(takerOrder.UserAddress, settleBalance.Taker.InTotal, settleBalance.Taker.InToken, statedb, mapBalances)
 		if err != nil {
 			return err
@@ -626,11 +626,11 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *lendingsta
 		}
 		mapBalances[settleBalance.Taker.OutToken][common.HexToAddress(lendingstate.LendingLockAddress)] = newCollateralTokenLock
 	} else {
-		relayerFee, err := lendingstate.CheckSubRelayerFee(makerOrder.Relayer, lendingstate.RelayerLendingFee, statedb, map[common.Address]*big.Int{})
+		relayerFee, err := lendingstate.CheckSubRelayerFee(relayerSMC, makerOrder.Relayer, lendingstate.RelayerLendingFee, statedb, map[common.Address]*big.Int{})
 		if err != nil {
 			return err
 		}
-		lendingstate.SetSubRelayerFee(makerOrder.Relayer, relayerFee, lendingstate.RelayerLendingFee, statedb)
+		lendingstate.SetSubRelayerFee(relayerSMC, makerOrder.Relayer, relayerFee, lendingstate.RelayerLendingFee, statedb)
 		newTakerOutTotal, err := lendingstate.CheckSubTokenBalance(takerOrder.UserAddress, settleBalance.Taker.OutTotal, settleBalance.Taker.OutToken, statedb, mapBalances)
 		if err != nil {
 			return err
@@ -667,7 +667,8 @@ func DoSettleBalance(coinbase common.Address, takerOrder, makerOrder *lendingsta
 		}
 		mapBalances[settleBalance.Maker.OutToken][common.HexToAddress(lendingstate.LendingLockAddress)] = newCollateralTokenLock
 	}
-	masternodeOwner, _ := statedb.VicGetValidatorInfo(common.HexToAddress(tradingstate.ValidatorContract), coinbase)
+	masternodeOwner, _ := statedb.VicGetValidatorInfo(validatorSMC, coinbase)
+	log.Debug("DoSettleBalance masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "matchingFee", matchingFee)
 	statedb.AddBalance(masternodeOwner, matchingFee)
 	for token, balances := range mapBalances {
 		for adrr, value := range balances {
@@ -688,7 +689,7 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 	if originOrder.UserAddress != order.UserAddress {
 		return fmt.Errorf("userAddress doesnot match. Expected: %s . Got: %s", originOrder.UserAddress.Hex(), order.UserAddress.Hex()), false
 	}
-	if err := lendingstate.CheckRelayerFee(originOrder.Relayer, lendingstate.RelayerLendingCancelFee, statedb); err != nil {
+	if err := lendingstate.CheckRelayerFee(l.config.Viction.RelayerRegistrationSMC, originOrder.Relayer, lendingstate.RelayerLendingCancelFee, statedb); err != nil {
 		log.Debug("Relayer not enough fee when cancel order", "err", err)
 		return nil, true
 	}
@@ -721,7 +722,7 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 			return err, false
 		}
 	}
-	feeRate := lendingstate.GetFee(statedb, originOrder.Relayer)
+	feeRate := lendingstate.GetFee(l.config.Viction.LendingRegistrationSMC, statedb, originOrder.Relayer)
 	tokenCancelFee, tokenPriceInTOMO := common.Big0, common.Big0
 	if !chain.Config().IsTIPTomoXCancelFee(header.Number) {
 		tokenCancelFee = getCancelFeeV1(collateralTokenDecimal, collateralPrice, feeRate, &originOrder)
@@ -739,10 +740,11 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 		return err, false
 	}
 	// relayers pay TOMO for masternode
-	lendingstate.SubRelayerFee(originOrder.Relayer, lendingstate.RelayerLendingCancelFee, statedb)
-	masternodeOwner, _ := statedb.VicGetValidatorInfo(common.HexToAddress(tradingstate.ValidatorContract), coinbase)
+	lendingstate.SubRelayerFee(l.config.Viction.RelayerRegistrationSMC, originOrder.Relayer, lendingstate.RelayerLendingCancelFee, statedb)
+	masternodeOwner, _ := statedb.VicGetValidatorInfo(l.config.Viction.ValidatorContract, coinbase)
+	log.Debug("ProcessCancelOrder masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "cancelFee", lendingstate.RelayerLendingCancelFee)
 	statedb.AddBalance(masternodeOwner, lendingstate.RelayerLendingCancelFee)
-	relayerOwner := lendingstate.GetRelayerOwner(originOrder.Relayer, statedb)
+	relayerOwner := lendingstate.GetRelayerOwner(l.config.Viction.RelayerRegistrationSMC, originOrder.Relayer, statedb)
 	switch originOrder.Side {
 	case lendingstate.Investing:
 		// users pay token for relayer
@@ -820,7 +822,7 @@ func (l *Lending) LiquidationExpiredTrade(header *types.Header, chain tradingsta
 		// repayAmount= CollateralLockedAmount * LiquidationPrice / collateralPrice + interestAmount
 		repayAmount = new(big.Int).Mul(lendingTrade.CollateralLockedAmount, lendingTrade.LiquidationPrice)
 		repayAmount = new(big.Int).Div(repayAmount, collateralPrice)
-		_, liquidationRate, _ := lendingstate.GetCollateralDetail(statedb, lendingTrade.CollateralToken)
+		_, liquidationRate, _ := lendingstate.GetCollateralDetail(l.config.Viction.LendingRegistrationSMC, statedb, lendingTrade.CollateralToken)
 		collateralAmount := new(big.Int).Mul(repayAmount, big.NewInt(100))
 		collateralAmount = new(big.Int).Div(collateralAmount, liquidationRate)
 		totalCollateralAmount := lendingstate.CalculateTotalRepayValue(header.Time, lendingTrade.LiquidationTime, lendingTrade.Term, lendingTrade.Interest, collateralAmount)
@@ -965,7 +967,7 @@ func (l *Lending) GetCollateralPrices(header *types.Header, chain tradingstate.C
 	// collateralTOMOPrice: price of ticker collateralToken/TOMO
 	// collateralPrice: price of ticker collateralToken/lendToken
 
-	collateralPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(statedb, collateralToken, lendingToken)
+	collateralPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationSMC, statedb, collateralToken, lendingToken)
 	collateralPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 
 	lendTokenTOMOPrice, err := l.GetTOMOBasePrices(header, chain, statedb, tradingStateDb, lendingToken)
@@ -987,7 +989,7 @@ func (l *Lending) GetCollateralPrices(header *types.Header, chain tradingstate.C
 		return nil, nil, err
 	}
 	var collateralPrice *big.Int
-	inverseCollateralPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(statedb, lendingToken, collateralToken)
+	inverseCollateralPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationSMC, statedb, lendingToken, collateralToken)
 	inverseCollateralPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 	if inverseCollateralPriceUpdatedFromContract {
 		log.Debug("Getting lending/collateral token price from contract", "price", inverseCollateralPriceFromContract)
@@ -1022,7 +1024,7 @@ func (l *Lending) GetCollateralPrices(header *types.Header, chain tradingstate.C
 
 func (l *Lending) GetTOMOBasePrices(header *types.Header, chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address) (*big.Int, error) {
 
-	tokenTOMOPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(statedb, token, common.HexToAddress(tradingstate.TomoNativeAddress))
+	tokenTOMOPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationSMC, statedb, token, common.HexToAddress(tradingstate.TomoNativeAddress))
 	tokenTOMOPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 
 	if token == common.HexToAddress(tradingstate.TomoNativeAddress) {
@@ -1033,7 +1035,7 @@ func (l *Lending) GetTOMOBasePrices(header *types.Header, chain tradingstate.Cha
 		log.Debug("Getting token/TOMO price from contract", "price", tokenTOMOPriceFromContract)
 		return tokenTOMOPriceFromContract, nil
 	} else {
-		tomoTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(statedb, common.HexToAddress(tradingstate.TomoNativeAddress), token)
+		tomoTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationSMC, statedb, common.HexToAddress(tradingstate.TomoNativeAddress), token)
 		tomoTokenPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 		if tomoTokenPriceUpdatedFromContract && tomoTokenPriceFromContract != nil && tomoTokenPriceFromContract.Sign() > 0 {
 			// getting lendToken price from contract first

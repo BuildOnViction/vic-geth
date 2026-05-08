@@ -49,15 +49,15 @@ type Signature struct {
 }
 
 // VerifyOrder verify orderItem
-func (o *OrderItem) VerifyOrder(state *state.StateDB) error {
+func (o *OrderItem) VerifyOrder(relayerSMC common.Address, state *state.StateDB) error {
 	if err := o.VerifyBasicOrderInfo(); err != nil {
 		return err
 	}
-	if err := o.verifyRelayer(state); err != nil {
+	if err := o.verifyRelayer(relayerSMC, state); err != nil {
 		return err
 	}
 	if o.Status == OrderNew {
-		if err := VerifyPair(state, o.ExchangeAddress, o.BaseToken, o.QuoteToken); err != nil {
+		if err := VerifyPair(relayerSMC, state, o.ExchangeAddress, o.BaseToken, o.QuoteToken); err != nil {
 			return err
 		}
 	}
@@ -93,8 +93,8 @@ func (o *OrderItem) VerifyBasicOrderInfo() error {
 }
 
 // verify whether the exchange applies to become relayer
-func (o *OrderItem) verifyRelayer(state *state.StateDB) error {
-	if !IsValidRelayer(state, o.ExchangeAddress) {
+func (o *OrderItem) verifyRelayer(relayerSMC common.Address, state *state.StateDB) error {
+	if !IsValidRelayer(relayerSMC, state, o.ExchangeAddress) {
 		return ErrInvalidRelayer
 	}
 	return nil
@@ -174,33 +174,33 @@ func (o *OrderItem) verifyStatus() error {
 	return nil
 }
 
-func IsValidRelayer(statedb *state.StateDB, address common.Address) bool {
+func IsValidRelayer(relayerSMC common.Address, statedb *state.StateDB, address common.Address) bool {
 	slot := RelayerMappingSlot["RELAYER_LIST"]
 	locRelayerState := GetLocMappingAtKey(address.Hash(), slot)
 
 	locBigDeposit := new(big.Int).SetUint64(uint64(0)).Add(locRelayerState, RelayerStructMappingSlot["_deposit"])
 	locHashDeposit := common.BigToHash(locBigDeposit)
-	balance := statedb.GetState(common.HexToAddress(TomoNativeAddress), locHashDeposit).Big()
+	balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
 	if balance.Cmp(new(big.Int).Mul(BasePrice, RelayerLockedFund)) <= 0 {
 		log.Debug("Relayer is not in relayer list", "relayer", address.String(), "balance", balance)
 		return false
 	}
-	if IsResignedRelayer(address, statedb) {
+	if IsResignedRelayer(relayerSMC, address, statedb) {
 		log.Debug("Relayer has resigned", "relayer", address.String())
 		return false
 	}
 	return true
 }
 
-func VerifyPair(statedb *state.StateDB, exchangeAddress, baseToken, quoteToken common.Address) error {
-	baseTokenLength := GetBaseTokenLength(exchangeAddress, statedb)
-	quoteTokenLength := GetQuoteTokenLength(exchangeAddress, statedb)
+func VerifyPair(relayerSMC common.Address, statedb *state.StateDB, exchangeAddress, baseToken, quoteToken common.Address) error {
+	baseTokenLength := GetBaseTokenLength(relayerSMC, exchangeAddress, statedb)
+	quoteTokenLength := GetQuoteTokenLength(relayerSMC, exchangeAddress, statedb)
 	if baseTokenLength != quoteTokenLength {
 		return fmt.Errorf("invalid length of baseTokenList: %d . QuoteTokenList: %d", baseTokenLength, quoteTokenLength)
 	}
 	var baseIndexes []uint64
 	for i := uint64(0); i < baseTokenLength; i++ {
-		if baseToken == GetBaseTokenAtIndex(exchangeAddress, statedb, i) {
+		if baseToken == GetBaseTokenAtIndex(relayerSMC, exchangeAddress, statedb, i) {
 			baseIndexes = append(baseIndexes, i)
 		}
 	}
@@ -208,14 +208,14 @@ func VerifyPair(statedb *state.StateDB, exchangeAddress, baseToken, quoteToken c
 		return fmt.Errorf("basetoken not found in relayer registration. BaseToken: %s. Exchange: %s", baseToken.Hex(), exchangeAddress.Hex())
 	}
 	for _, index := range baseIndexes {
-		if quoteToken == GetQuoteTokenAtIndex(exchangeAddress, statedb, index) {
+		if quoteToken == GetQuoteTokenAtIndex(relayerSMC, exchangeAddress, statedb, index) {
 			return nil
 		}
 	}
 	return fmt.Errorf("invalid exchange pair. Base: %s. Quote: %s. Exchange: %s", baseToken.Hex(), quoteToken.Hex(), exchangeAddress.Hex())
 }
 
-func VerifyBalance(statedb *state.StateDB, tomoxStateDb *TradingStateDB, order *types.OrderTransaction, baseDecimal, quoteDecimal *big.Int) error {
+func VerifyBalance(relayerSMC common.Address, statedb *state.StateDB, tomoxStateDb *TradingStateDB, order *types.OrderTransaction, baseDecimal, quoteDecimal *big.Int) error {
 	var quotePrice *big.Int
 	if order.QuoteToken().String() != TomoNativeAddress {
 		quotePrice = tomoxStateDb.GetLastPrice(GetTradingOrderBookHash(order.QuoteToken(), common.HexToAddress(TomoNativeAddress)))
@@ -232,7 +232,7 @@ func VerifyBalance(statedb *state.StateDB, tomoxStateDb *TradingStateDB, order *
 	} else {
 		quotePrice = BasePrice
 	}
-	feeRate := GetExRelayerFee(order.ExchangeAddress(), statedb)
+	feeRate := GetExRelayerFee(relayerSMC, order.ExchangeAddress(), statedb)
 	balanceResult, err := GetSettleBalance(quotePrice, order.Side(), feeRate, order.BaseToken(), order.QuoteToken(), order.Price(), feeRate, baseDecimal, quoteDecimal, order.Quantity())
 	if err != nil {
 		return err

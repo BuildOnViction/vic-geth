@@ -18,14 +18,22 @@ func (st *StateTransition) vrc25BuyGas() error {
 		return nil
 	}
 
-	feeCap := vrc25.GetFeeCapacity(st.state, victionConfig.VRC25Contract, st.msg.To())
-	if feeCap == nil || feeCap.Sign() == 0 {
-		return nil
-	}
-
 	blockNum := st.evm.Context.BlockNumber
 
 	if !st.evm.ChainConfig().IsAtlas(blockNum) {
+		// Pre-Atlas path: use the running activeFeeBalance map for eligibility.
+		// This map is loaded from state at block start (beforeProcess) and
+		// decremented after each VRC25 tx (afterApplyTransaction), ensuring
+		// correct capacity tracking across multiple txs to the same token.
+		if st.msg.To() == nil || activeFeeBalance == nil {
+			return nil
+		}
+		feeCap, ok := activeFeeBalance[*st.msg.To()]
+		if !ok || feeCap == nil {
+			// Token not in the registered list — treat as regular VIC tx.
+			return nil
+		}
+
 		var effectiveGasPrice *big.Int
 		if st.evm.ChainConfig().TIPTRC21FeeBlock != nil && blockNum.Cmp(st.evm.ChainConfig().TIPTRC21FeeBlock) > 0 {
 			effectiveGasPrice = (*big.Int)(victionConfig.VRC25GasPrice) // 250,000,000
@@ -35,12 +43,23 @@ func (st *StateTransition) vrc25BuyGas() error {
 
 		mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), effectiveGasPrice)
 		if feeCap.Cmp(mgval) < 0 {
+			// Token is registered but capacity is insufficient — fall through
+			// to regular VIC path.  buyGas will then check the sender's VIC
+			// balance at the original gasPrice (which for VRC25 txs is
+			// typically 0, so this effectively rejects the tx with
+			// ErrInsufficientFunds
 			return nil
 		}
 		// Set payer = VRC25Contract so isVRC25Transaction() returns true.
 		// buyGas will skip the balance check and SubBalance for pre-Atlas sponsored txs.
 		st.gasPrice = effectiveGasPrice
 		st.payer = victionConfig.VRC25Contract
+		return nil
+	}
+
+	// Post-Atlas: read capacity from statedb (each tx writes back via vrc25RefundGas).
+	feeCap := vrc25.GetFeeCapacity(st.state, victionConfig.VRC25Contract, st.msg.To())
+	if feeCap == nil || feeCap.Sign() == 0 {
 		return nil
 	}
 
@@ -64,11 +83,11 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 	if st.isVRC25Transaction() {
 		blockNum := st.evm.Context.BlockNumber
 		if !st.evm.ChainConfig().IsAtlas(blockNum) {
-			// Pre-Atlas: nothing
+			// Pre-Atlas VRC25: buyGas was skipped entirely, nothing to refund.
 			return
 		}
 
-		// Post-Atlas: deduct exactly gasUsed×price from the token's storage slot once.
+		// Post-Atlas VRC25: deduct exactly gasUsed * price from the token's storage slot.
 		addr := st.msg.To()
 		victionConfig := st.evm.ChainConfig().Viction
 		vrc25Contract := victionConfig.VRC25Contract
@@ -80,8 +99,10 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 			)
 			vrc25.SetFeeCapacity(st.state, vrc25Contract, *addr, new(big.Int).Sub(feeCap, gasUsedFee))
 		}
+		// Refund remaining native balance to the VRC25 issuer contract.
+		st.state.AddBalance(st.payer, remaining)
 	}
-	st.state.AddBalance(st.payer, remaining)
+	// Post-Atlas non-VRC25: no refund - remaining gas is burned.
 }
 
 // applyTransactionFee distributes the transaction fee to the correct recipient.
