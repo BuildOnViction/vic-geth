@@ -71,6 +71,7 @@ func NewWithDB(db ethdb.Database, config *params.ChainConfig) *TomoX {
 	}
 	tomoX.StateCache = tradingstate.NewDatabase(db)
 	tomoX.settings.Store(overflowIdx, false)
+
 	return tomoX
 }
 
