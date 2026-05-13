@@ -274,7 +274,6 @@ func (s *EthAPIBackend) GetMasternodes(ctx context.Context, b *types.Block) ([]c
 
 /*
 findFinalityOfBlock return finality of a block
-Use blocksHashCache for to keep track - refer core/blockchain.go for more detail
 */
 func (s *EthAPIBackend) findFinalityOfBlock(ctx context.Context, b *types.Block, masternodes []common.Address) (uint, error) {
 	engine, _ := s.Engine().(*posv.Posv)
