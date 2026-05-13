@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/bloombits"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -92,7 +93,7 @@ type Backend interface {
 
 func GetAPIs(apiBackend Backend) []rpc.API {
 	nonceLock := new(AddrLocker)
-	return []rpc.API{
+	apis := []rpc.API{
 		{
 			Namespace: "eth",
 			Version:   "1.0",
@@ -134,4 +135,21 @@ func GetAPIs(apiBackend Backend) []rpc.API {
 			Public:    false,
 		},
 	}
+	// Viction RPC: only when the backend implements BackendViction (e.g. *EthAPIBackend).
+	// Light clients use Backend only — no BackendViction — so this block is skipped.
+	bv, hasViction := apiBackend.(BackendViction)
+	if hasViction {
+		if _, isPosv := bv.Engine().(*posv.Posv); isPosv {
+			cfg := bv.ChainConfig()
+			if cfg != nil && cfg.Posv != nil {
+				apis = append(apis, rpc.API{
+					Namespace: "eth",
+					Version:   "1.0",
+					Service:   NewPublicVictionBlockChainAPI(bv),
+					Public:    true,
+				})
+			}
+		}
+	}
+	return apis
 }

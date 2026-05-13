@@ -269,3 +269,25 @@ func (bc *BlockChain) UpdateM1() error {
 	}
 	return nil
 }
+
+// AreTwoBlockSamePath check if two blocks are same path
+// Assume block 1 is ahead block 2 so we need to check parentHash
+func (bc *BlockChain) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool {
+	h1 := bc.GetHeaderByHash(bh1)
+	h2 := bc.GetHeaderByHash(bh2)
+	if h1 == nil || h2 == nil {
+		return false
+	}
+	toLevel := h2.Number.Uint64()
+	hash1 := bh1
+
+	for h1.Number.Uint64() > toLevel {
+		hash1 = h1.ParentHash
+		h1 = bc.GetHeaderByHash(hash1)
+		if h1 == nil {
+			return false
+		}
+	}
+
+	return hash1 == bh2
+}

@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -1125,7 +1126,7 @@ func FormatLogs(logs []vm.StructLog) []StructLogRes {
 
 // RPCMarshalHeader converts the given header to the RPC output .
 func RPCMarshalHeader(head *types.Header) map[string]interface{} {
-	return map[string]interface{}{
+	fields := map[string]interface{}{
 		"number":           (*hexutil.Big)(head.Number),
 		"hash":             head.Hash(),
 		"parentHash":       head.ParentHash,
@@ -1144,6 +1145,20 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 		"transactionsRoot": head.TxHash,
 		"receiptsRoot":     head.ReceiptHash,
 	}
+	if head.Posv {
+		fields["posv"] = head.Posv
+		if len(head.NewAttestors) > 0 {
+			fields["newAttestors"] = posv.DecodeAttestorsFromHeader(head.NewAttestors)
+			fields["validators"] = posv.ExtractValidatorsFromCheckpointHeader(head) // only at checkpoint
+		}
+		if len(head.Attestor) > 0 {
+			fields["attestor"] = hexutil.Bytes(head.Attestor)
+		}
+		if len(head.Penalties) > 0 {
+			fields["penalties"] = posv.DecodePenaltiesFromHeader(head.Penalties)
+		}
+	}
+	return fields
 }
 
 // RPCMarshalBlock converts the given block to the RPC output which depends on fullTx. If inclTx is true transactions are
