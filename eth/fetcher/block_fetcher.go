@@ -759,7 +759,7 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 			return
 		}
 		// Validate the header and if something went wrong, drop the peer
-		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock {
+		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock && err != consensus.ErrNoValidatorSignature {
 			log.Debug("Propagated header verification failed", "peer", peer, "number", header.Number, "hash", hash, "err", err)
 			f.dropPeer(peer)
 			return
@@ -797,6 +797,13 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		switch err := f.verifyHeader(block.Header()); err {
 		case nil:
 			// All ok, quickly propagate to our peers
+			blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
+			go f.broadcastBlock(block, true)
+
+		case consensus.ErrNoValidatorSignature:
+			// Block from phase 1 without attestor signature, propagate to network
+			// so attesters can receive and sign it. Don't drop the peer.
+			log.Debug("Propagated block without attestor (phase 1)", "peer", peer, "number", block.Number(), "hash", hash)
 			blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
 			go f.broadcastBlock(block, true)
 
