@@ -235,7 +235,8 @@ func (pm *ProtocolManager) removePeer(id string) {
 	if peer == nil {
 		return
 	}
-	log.Debug("Removing Ethereum peer", "peer", id)
+	// Log the caller to help diagnose unexpected disconnections.
+	log.Info("[Handler] removePeer called", "peer", id, "caller", "removePeer")
 
 	// Unregister the peer from the downloader and Ethereum peer set
 	pm.downloader.UnregisterPeer(id)
@@ -728,6 +729,10 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		request.Block.ReceivedAt = msg.ReceivedAt
 		request.Block.ReceivedFrom = p
 
+		log.Info("[Handler] NewBlockMsg received", "peer", p.id,
+			"number", request.Block.NumberU64(), "hash", request.Block.Hash(),
+			"td", request.TD, "attestorLen", len(request.Block.Attestor()))
+
 		// Mark the peer as owning the block and schedule it for import
 		p.MarkBlock(request.Block.Hash())
 		pm.blockFetcher.Enqueue(p.id, request.Block)
@@ -814,6 +819,15 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			p.MarkTransaction(tx.Hash())
 		}
 		pm.txFetcher.Enqueue(p.id, txs, msg.Code == PooledTransactionsMsg)
+
+	case (msg.Code == OrderTxMsg || msg.Code == LendingTxMsg) && p.version < eth65:
+		// Victionchain peers (eth62/eth63) send OrderTxMsg (0x08) and LendingTxMsg
+		// (0x09) for their DEX order/lending pools.  vic-geth does not implement
+		// these pools, so silently discard the payload to keep the connection alive.
+		// We must consume the message body to avoid leaving stale data on the stream.
+		var ignored []rlp.RawValue
+		msg.Decode(&ignored)
+		log.Trace("[Handler] Discarded victionchain order/lending tx", "code", msg.Code, "peer", p.id, "count", len(ignored))
 
 	default:
 		log.Warn("Received unknown message code from peer", "code", msg.Code, "peer", p.id, "version", p.version)

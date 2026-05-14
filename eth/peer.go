@@ -134,6 +134,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 		select {
 		case prop := <-p.queuedBlocks:
 			if err := p.SendNewBlock(prop.block, prop.td); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlock failed, removing peer", "number", prop.block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -141,6 +142,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 
 		case block := <-p.queuedBlockAnns:
 			if err := p.SendNewBlockHashes([]common.Hash{block.Hash()}, []uint64{block.NumberU64()}); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlockHashes failed, removing peer", "number", block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -205,7 +207,8 @@ func (p *peer) broadcastTransactions(removePeer func(string)) {
 		case <-done:
 			done = nil
 
-		case <-fail:
+		case err := <-fail:
+			p.Log().Warn("[Peer] broadcastTransactions send failed, removing peer", "err", err)
 			removePeer(p.id)
 			return
 
