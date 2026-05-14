@@ -963,7 +963,7 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 		log.Debug("[POSV commitSpecialTxs] no special txs to commit")
 		return false
 	}
-	log.Info("[POSV commitSpecialTxs] starting", "count", len(txs))
+	// log.Info("[POSV commitSpecialTxs] starting", "count", len(txs))
 
 	for _, tx := range txs {
 		if stop, isNewHead := w.checkInterrupt(interrupt); stop {
@@ -1002,7 +1002,7 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 		from, _ := types.Sender(w.current.signer, tx)
 		nonce := w.current.state.GetNonce(from)
 		if nonce != tx.Nonce() {
-			log.Info("[POSV commitSpecialTxs] nonce mismatch, skipping", "txHash", tx.Hash(), "sender", from, "stateNonce", nonce, "txNonce", tx.Nonce())
+			// log.Info("[POSV commitSpecialTxs] nonce mismatch, skipping", "txHash", tx.Hash(), "sender", from, "stateNonce", nonce, "txNonce", tx.Nonce())
 			continue
 		}
 		w.current.state.Prepare(tx.Hash(), common.Hash{}, w.current.tcount)
@@ -1016,12 +1016,12 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 			log.Warn("[POSV commitSpecialTxs] gas limit exceeded", "sender", from, "txHash", tx.Hash())
 			return false
 		case errors.Is(err, core.ErrNonceTooLow):
-			log.Info("[POSV commitSpecialTxs] nonce too low", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
+			// log.Info("[POSV commitSpecialTxs] nonce too low", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
 		case errors.Is(err, core.ErrNonceTooHigh):
-			log.Info("[POSV commitSpecialTxs] nonce too high", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
+			// log.Info("[POSV commitSpecialTxs] nonce too high", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
 		case errors.Is(err, nil):
 			w.current.tcount++
-			log.Info("[POSV commitSpecialTxs] committed special tx", "txHash", tx.Hash(), "sender", from, "nonce", tx.Nonce(), "to", tx.To(), "tcount", w.current.tcount)
+			// log.Info("[POSV commitSpecialTxs] committed special tx", "txHash", tx.Hash(), "sender", from, "nonce", tx.Nonce(), "to", tx.To(), "tcount", w.current.tcount)
 		default:
 			log.Warn("[POSV commitSpecialTxs] special tx failed", "hash", tx.Hash(), "sender", from, "err", err)
 		}
@@ -1250,7 +1250,7 @@ func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp
 		if err != nil {
 			log.Error("Failed to fetch pending transactions", "err", err)
 		} else {
-			log.Info("[POSV commitWork] fetched pending txs", "block", header.Number, "accounts", len(pending))
+			// log.Info("[POSV commitWork] fetched pending txs", "block", header.Number, "accounts", len(pending))
 
 			// Build signers map from the nearest checkpoint's validator set
 			// so ExtractSpecialTransactionsForPosv can identify special txs.
@@ -1260,26 +1260,26 @@ func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp
 			for _, v := range validators {
 				signers[v] = struct{}{}
 			}
-			log.Info("[POSV commitWork] built signers map", "block", header.Number, "validators", len(validators))
+			// log.Info("[POSV commitWork] built signers map", "block", header.Number, "validators", len(validators))
 
 			// Count total txs in pending before extraction
 			totalPending := 0
 			specialCount := 0
-			for addr, txs := range pending {
+			for _, txs := range pending {
 				for _, tx := range txs {
 					totalPending++
 					if tx.IsSpecialTransaction() {
 						specialCount++
-						log.Info("[POSV commitWork] found special tx in pending", "block", header.Number, "from", addr, "nonce", tx.Nonce(), "to", tx.To(), "txHash", tx.Hash())
+						// log.Info("[POSV commitWork] found special tx in pending", "block", header.Number, "from", addr, "nonce", tx.Nonce(), "to", tx.To(), "txHash", tx.Hash())
 					}
 				}
 			}
-			log.Info("[POSV commitWork] pending tx summary", "block", header.Number, "totalPending", totalPending, "specialInPending", specialCount)
+			// log.Info("[POSV commitWork] pending tx summary", "block", header.Number, "totalPending", totalPending, "specialInPending", specialCount)
 
 			// Extract special txs (BlockSigner, Randomize) from pending before
 			// building the price-sorted set for normal txs.
 			specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
-			log.Info("[POSV commitWork] extracted special txs", "block", header.Number, "specialTxs", len(specialTxs))
+			// log.Info("[POSV commitWork] extracted special txs", "block", header.Number, "specialTxs", len(specialTxs))
 
 			// Commit special txs first (in order), then normal txs (price-sorted).
 			if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
