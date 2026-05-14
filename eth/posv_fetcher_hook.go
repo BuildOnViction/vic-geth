@@ -58,37 +58,30 @@ func (s *Ethereum) setupPosvMinerHook() {
 func (s *Ethereum) posvAttestBlock(block *types.Block) (*types.Block, bool, error) {
 	header := block.Header()
 	if header == nil {
-		log.Info("[POSV-M2] skip: header is nil")
 		return block, false, nil
 	}
 	cfg := s.blockchain.Config()
 	posvCfg := cfg.Posv
 	if posvCfg == nil {
-		log.Info("[POSV-M2] skip: posvCfg is nil")
 		return block, false, nil
 	}
 	n := header.Number.Uint64()
 	if n <= posvCfg.Epoch {
-		log.Info("[POSV-M2] skip: block too early", "number", n, "epoch", posvCfg.Epoch)
 		return block, false, nil
 	}
 	if len(header.Attestor) == posv.ExtraSeal {
-		log.Info("[POSV-M2] skip: already attested", "number", n)
 		return block, false, nil
 	}
 	posvEngine, ok := s.engine.(*posv.Posv)
 	if !ok {
-		log.Info("[POSV-M2] skip: engine not posv")
 		return block, false, nil
 	}
 	creator, err := posvEngine.Author(header)
 	if err != nil {
-		log.Info("[POSV-M2] skip: cannot recover creator", "number", n, "err", err)
 		return block, false, nil
 	}
 	checkpoint := posv.GetCheckpointHeader(posvCfg, header, s.blockchain, nil)
 	if checkpoint == nil {
-		log.Info("[POSV-M2] skip: no checkpoint", "number", n)
 		return block, false, nil
 	}
 	log.Info("[POSV-M2] checkpoint found", "number", n, "checkpoint", checkpoint.Number, "newAttestorsLen", len(checkpoint.NewAttestors))
@@ -105,14 +98,9 @@ func (s *Ethereum) posvAttestBlock(block *types.Block) (*types.Block, bool, erro
 	}
 	assigned, ok := pairs[creator]
 	if !ok {
-		log.Info("[POSV-M2] creator not in pairs", "number", header.Number, "creator", creator, "pairsLen", len(pairs), "eb", eb)
-		for c, a := range pairs {
-			log.Info("[POSV-M2] pair", "creator", c, "attestor", a)
-		}
 		return block, false, nil
 	}
 	if assigned != eb {
-		log.Info("[POSV-M2] not assigned attestor", "number", header.Number, "creator", creator, "assigned", assigned, "eb", eb)
 		return block, false, nil
 	}
 	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
