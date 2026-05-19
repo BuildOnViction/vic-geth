@@ -25,7 +25,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -186,7 +185,22 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // and uses the input parameters for its environment. It returns the receipt
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
+//
+// On POSV chains, BlockSigner transactions (0x89) are handled without the EVM
+// when past the TIPSigning fork — they only increment the sender nonce and
+// produce a zero-gas receipt. This reuses the same ApplySignTransaction function
+// called by StateProcessor.applyVictionTransaction during block import.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	// POSV: BlockSigner (0x89) bypass — same logic as applyVictionTransaction.
+	if tx.To() != nil && config.Viction != nil &&
+		tx.IsSigningTransaction(config.Viction.ValidatorBlockSignContract) &&
+		config.IsTIPSigning(header.Number) {
+		handled, receipt, _, err, _ := ApplySignTransaction(config, statedb, tx, header, usedGas)
+		if handled {
+			return receipt, err
+		}
+	}
+
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, err
@@ -195,43 +209,4 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	blockContext := NewEVMBlockContext(header, bc, author)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, config, cfg)
 	return applyTransaction(msg, config, bc, author, gp, statedb, header, tx, usedGas, vmenv)
-}
-
-// ApplyTransactionPosv applies a single transaction using the same logic as
-// StateProcessor.Process: Viction system transactions (BlockSigner 0x89) are
-// handled without the EVM, all others go through the normal EVM path.
-//
-// This is the single entry point for both the miner and block import to apply
-// a transaction under POSV consensus, ensuring identical state transitions.
-func ApplyTransactionPosv(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	// Try Viction system tx bypass (BlockSigner only; Randomize goes through EVM).
-	if tx.To() != nil && config.Viction != nil {
-		if tx.IsSigningTransaction(config.Viction.ValidatorBlockSignContract) && config.IsTIPSigning(header.Number) {
-			handled, receipt, _, err, _ := ApplySignTransaction(config, statedb, tx, header, usedGas)
-			if handled {
-				if receipt != nil {
-					log.Info("[POSV apply] BlockSigner tx bypassed EVM",
-						"block", header.Number, "txHash", tx.Hash(), "status", receipt.Status)
-				} else {
-					log.Warn("[POSV apply] BlockSigner tx failed",
-						"block", header.Number, "txHash", tx.Hash(), "err", err)
-				}
-				return receipt, err
-			}
-		}
-		// Log randomize tx going through EVM
-		if *tx.To() == config.Viction.RandomizerContract && config.Viction.RandomizerContract != (common.Address{}) {
-			log.Info("[POSV apply] Randomize tx routed to EVM",
-				"block", header.Number, "txHash", tx.Hash(), "nonce", tx.Nonce())
-		}
-	}
-
-	// Normal EVM path (Randomize txs, regular txs, etc.)
-	receipt, err := ApplyTransaction(config, bc, author, gp, statedb, header, tx, usedGas, cfg)
-	if err == nil && receipt != nil && tx.To() != nil && config.Viction != nil &&
-		*tx.To() == config.Viction.RandomizerContract && config.Viction.RandomizerContract != (common.Address{}) {
-		log.Info("[POSV apply] Randomize tx applied",
-			"block", header.Number, "txHash", tx.Hash(), "status", receipt.Status, "gasUsed", receipt.GasUsed)
-	}
-	return receipt, err
 }

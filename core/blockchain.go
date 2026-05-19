@@ -2261,11 +2261,11 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	// Per-block detail for reorg analysis (M1 = Author/sealer, M2 = attestor on POSV).
 	for _, b := range oldChain {
 		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
-		log.Info("Chain reorg branch block::old", "branch", "old", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+		log.Debug("Chain reorg branch block::old", "branch", "old", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
 	}
 	for _, b := range newChain {
 		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
-		log.Info("Chain reorg branch block::new", "branch", "new", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+		log.Debug("Chain reorg branch block::new", "branch", "new", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
 	}
 
 	if len(oldChain) > 0 && len(newChain) > 0 {
