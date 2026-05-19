@@ -25,10 +25,13 @@ func (st *StateTransition) vrc25BuyGas() error {
 		// This map is loaded from state at block start (beforeProcess) and
 		// decremented after each VRC25 tx (afterApplyTransaction), ensuring
 		// correct capacity tracking across multiple txs to the same token.
-		if st.msg.To() == nil || activeFeeBalance == nil {
+		activeFeeBalanceMu.RLock()
+		fb := activeFeeBalance
+		activeFeeBalanceMu.RUnlock()
+		if st.msg.To() == nil || fb == nil {
 			return nil
 		}
-		feeCap, ok := activeFeeBalance[*st.msg.To()]
+		feeCap, ok := fb[*st.msg.To()]
 		if !ok || feeCap == nil {
 			// Token not in the registered list — treat as regular VIC tx.
 			return nil
