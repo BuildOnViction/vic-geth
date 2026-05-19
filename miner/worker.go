@@ -18,7 +18,6 @@ package miner
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"math/big"
 	"sync"
@@ -77,9 +76,6 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
-
-	posvWaitPeriod           = 10 * time.Second
-	posvWaitPeriodCheckpoint = 20 * time.Second // longer wait per hop near epoch boundary (matches victionchain)
 )
 
 // environment is the worker's current environment and holds all of the current state information.
@@ -461,11 +457,7 @@ func (w *worker) mainLoop() {
 	for {
 		select {
 		case req := <-w.newWorkCh:
-			if w.chainConfig.Posv != nil {
-				w.commitNewWorkWithPosv(req.interrupt, req.noempty, req.timestamp)
-			} else {
-				w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
-			}
+			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 
 		case ev := <-w.chainSideCh:
 			// Short circuit for duplicate side blocks
@@ -655,12 +647,12 @@ func (w *worker) resultLoop() {
 			if w.chainConfig.Posv != nil &&
 				block.NumberU64() >= w.chainConfig.Posv.Epoch &&
 				!posvSelfAttested {
-				log.Info("POSV: M1-only block, skip local write, broadcast for M2 attestation",
+				log.Debug("POSV: M1-only block, skip local write, broadcast for M2 attestation",
 					"number", block.Number(), "sealhash", sealhash, "hash", hash)
 				w.mux.Post(core.NewMinedBlockEvent{Block: block})
 				// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
 				if w.posvSignBlockHook != nil {
-					log.Info("[POSV resultLoop] firing sign hook (M1-only path)", "block", block.NumberU64())
+					log.Debug("[POSV resultLoop] firing sign hook (M1-only path)", "block", block.NumberU64())
 					if err := w.posvSignBlockHook(block); err != nil {
 						log.Error("POSV: sign block hook failed (M1-only)", "number", block.NumberU64(), "err", err)
 					}
@@ -714,7 +706,7 @@ func (w *worker) resultLoop() {
 
 			// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
 			if w.posvSignBlockHook != nil {
-				log.Info("[POSV resultLoop] firing sign hook (full write path)", "block", block.NumberU64())
+				log.Debug("[POSV resultLoop] firing sign hook (full write path)", "block", block.NumberU64())
 				if err := w.posvSignBlockHook(block); err != nil {
 					log.Error("POSV: sign block hook failed", "number", block.NumberU64(), "err", err)
 				}
@@ -845,7 +837,7 @@ func (w *worker) checkInterrupt(interrupt *int32) (shouldReturn bool, isNewHead 
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransactionPosv(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
@@ -953,93 +945,24 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 	return false
 }
 
-// commitSpecialTransactions applies special transactions in input order.
-func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase common.Address, interrupt *int32) bool {
-	if !w.ensureGasPool() {
-		log.Warn("[POSV commitSpecialTxs] gas pool not ready")
-		return true
-	}
-	if len(txs) == 0 {
-		log.Debug("[POSV commitSpecialTxs] no special txs to commit")
-		return false
-	}
-	// log.Info("[POSV commitSpecialTxs] starting", "count", len(txs))
-
-	for _, tx := range txs {
-		if stop, isNewHead := w.checkInterrupt(interrupt); stop {
-			return isNewHead
-		}
-		if w.current.gasPool.Gas() < params.TxGas {
-			log.Warn("Not enough gas for further special transactions", "have", w.current.gasPool, "want", params.TxGas)
-			break
-		}
-		if tx == nil {
-			continue
-		}
-		if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
-			log.Warn("Ignoring replay protected special transaction", "hash", tx.Hash(), "eip155", w.chainConfig.EIP155Block)
-			continue
-		}
-		if tx.To() != nil && w.chainConfig != nil && w.chainConfig.Viction != nil {
-			// Validate BlockSigner special tx payload and target block range.
-			if *tx.To() == w.chainConfig.Viction.ValidatorBlockSignContract {
-				if len(tx.Data()) < 68 {
-					log.Warn("Skipping special transaction with invalid BlockSigner payload length", "hash", tx.Hash(), "len", len(tx.Data()))
-					continue
-				}
-				// ABI layout: selector(4) + uint256 blockNumber(32) + bytes32 blockHash(32)
-				// The block number is a big-endian uint256 at data[4:36]; extract the
-				// last 8 bytes (data[28:36]) to get the uint64 value.
-				blkNumber := binary.BigEndian.Uint64(tx.Data()[28:36])
-				curr := w.current.header.Number.Uint64()
-				epochRange := w.chainConfig.Posv.Epoch * 2
-				if w.chainConfig.Posv != nil && (blkNumber >= curr || (curr > epochRange && blkNumber <= curr-epochRange)) {
-					log.Info("Skipping special transaction with invalid signed block number", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr, "epoch", w.chainConfig.Posv.Epoch)
-					continue
-				}
-			}
-		}
-		from, _ := types.Sender(w.current.signer, tx)
-		nonce := w.current.state.GetNonce(from)
-		if nonce != tx.Nonce() {
-			// log.Info("[POSV commitSpecialTxs] nonce mismatch, skipping", "txHash", tx.Hash(), "sender", from, "stateNonce", nonce, "txNonce", tx.Nonce())
-			continue
-		}
-		w.current.state.Prepare(tx.Hash(), common.Hash{}, w.current.tcount)
-		// All special txs now go through commitTransaction which delegates to
-		// core.ApplyTransactionPosv — BlockSigner txs are handled without the
-		// EVM, Randomize txs go through the normal EVM path.
-		var err error
-		_, err = w.commitTransaction(tx, coinbase)
-		switch {
-		case errors.Is(err, core.ErrGasLimitReached):
-			log.Warn("[POSV commitSpecialTxs] gas limit exceeded", "sender", from, "txHash", tx.Hash())
-			return false
-		case errors.Is(err, core.ErrNonceTooLow):
-			// log.Info("[POSV commitSpecialTxs] nonce too low", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
-		case errors.Is(err, core.ErrNonceTooHigh):
-			// log.Info("[POSV commitSpecialTxs] nonce too high", "sender", from, "nonce", tx.Nonce(), "txHash", tx.Hash())
-		case errors.Is(err, nil):
-			w.current.tcount++
-			// log.Info("[POSV commitSpecialTxs] committed special tx", "txHash", tx.Hash(), "sender", from, "nonce", tx.Nonce(), "to", tx.To(), "tcount", w.current.tcount)
-		default:
-			log.Warn("[POSV commitSpecialTxs] special tx failed", "hash", tx.Hash(), "sender", from, "err", err)
-		}
-	}
-
-	if interrupt != nil {
-		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
-	}
-	return false
-}
-
 // commitNewWork generates several new sealing tasks based on the parent block.
 func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
+	isPosv := w.chainConfig.Posv != nil
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
+
+	// [POSV] Dedup: don't seal twice on the same parent.
+	if isPosv {
+		if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
+			return
+		}
+		if !w.turnCommitNewWorkWithPosv(parent.Header()) {
+			return
+		}
+	}
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)
@@ -1047,7 +970,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	// this will ensure we're not going off too far in the future
 	if now := time.Now().Unix(); timestamp > now+1 {
 		wait := time.Duration(timestamp-now) * time.Second
-		log.Info("Mining too far in the future", "wait", common.PrettyDuration(wait))
+		log.Debug("Mining too far in the future", "wait", common.PrettyDuration(wait))
 		time.Sleep(wait)
 	}
 
@@ -1055,10 +978,17 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     num.Add(num, common.Big1),
-		GasLimit:   core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil),
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
 	}
+
+	// Gas limit: fixed for POSV, dynamic for other consensus.
+	if isPosv {
+		header.GasLimit = params.VictionGasLimit
+	} else {
+		header.GasLimit = core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil)
+	}
+
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
 	if w.isRunning() {
 		if w.coinbase == (common.Address{}) {
@@ -1090,40 +1020,66 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to create mining context", "err", err)
 		return
 	}
+
 	// Create the current work task and check any fork transitions needed
 	env := w.current
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(env.state)
 	}
-	// Accumulate the uncles for the current block
-	uncles := make([]*types.Header, 0, 2)
-	commitUncles := func(blocks map[common.Hash]*types.Block) {
-		// Clean up stale uncle blocks first
-		for hash, uncle := range blocks {
-			if uncle.NumberU64()+staleThreshold <= header.Number.Uint64() {
-				delete(blocks, hash)
-			}
+
+	// [POSV] Fork-specific state mutations.
+	if isPosv {
+		if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
+			env.state.DeleteAddress(w.chainConfig.Viction.ValidatorBlockSignContract)
 		}
-		for hash, uncle := range blocks {
-			if len(uncles) == 2 {
-				break
-			}
-			if err := w.commitUncle(env, uncle.Header()); err != nil {
-				log.Trace("Possible uncle rejected", "hash", hash, "reason", err)
-			} else {
-				log.Debug("Committing new uncle to block", "hash", hash)
-				uncles = append(uncles, uncle.Header())
-			}
+		if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
+			misc.ApplyVIPVRC25Upgrade(env.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
+		}
+		if w.chainConfig.SaigonBlock != nil && w.chainConfig.SaigonBlock.Cmp(header.Number) <= 0 {
+			misc.ApplySaigonHardFork(env.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)
 		}
 	}
-	// Prefer to locally generated uncle
-	commitUncles(w.localUncles)
-	commitUncles(w.remoteUncles)
 
-	// Create an empty block based on temporary copied state for
-	// sealing in advance without waiting block execution finished.
-	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
-		w.commit(uncles, nil, false, tstart)
+	// Uncle processing (non-POSV only; POSV has no uncles).
+	var uncles []*types.Header
+	if !isPosv {
+		uncles = make([]*types.Header, 0, 2)
+		commitUncles := func(blocks map[common.Hash]*types.Block) {
+			for hash, uncle := range blocks {
+				if uncle.NumberU64()+staleThreshold <= header.Number.Uint64() {
+					delete(blocks, hash)
+				}
+			}
+			for hash, uncle := range blocks {
+				if len(uncles) == 2 {
+					break
+				}
+				if err := w.commitUncle(env, uncle.Header()); err != nil {
+					log.Trace("Possible uncle rejected", "hash", hash, "reason", err)
+				} else {
+					log.Debug("Committing new uncle to block", "hash", hash)
+					uncles = append(uncles, uncle.Header())
+				}
+			}
+		}
+		commitUncles(w.localUncles)
+		commitUncles(w.remoteUncles)
+
+		// Create an empty block based on temporary copied state for
+		// sealing in advance without waiting block execution finished.
+		if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
+			w.commit(uncles, nil, false, tstart)
+		}
+	}
+
+	// [POSV] Epoch blocks carry only state mutations from Prepare/Finalize,
+	// no user transactions allowed.
+	if isPosv {
+		epoch := w.chainConfig.Posv.Epoch
+		if epoch > 0 && header.Number.Uint64()%epoch == 0 {
+			w.commit(nil, w.fullTaskHook, true, tstart)
+			return
+		}
 	}
 
 	// Fill the block with all available pending transactions.
@@ -1132,13 +1088,29 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to fetch pending transactions", "err", err)
 		return
 	}
-	// Short circuit if there is no available pending transactions.
-	// But if we disable empty precommit already, ignore it. Since
-	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
-		w.updateSnapshot()
-		return
+
+	// Short circuit if there is no available pending transactions (non-POSV only).
+	if !isPosv {
+		if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
+			w.updateSnapshot()
+			return
+		}
 	}
+
+	// [POSV] Extract and commit special transactions first.
+	if isPosv {
+		checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), w.chain, nil)
+		validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+		signers := make(map[common.Address]struct{}, len(validators))
+		for _, v := range validators {
+			signers[v] = struct{}{}
+		}
+		specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+		if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
+			return
+		}
+	}
+
 	// Split the pending transactions into locals and remotes
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 	for _, account := range w.eth.TxPool().Locals() {
@@ -1159,228 +1131,8 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			return
 		}
 	}
+
 	w.commit(uncles, w.fullTaskHook, true, tstart)
-}
-
-func (w *worker) commitNewWorkWithPosv(interrupt *int32, noempty bool, timestamp int64) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	tstart := time.Now()
-	parent := w.chain.CurrentBlock()
-
-	if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
-		return
-	}
-
-	if !w.turnCommitNewWorkWithPosv(parent.Header()) {
-		return
-	}
-
-	if parent.Time() >= uint64(timestamp) {
-		timestamp = int64(parent.Time() + 1)
-	}
-	// this will ensure we're not going off too far in the future
-	if now := time.Now().Unix(); timestamp > now+1 {
-		wait := time.Duration(timestamp-now) * time.Second
-		log.Info("Mining too far in the future", "wait", common.PrettyDuration(wait))
-		time.Sleep(wait)
-	}
-
-	num := parent.Number()
-	header := &types.Header{
-		ParentHash: parent.Hash(),
-		Number:     num.Add(num, common.Big1),
-		GasLimit:   params.VictionGasLimit,
-		Extra:      w.extra,
-		Time:       uint64(timestamp),
-	}
-	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
-	if w.isRunning() {
-		if w.coinbase == (common.Address{}) {
-			log.Error("Refusing to mine without etherbase")
-			return
-		}
-		header.Coinbase = w.coinbase
-	}
-	if err := w.engine.Prepare(w.chain, header); err != nil {
-		log.Error("Failed to prepare header for mining", "err", err)
-		return
-	}
-
-	daoBlock := w.chainConfig.DAOForkBlock
-	if daoBlock != nil {
-		limit := new(big.Int).Add(daoBlock, params.DAOForkExtraRange)
-		if header.Number.Cmp(daoBlock) >= 0 && header.Number.Cmp(limit) < 0 {
-			if w.chainConfig.DAOForkSupport {
-				header.Extra = common.CopyBytes(params.DAOForkBlockExtra)
-			} else if bytes.Equal(header.Extra, params.DAOForkBlockExtra) {
-				header.Extra = []byte{} // If miner opposes, don't let it use the reserved extra-data
-			}
-		}
-	}
-
-	err := w.makeCurrent(parent, header)
-	if err != nil {
-		log.Error("Failed to create mining context", "err", err)
-		return
-	}
-
-	work := w.current
-	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
-		misc.ApplyDAOHardFork(work.state)
-	}
-	if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
-		work.state.DeleteAddress(w.chainConfig.Viction.ValidatorBlockSignContract)
-	}
-	if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
-		misc.ApplyVIPVRC25Upgrade(work.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
-	}
-	if w.chainConfig.SaigonBlock != nil && w.chainConfig.SaigonBlock.Cmp(header.Number) <= 0 {
-		misc.ApplySaigonHardFork(work.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)
-	}
-
-	// [POSV] Epoch (checkpoint) blocks carry only POSV state mutations via
-	// Prepare/Finalize and must not include user transactions — matching
-	// victionchain's behaviour where pending txs are only fetched when
-	// number%epoch != 0.
-	epoch := w.chainConfig.Posv.Epoch
-	if epoch > 0 && header.Number.Uint64()%epoch != 0 {
-		pending, err := w.eth.TxPool().Pending()
-		if err != nil {
-			log.Error("Failed to fetch pending transactions", "err", err)
-		} else {
-			// log.Info("[POSV commitWork] fetched pending txs", "block", header.Number, "accounts", len(pending))
-
-			// Build signers map from the nearest checkpoint's validator set
-			// so ExtractSpecialTransactionsForPosv can identify special txs.
-			checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), w.chain, nil)
-			validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
-			signers := make(map[common.Address]struct{}, len(validators))
-			for _, v := range validators {
-				signers[v] = struct{}{}
-			}
-			// log.Info("[POSV commitWork] built signers map", "block", header.Number, "validators", len(validators))
-
-			// Count total txs in pending before extraction
-			totalPending := 0
-			specialCount := 0
-			for _, txs := range pending {
-				for _, tx := range txs {
-					totalPending++
-					if tx.IsSpecialTransaction() {
-						specialCount++
-						// log.Info("[POSV commitWork] found special tx in pending", "block", header.Number, "from", addr, "nonce", tx.Nonce(), "to", tx.To(), "txHash", tx.Hash())
-					}
-				}
-			}
-			// log.Info("[POSV commitWork] pending tx summary", "block", header.Number, "totalPending", totalPending, "specialInPending", specialCount)
-
-			// Extract special txs (BlockSigner, Randomize) from pending before
-			// building the price-sorted set for normal txs.
-			specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
-			// log.Info("[POSV commitWork] extracted special txs", "block", header.Number, "specialTxs", len(specialTxs))
-
-			// Commit special txs first (in order), then normal txs (price-sorted).
-			if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
-				return
-			}
-
-			// Split remaining pending into local and remote for priority ordering.
-			localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-			for _, account := range w.eth.TxPool().Locals() {
-				if txs := remoteTxs[account]; len(txs) > 0 {
-					delete(remoteTxs, account)
-					localTxs[account] = txs
-				}
-			}
-			if len(localTxs) > 0 {
-				txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-				if w.commitTransactions(txs, w.coinbase, nil) {
-					return
-				}
-			}
-			if len(remoteTxs) > 0 {
-				txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
-				if w.commitTransactions(txs, w.coinbase, nil) {
-					return
-				}
-			}
-		}
-	}
-
-	// Commit the new block
-	w.commit(nil, w.fullTaskHook, true, tstart)
-
-}
-
-func (w *worker) turnCommitNewWorkWithPosv(parentHeader *types.Header) bool {
-	// Pending block / snapshot updates must run even when the miner is stopped.
-	if !w.isRunning() || w.chainConfig.Posv == nil {
-		return true
-	}
-
-	c, engineOk := w.engine.(*posv.Posv)
-	if !engineOk {
-		log.Error("Chain has POSV config but consensus engine is not *posv.Posv")
-		return false
-	}
-	checkPointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parentHeader, w.chain, nil)
-	validators := posv.ExtractValidatorsFromCheckpointHeader(checkPointHeader)
-	// IsMyTurn returns (inTurn, currentIndex, parentIndex, validatorCount, err).
-	ok, myIdx, parentIdx, nValidators, err := c.IsMyTurn(w.coinbase, parentHeader, validators)
-	if err != nil {
-		log.Warn("[Posv] Failed to trying to commit new work", "err", err)
-		return false
-	}
-	if !ok {
-		log.Info("[Posv] Not in turn to commit new block. Waiting...")
-		// Parent block author not in checkpoint list: only validators[0] is in-turn per IsMyTurn.
-		if parentIdx == -1 {
-			return false
-		}
-		// Our etherbase is not in the validator set.
-		if myIdx == -1 {
-			return false
-		}
-		// Hop counts forward steps from parent author to us on the validator ring (see posv.Distance).
-		h := Hop(nValidators, parentIdx, myIdx)
-		gap := posvWaitPeriod * time.Duration(h)
-		// Near the next checkpoint, out-of-turn nodes wait longer so the in-turn validator
-		// can seal the epoch block first (same rule as victionchain worker).
-		epoch := w.chainConfig.Posv.Epoch
-		if epoch > 0 {
-			nearest := epoch - (parentHeader.Number.Uint64() % epoch)
-			if uint64(h) >= nearest {
-				log.Info("[Posv] Near-epoch out-of-turn wait (checkpoint patience)", "parentNum", parentHeader.Number.Uint64(),
-					"nearestBlocksToCheckpoint", nearest, "hops", h, "gap", posvWaitPeriodCheckpoint*time.Duration(h))
-				gap = posvWaitPeriodCheckpoint * time.Duration(h)
-			}
-		}
-		waited := time.Since(time.Unix(int64(parentHeader.Time), 0))
-		if waited < 0 {
-			waited = 0
-		}
-		log.Info("[Posv] Waiting for next block", "gap", gap, "hops", h, "waited", waited)
-		if gap > waited {
-			return false
-		}
-		log.Info("Wait enough. It's my turn", "waited", waited)
-	}
-	return true
-}
-
-// Hop returns how many validator slots to wait after parentIdx before myIdx may seal,
-// for the round-robin order used with posvWaitPeriod / posvWaitPeriodCheckpoint. pre is parent block author's index, cur is ours.
-func Hop(len, pre, cur int) int {
-	switch {
-	case pre < cur:
-		return cur - (pre + 1)
-	case pre > cur:
-		return (len - pre) + (cur - 1)
-	default:
-		return len - 1
-	}
 }
 
 // commit runs any post-transaction state modifications, assembles the final block
