@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vrc25"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -49,17 +50,36 @@ func (pool *TxPool) isPosvSpecialTx(tx *types.Transaction) bool {
 }
 
 // posvValidateGasPrice returns true if the transaction should be exempt from
-// the minimum gas price check. Only special txs from known signers are exempt.
+// the minimum gas price check. Only special txs from known signers are exempt,
+// as well as VRC25-sponsored zero-gasPrice transactions targeting registered tokens.
 func (pool *TxPool) posvValidateGasPrice(tx *types.Transaction, from common.Address) bool {
-	if !pool.isPosvSpecialTx(tx) {
-		return false
+	// Special POSV transactions (BlockSigner/Randomize) from signers.
+	if pool.isPosvSpecialTx(tx) {
+		if pool.IsSigner == nil {
+			// If IsSigner is not configured, allow all special txs through
+			// (they are validated at block-level anyway).
+			return true
+		}
+		return pool.IsSigner(from)
 	}
-	if pool.IsSigner == nil {
-		// If IsSigner is not configured, allow all special txs through
-		// (they are validated at block-level anyway).
-		return true
+
+	// VRC25: zero-gasPrice tx to a registered token with sufficient capacity.
+	if tx.GasPrice().Sign() == 0 && tx.To() != nil &&
+		pool.chainconfig.Viction != nil &&
+		pool.chainconfig.Viction.VRC25Contract != (common.Address{}) {
+
+		cap := vrc25.GetFeeCapacity(pool.currentState,
+			pool.chainconfig.Viction.VRC25Contract, tx.To())
+		if cap != nil && cap.Sign() > 0 {
+			if err := vrc25.ValidateVRC25Transaction(pool.currentState,
+				pool.chainconfig.Viction.VRC25Contract,
+				from, *tx.To(), tx.Data()); err == nil {
+				return true
+			}
+		}
 	}
-	return pool.IsSigner(from)
+
+	return false
 }
 
 // posvSkipIntrinsicGas returns true if intrinsic gas check should be skipped.
