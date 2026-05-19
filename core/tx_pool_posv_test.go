@@ -3,7 +3,7 @@
 // Tests ensure:
 // 1. Old code (non-POSV, Ethash) still works unchanged.
 // 2. New code (POSV) handles special transactions (BlockSigner, Randomize) correctly.
-// 3. ApplyTransactionPosv routes correctly for both consensus engines.
+// 3. ApplyTransaction routes correctly for both consensus engines.
 
 package core
 
@@ -351,9 +351,9 @@ func TestTxPool_Posv_NonceTooLow(t *testing.T) {
 	}
 }
 
-// --- Tests: ApplyTransactionPosv ---
+// --- Tests: ApplyTransaction ---
 
-func TestApplyTransactionPosv_BlockSignerBypassesEVM(t *testing.T) {
+func TestApplyTransaction_BlockSignerBypassesEVM(t *testing.T) {
 	// Setup a state with an account that has a nonce
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
@@ -373,9 +373,9 @@ func TestApplyTransactionPosv_BlockSignerBypassesEVM(t *testing.T) {
 	tx := makeBlockSignerTx(0, 100, common.HexToHash("0xdeadbeef"), key)
 	statedb.Prepare(tx.Hash(), common.Hash{}, 0)
 
-	receipt, err := ApplyTransactionPosv(testPosvConfig, nil, nil, gp, statedb, header, tx, &usedGas, vm.Config{})
+	receipt, err := ApplyTransaction(testPosvConfig, nil, nil, gp, statedb, header, tx, &usedGas, vm.Config{})
 	if err != nil {
-		t.Fatalf("ApplyTransactionPosv failed: %v", err)
+		t.Fatalf("ApplyTransaction failed: %v", err)
 	}
 	if receipt == nil {
 		t.Fatal("receipt should not be nil")
@@ -401,8 +401,8 @@ func TestApplyTransactionPosv_BlockSignerBypassesEVM(t *testing.T) {
 	}
 }
 
-func TestApplyTransactionPosv_RegularTxGoesEVM(t *testing.T) {
-	// For a regular tx, ApplyTransactionPosv should route to normal EVM path.
+func TestApplyTransaction_RegularTxGoesEVM(t *testing.T) {
+	// For a regular tx, ApplyTransaction should route to normal EVM path.
 	// We just verify it doesn't bypass (i.e., gas is consumed).
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
@@ -430,9 +430,9 @@ func TestApplyTransactionPosv_RegularTxGoesEVM(t *testing.T) {
 	bc := &applyTxTestChain{config: testPosvConfig}
 	author := common.HexToAddress("0xaaaa")
 
-	receipt, err := ApplyTransactionPosv(testPosvConfig, bc, &author, gp, statedb, header, signedTx, &usedGas, vm.Config{})
+	receipt, err := ApplyTransaction(testPosvConfig, bc, &author, gp, statedb, header, signedTx, &usedGas, vm.Config{})
 	if err != nil {
-		t.Fatalf("ApplyTransactionPosv for regular tx failed: %v", err)
+		t.Fatalf("ApplyTransaction for regular tx failed: %v", err)
 	}
 	if receipt == nil {
 		t.Fatal("receipt should not be nil")
@@ -446,8 +446,8 @@ func TestApplyTransactionPosv_RegularTxGoesEVM(t *testing.T) {
 	}
 }
 
-func TestApplyTransactionPosv_NonPosvConfig_RegularPath(t *testing.T) {
-	// With Ethash config (Posv=nil, Viction=nil), ApplyTransactionPosv should
+func TestApplyTransaction_NonPosvConfig_RegularPath(t *testing.T) {
+	// With Ethash config (Posv=nil, Viction=nil), ApplyTransaction should
 	// always go through normal EVM path even for txs addressed to 0x89.
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
@@ -477,9 +477,9 @@ func TestApplyTransactionPosv_NonPosvConfig_RegularPath(t *testing.T) {
 	author := common.HexToAddress("0xbbbb")
 
 	// On non-POSV, Viction is nil so the bypass is skipped → goes to EVM
-	receipt, err := ApplyTransactionPosv(params.TestChainConfig, bc, &author, gp, statedb, header, signedTx, &usedGas, vm.Config{})
+	receipt, err := ApplyTransaction(params.TestChainConfig, bc, &author, gp, statedb, header, signedTx, &usedGas, vm.Config{})
 	if err != nil {
-		t.Fatalf("ApplyTransactionPosv on ethash should work: %v", err)
+		t.Fatalf("ApplyTransaction on ethash should work: %v", err)
 	}
 	// Gas should be consumed (EVM path)
 	if receipt.GasUsed == 0 {
