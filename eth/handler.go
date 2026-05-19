@@ -729,10 +729,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		request.Block.ReceivedAt = msg.ReceivedAt
 		request.Block.ReceivedFrom = p
 
-		log.Info("[Handler] NewBlockMsg received", "peer", p.id,
-			"number", request.Block.NumberU64(), "hash", request.Block.Hash(),
-			"td", request.TD, "attestorLen", len(request.Block.Attestor()))
-
 		// Mark the peer as owning the block and schedule it for import
 		p.MarkBlock(request.Block.Hash())
 		pm.blockFetcher.Enqueue(p.id, request.Block)

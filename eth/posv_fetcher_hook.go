@@ -84,16 +84,15 @@ func (s *Ethereum) posvAttestBlock(block *types.Block) (*types.Block, bool, erro
 	if checkpoint == nil {
 		return block, false, nil
 	}
-	log.Info("[POSV-M2] checkpoint found", "number", n, "checkpoint", checkpoint.Number, "newAttestorsLen", len(checkpoint.NewAttestors))
 	pairs, _, err := s.PosvGetCreatorAttestorPairs(posvEngine, cfg, header, checkpoint)
 	if err != nil {
 		log.Warn("[POSV-M2] GetCreatorAttestorPairs failed", "number", header.Number, "err", err)
 		return nil, false, err
 	}
-	log.Info("[POSV-M2] pairs computed", "number", n, "pairsLen", len(pairs), "creator", creator)
+	log.Debug("[POSV-M2] pairs computed", "number", n, "pairsLen", len(pairs), "creator", creator)
 	eb, err := s.Etherbase()
 	if err != nil || eb == (common.Address{}) {
-		log.Info("[POSV-M2] skip: no etherbase", "number", n, "err", err)
+		log.Debug("[POSV-M2] skip: no etherbase", "number", n, "err", err)
 		return block, false, nil
 	}
 	assigned, ok := pairs[creator]
@@ -134,7 +133,7 @@ func (s *Ethereum) posvPropagatedBlockAppendAttestor(block *types.Block) (*types
 		return nil, false, err
 	}
 	if !appended {
-		log.Info("[POSV-M2] skip: precondition not met (see posvAttestBlock)", "number", n, "hash", hash)
+		log.Debug("[POSV-M2] skip: precondition not met (see posvAttestBlock)", "number", n, "hash", hash)
 		return block, false, nil
 	}
 	creator, _ := s.engine.(*posv.Posv).Author(block.Header())
@@ -250,7 +249,7 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 	}
 	nonce := statedb.GetNonce(eb)
 	tx := blocksigner.CreateTxSign(block.Number(), block.Hash(), nonce, cfg.Viction.ValidatorBlockSignContract)
-	log.Info("[POSV sign hook] creating sign tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "to", cfg.Viction.ValidatorBlockSignContract)
+	log.Debug("[POSV sign hook] creating sign tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "to", cfg.Viction.ValidatorBlockSignContract)
 
 	txSigned, err := wallet.SignTx(accounts.Account{Address: eb}, tx, cfg.ChainID)
 	if err != nil {
@@ -268,7 +267,7 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 		log.Error("[POSV sign hook] failed to add vote tx to pool", "number", block.NumberU64(), "hash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash(), "err", err)
 		return err
 	}
-	log.Info("[POSV sign hook] successfully submitted block-sign vote tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash())
+	log.Debug("[POSV sign hook] successfully submitted block-sign vote tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash())
 
 	// Submit randomize tx (secret or opening) if we are in the right epoch phase.
 	// Uses nonce+1 since the sign tx above consumed `nonce`.

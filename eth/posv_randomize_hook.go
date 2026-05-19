@@ -34,15 +34,15 @@ func (s *Ethereum) posvRandomizeHook(block *types.Block, eb common.Address, wall
 	cfg := s.blockchain.Config()
 	vicConfig := cfg.Viction
 	if vicConfig == nil {
-		log.Info("[POSV randomize] skip: viction config is nil")
+		log.Warn("[POSV randomize] skip: viction config is nil")
 		return
 	}
 	if vicConfig.RandomizerContract == (common.Address{}) {
-		log.Info("[POSV randomize] skip: randomizer contract is zero address")
+		log.Warn("[POSV randomize] skip: randomizer contract is zero address")
 		return
 	}
 	if !cfg.IsTIPRandomize(block.Number()) {
-		log.Info("[POSV randomize] skip: not past TIPRandomize fork", "block", block.NumberU64(), "tipRandomizeBlock", cfg.TIPRandomizeBlock)
+		log.Warn("[POSV randomize] skip: not past TIPRandomize fork", "block", block.NumberU64(), "tipRandomizeBlock", cfg.TIPRandomizeBlock)
 		return
 	}
 

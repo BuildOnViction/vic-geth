@@ -24,7 +24,7 @@ func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, 
 		if err != nil {
 			return nil, err
 		}
-		log.Info("[POSV randomize] computed attestor indices",
+		log.Debug("[POSV randomize] computed attestor indices",
 			"validators", validatorCount, "randomizes", randomizes, "attestors", attestors)
 		return attestors, nil
 	}
@@ -51,11 +51,11 @@ func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.A
 
 	result, err := DecryptRandomize(secrets, opening)
 	if err != nil {
-		log.Info("[POSV randomize] failed to decrypt validator secret",
+		log.Debug("[POSV randomize] failed to decrypt validator secret",
 			"validator", validator, "secrets", len(secretsHash), "err", err)
 		return result, err
 	}
-	log.Info("[POSV randomize] decrypted validator random",
+	log.Debug("[POSV randomize] decrypted validator random",
 		"validator", validator, "secrets", len(secretsHash), "hasOpening", openingHash != common.Hash{}, "random", result)
 	return result, nil
 }
