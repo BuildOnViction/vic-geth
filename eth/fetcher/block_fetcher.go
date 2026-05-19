@@ -844,17 +844,17 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 				blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
 				go f.broadcastBlock(block, true)
 
-		case consensus.ErrNoValidatorSignature:
-			// Block from phase 1 without attestor signature, propagate to network
-			// so attesters can receive and sign it. Don't drop the peer.
-			// Don't insert into local chain — wait for the attested version.
-			log.Debug("Propagated block without attestor (phase 1)", "peer", peer, "number", block.Number(), "hash", hash)
-			blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
-			go f.broadcastBlock(block, true)
-			return
+			case consensus.ErrNoValidatorSignature:
+				// Block from phase 1 without attestor signature, propagate to network
+				// so attesters can receive and sign it. Don't drop the peer.
+				// Don't insert into local chain — wait for the attested version.
+				log.Debug("Propagated block without attestor (phase 1)", "peer", peer, "number", block.Number(), "hash", hash)
+				blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
+				go f.broadcastBlock(block, true)
+				return
 
-		case consensus.ErrFutureBlock:
-			// Weird future block, don't fail, but neither propagate
+			case consensus.ErrFutureBlock:
+				// Weird future block, don't fail, but neither propagate
 
 			default:
 				// Something went very wrong, drop the peer

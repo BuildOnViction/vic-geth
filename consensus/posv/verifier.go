@@ -54,14 +54,7 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	nowUnix := now.Unix()
 
 	if seal {
-		// [Draft for miner]
-		// [victionchain compat] Early check: if the block is past the first epoch and
-		// has no attestor (M2 double-validation) signature, return ErrNoValidatorSignature
-		// so the fetcher can trigger the M2 attestor hook instead of dropping the peer.
-		// This matches victionchain's verifyHeader at posv.go:357-360.
-		if number > c.config.Epoch && len(header.Attestor) == 0 {
-			log.Debug("[POSV] verifyHeader: no attestor, returning ErrNoValidatorSignature",
-				"number", number, "hash", header.Hash())
+		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
 			return consensus.ErrNoValidatorSignature
 		}
 		// Don't waste time checking blocks from the future
@@ -395,15 +388,6 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 
 	// Enforce double validation
 	if number > c.config.Epoch && seal {
-		// [Draft for miner]
-		// Defense-in-depth: if the attestor is missing, return ErrNoValidatorSignature
-		// (the sentinel the fetcher expects) instead of the internal errMissingSignature
-		// that ecrecover2 would produce.  Normally the early check in verifyHeader
-		// (line 56-63) catches this first, but this guards against callers that invoke
-		// verifySeal directly.
-		if len(header.Attestor) == 0 {
-			return consensus.ErrNoValidatorSignature
-		}
 		attestor, err := c.Attestor(header)
 		if err != nil {
 			return err
@@ -418,6 +402,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 			return errInvalidBlockAttestor
 		}
 	}
+
 	return nil
 }
 
