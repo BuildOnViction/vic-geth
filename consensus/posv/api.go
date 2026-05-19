@@ -30,14 +30,13 @@ type API struct {
 	chain consensus.ChainHeaderReader
 	posv  *Posv
 }
-
 type NetworkInformation struct {
-	NetworkId                  *big.Int
-	TomoValidatorAddress       common.Address
-	RelayerRegistrationAddress common.Address
-	TomoXListingAddress        common.Address
-	TomoZAddress               common.Address
-	LendingAddress             common.Address
+	NetworkId         *big.Int
+	ValidatorContract common.Address
+	RelayerContract   common.Address
+	TomoXContract     common.Address
+	VRC25Contract     common.Address
+	LendingContract   common.Address
 }
 
 // GetSnapshot retrieves the state snapshot at a given block.
@@ -98,10 +97,15 @@ func (api *API) GetSignersAtHash(hash common.Hash) ([]common.Address, error) {
 	return snap.GetSigners(), nil
 }
 
-// [TO-DO] return nil for network information. --- IGNORE ---
 func (api *API) NetworkInformation() NetworkInformation {
 	api.posv.lock.RLock()
 	defer api.posv.lock.RUnlock()
 	info := NetworkInformation{}
+	info.NetworkId = api.chain.Config().ChainID
+	info.ValidatorContract = api.chain.Config().Viction.ValidatorContract
+	info.LendingContract = api.chain.Config().Viction.LendingContract
+	info.RelayerContract = api.chain.Config().Viction.RelayerContract
+	info.TomoXContract = api.chain.Config().Viction.TomoXContract
+	info.VRC25Contract = api.chain.Config().Viction.VRC25Contract
 	return info
 }

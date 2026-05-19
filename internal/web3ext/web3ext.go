@@ -22,6 +22,8 @@ var Modules = map[string]string{
 	"admin":      AdminJs,
 	"chequebook": ChequebookJs,
 	"clique":     CliqueJs,
+	"posv":       PosvJs,
+	"viction":    VictionJs,
 	"ethash":     EthashJs,
 	"debug":      DebugJs,
 	"eth":        EthJs,
@@ -113,6 +115,41 @@ web3._extend({
 		new web3._extend.Property({
 			name: 'proposals',
 			getter: 'clique_proposals'
+		}),
+	]
+});
+`
+const PosvJs = `
+web3._extend({
+	property: 'posv',
+	methods: [
+		new web3._extend.Method({
+			name: 'getSnapshot',
+			call: 'posv_getSnapshot',
+			params: 1,
+			inputFormatter: [null]
+		}),
+		new web3._extend.Method({
+			name: 'getSnapshotAtHash',
+			call: 'posv_getSnapshotAtHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getSigners',
+			call: 'posv_getSigners',
+			params: 1,
+			inputFormatter: [null]
+		}),
+		new web3._extend.Method({
+			name: 'getSignersAtHash',
+			call: 'posv_getSignersAtHash',
+			params: 1
+		}),
+	],
+	properties: [
+		new web3._extend.Property({
+			name: 'networkInformation',
+			getter: 'posv_networkInformation'
 		}),
 	]
 });
@@ -903,6 +940,52 @@ web3._extend({
 		new web3._extend.Property({
 			name: 'requestStats',
 			getter: 'lespay_requestStats'
+		}),
+	]
+});
+`
+const VictionJs = `
+web3._extend({
+	property: 'eth',
+	methods: [
+			new web3._extend.Method({
+				name: 'getRewardByHash',
+				call: 'eth_getRewardByHash',
+				params: 1
+			}),
+			new web3._extend.Method({
+				name: 'getAttestorsPairsByHash',
+				call: 'eth_getAttestorsPairsByHash',
+				params: 1
+			}),
+			new web3._extend.Method({
+				name: 'getAttestorsPairsByNumber',
+				call: 'eth_getAttestorsPairsByNumber',
+				params: 1
+			}),
+			new web3._extend.Method({
+    			name: 'getBlockFinalityByHash',
+    			call: 'eth_getBlockFinalityByHash',
+    			params: 1
+			}),
+			new web3._extend.Method({
+    			name: 'getBlockFinalityByNumber',
+    			call: 'eth_getBlockFinalityByNumber',
+    			params: 1
+			}),
+	],
+	properties: [
+		new web3._extend.Property({
+			name: 'pendingTransactions',
+			getter: 'eth_pendingTransactions',
+			outputFormatter: function(txs) {
+				var formatted = [];
+				for (var i = 0; i < txs.length; i++) {
+					formatted.push(web3._extend.formatters.outputTransactionFormatter(txs[i]));
+					formatted[i].blockHash = null;
+				}
+				return formatted;
+			}
 		}),
 	]
 });
