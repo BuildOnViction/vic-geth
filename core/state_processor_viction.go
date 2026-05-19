@@ -21,7 +21,11 @@ import (
 // activeFeeBalance holds the per-block running VRC25 fee capacity map for
 // the block currently being processed.  It is set by beforeProcess (via
 // victionProcessorState) and read by vrc25BuyGas during each transaction.
-var activeFeeBalance map[common.Address]*big.Int
+// Protected by activeFeeBalanceMu.
+var (
+	activeFeeBalance   map[common.Address]*big.Int
+	activeFeeBalanceMu sync.RWMutex
+)
 
 // TradingEngine is the interface the TomoX engine must satisfy.
 // Defined here to avoid an import cycle between core and legacy/tomox.
@@ -178,9 +182,13 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 	if !p.config.IsAtlas(header.Number) &&
 		p.config.Viction != nil && p.config.Viction.VRC25Contract != (common.Address{}) {
 		p.victionState.feeBalance = vrc25.GetAllFeeCapacities(statedb, p.config.Viction.VRC25Contract)
+		activeFeeBalanceMu.Lock()
 		activeFeeBalance = p.victionState.feeBalance
+		activeFeeBalanceMu.Unlock()
 	} else {
+		activeFeeBalanceMu.Lock()
 		activeFeeBalance = nil
+		activeFeeBalanceMu.Unlock()
 	}
 
 	// Open TomoX and TomoZ tries from the parent block.
@@ -250,7 +258,9 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB) error {
 	// Clear the package-level feeBalance pointer; it is only valid during
 	// block processing and must not leak to the next block.
+	activeFeeBalanceMu.Lock()
 	activeFeeBalance = nil
+	activeFeeBalanceMu.Unlock()
 
 	// Pre-Atlas: flush accumulated VRC25 fee updates to state.
 	if p.victionState != nil && !p.config.IsAtlas(block.Number()) &&
