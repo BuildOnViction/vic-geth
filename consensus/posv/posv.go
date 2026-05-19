@@ -698,8 +698,6 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 				requiredBlock := number - 1
 				if cbc, ok := chain.(chainWithCurrentBlock); ok {
 					lastLog := time.Now()
-					timeout := time.After(10 * time.Second)
-					waited := false
 					for {
 						select {
 						case <-abort:
@@ -713,21 +711,6 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							break
 						}
 						if cb.NumberU64() >= requiredBlock {
-							break
-						}
-						select {
-						case <-abort:
-							return
-						case <-timeout:
-							// Avoid deadlock during sync: if we can't get state in time,
-							// skip the state-dependent checkpoint validation.
-							log.Warn("VerifyHeaders: timeout waiting for gap block state, skipping checkpoint state validation",
-								"checkpoint", number, "requiredBlock", requiredBlock,
-								"currentBlock", cb.NumberU64())
-							waited = true
-						case <-time.After(200 * time.Millisecond):
-						}
-						if waited {
 							break
 						}
 						if time.Since(lastLog) >= 5*time.Second {
