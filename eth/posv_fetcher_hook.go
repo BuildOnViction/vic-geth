@@ -218,17 +218,23 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 		return nil // not a validator node; skip silently
 	}
 
-	// Confirm etherbase is in the current epoch's validator set before spending
-	// a nonce on a sign tx that would be rejected by the penalty logic.
-	checkpoint := posv.GetCheckpointHeader(cfg.Posv, block.Header(), s.blockchain, nil)
-	if checkpoint == nil {
-		log.Warn("[POSV sign hook] skipped: checkpoint header is nil", "block", block.NumberU64())
+	// Confirm etherbase is a staked masternode (in the snapshot signers set).
+	// This intentionally uses the snapshot — which includes penalized validators —
+	// rather than the checkpoint header's active validator list. Penalized nodes
+	// must still be able to submit BlockSign txs to prove liveness for comeback.
+	c, ok := s.engine.(*posv.Posv)
+	if !ok {
+		log.Warn("[POSV sign hook] skipped: engine is not *posv.Posv")
 		return nil
 	}
-	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpoint)
-	if common.IndexOf(validators, eb) == -1 {
-		log.Debug("[POSV sign hook] skipped: etherbase not in validator set", "etherbase", eb, "validators", len(validators), "block", block.NumberU64())
-		return nil // etherbase is not a validator this epoch
+	snap, err := c.GetSnapshot(s.blockchain, block.Header())
+	if err != nil {
+		log.Warn("[POSV sign hook] skipped: cannot get snapshot", "block", block.NumberU64(), "err", err)
+		return nil
+	}
+	if _, isSigner := snap.Signers[eb]; !isSigner {
+		log.Debug("[POSV sign hook] skipped: etherbase not in snapshot signers", "etherbase", eb, "block", block.NumberU64())
+		return nil
 	}
 
 	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
@@ -249,11 +255,11 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 	}
 	nonce := statedb.GetNonce(eb)
 	tx := blocksigner.CreateTxSign(block.Number(), block.Hash(), nonce, cfg.Viction.ValidatorBlockSignContract)
-	log.Debug("[POSV sign hook] creating sign tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "to", cfg.Viction.ValidatorBlockSignContract)
+	log.Info("[POSV BlockSigner] creating sign tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce)
 
 	txSigned, err := wallet.SignTx(accounts.Account{Address: eb}, tx, cfg.ChainID)
 	if err != nil {
-		log.Error("[POSV sign hook] failed to sign vote tx", "number", block.NumberU64(), "err", err)
+		log.Error("[POSV BlockSigner] failed to sign vote tx", "number", block.NumberU64(), "err", err)
 		return err
 	}
 	if err := s.txPool.AddLocal(txSigned); err != nil {
@@ -261,13 +267,13 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 		// multiple times for the same block boundary (timer retry, dual path trigger).
 		// The vote was already submitted; this is not an error.
 		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
-			log.Debug("[POSV sign hook] vote tx already in pool (duplicate trigger)", "block", block.NumberU64(), "nonce", nonce, "err", err)
+			log.Info("[POSV BlockSigner] vote tx already in pool (duplicate)", "block", block.NumberU64(), "nonce", nonce)
 			return nil
 		}
-		log.Error("[POSV sign hook] failed to add vote tx to pool", "number", block.NumberU64(), "hash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash(), "err", err)
+		log.Error("[POSV BlockSigner] failed to add vote tx to pool", "number", block.NumberU64(), "hash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash(), "err", err)
 		return err
 	}
-	log.Debug("[POSV sign hook] successfully submitted block-sign vote tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash())
+	log.Info("[POSV BlockSigner] submitted vote tx", "block", block.NumberU64(), "blockHash", block.Hash(), "from", eb, "nonce", nonce, "txHash", txSigned.Hash())
 
 	// Submit randomize tx (secret or opening) if we are in the right epoch phase.
 	// Uses nonce+1 since the sign tx above consumed `nonce`.

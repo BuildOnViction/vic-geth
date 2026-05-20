@@ -406,6 +406,12 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	return nil
 }
 
+// GetSnapshot returns the snapshot for the given block, exposing the full set
+// of authorized signers (staked masternodes) regardless of penalty status.
+func (c *Posv) GetSnapshot(chain consensus.ChainHeaderReader, header *types.Header) (*Snapshot, error) {
+	return c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
+}
+
 func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (
