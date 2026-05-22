@@ -38,8 +38,9 @@ type chainRetriever interface {
 // unconfirmedBlock is a small collection of metadata about a locally mined block
 // that is placed into a unconfirmed set for canonical chain inclusion tracking.
 type unconfirmedBlock struct {
-	index uint64
-	hash  common.Hash
+	index    uint64
+	hash     common.Hash
+	coinbase common.Address // block creator (header.Coinbase); used for POSV logs when block is lost
 }
 
 // unconfirmedBlocks implements a data structure to maintain locally mined blocks
@@ -62,15 +63,16 @@ func newUnconfirmedBlocks(chain chainRetriever, depth uint) *unconfirmedBlocks {
 }
 
 // Insert adds a new block to the set of unconfirmed ones.
-func (set *unconfirmedBlocks) Insert(index uint64, hash common.Hash) {
+func (set *unconfirmedBlocks) Insert(index uint64, hash common.Hash, coinbase common.Address) {
 	// If a new block was mined locally, shift out any old enough blocks
 	set.Shift(index)
 
 	// Create the new item as its own ring
 	item := ring.New(1)
 	item.Value = &unconfirmedBlock{
-		index: index,
-		hash:  hash,
+		index:    index,
+		hash:     hash,
+		coinbase: coinbase,
 	}
 	// Set as the initial ring or append to the end
 	set.lock.Lock()
@@ -121,7 +123,7 @@ func (set *unconfirmedBlocks) Shift(height uint64) {
 			if included {
 				log.Info("⑂ block became an uncle", "number", next.index, "hash", next.hash)
 			} else {
-				log.Info("😱 block lost", "number", next.index, "hash", next.hash)
+				log.Info("😱 block lost", "number", next.index, "hash", next.hash, "creator", next.coinbase)
 			}
 		}
 		// Drop the block out of the ring

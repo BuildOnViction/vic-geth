@@ -83,6 +83,13 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		return errMissingVanity
 	}
 	if len(header.Extra) < ExtraVanity+ExtraSeal {
+		log.Error("[POSV] verifyHeader: Extra too short for seal",
+			"number", header.Number, "extraLen", len(header.Extra),
+			"extra", hexutil.Encode(header.Extra),
+			"attestorLen", len(header.Attestor),
+			"newAttestorsLen", len(header.NewAttestors),
+			"posv", header.Posv,
+			"hash", header.Hash().Hex())
 		return errMissingSignature
 	}
 	// Ensure that the extra-data contains a signer list on checkpoint, but none otherwise
@@ -361,7 +368,9 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		}
 	}
 
+	// [7s62] recency check: prevent a signer from sealing two consecutive blocks.
 	for seen, recent := range snap.Recents {
+		log.Trace("[7s62][POSV-verifier] recency check", "recent", recent, "creator", creator)
 		if len(validators) <= 1 {
 			break
 		}
@@ -393,7 +402,14 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 			return errInvalidBlockAttestor
 		}
 	}
+
 	return nil
+}
+
+// GetSnapshot returns the snapshot for the given block, exposing the full set
+// of authorized signers (staked masternodes) regardless of penalty status.
+func (c *Posv) GetSnapshot(chain consensus.ChainHeaderReader, header *types.Header) (*Snapshot, error) {
+	return c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
 }
 
 func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {

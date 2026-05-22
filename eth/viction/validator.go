@@ -18,6 +18,16 @@ func GetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig, posvConfi
 	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
 }
 
+// BuildCreatorAttestorPairs computes creator-attestor pairs from an explicit
+// validator and attestor-index list.  Use GetCreatorAttestorPairs when the
+// checkpoint header's NewAttestors field is available; this variant is the
+// state-based fallback for when NewAttestors is absent.
+func BuildCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
+	number uint64, validators []common.Address, attestorIdxs []int64,
+) (map[common.Address]common.Address, uint64, error) {
+	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+}
+
 func getCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
 	number uint64, validators []common.Address, attestorIdxs []int64,
 ) (map[common.Address]common.Address, uint64, error) {

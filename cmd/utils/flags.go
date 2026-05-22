@@ -155,6 +155,10 @@ var (
 		Name:  "victest",
 		Usage: "Victest network: pre-configured proof-of-stake-voting test network",
 	}
+	VicdevnetFlag = cli.BoolFlag{
+		Name:  "vicdevnet",
+		Usage: "Vicdevnet network: pre-configured proof-of-stake-voting dev network",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -819,6 +823,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.YoloV2Bootnodes
 	case ctx.GlobalBool(VictionFlag.Name):
 		urls = params.VictionBootnodes
+	case ctx.GlobalBool(VicdevnetFlag.Name):
+		urls = []string{}
 	case cfg.BootstrapNodes != nil:
 		return // already set, don't apply defaults.
 	}
@@ -857,6 +863,8 @@ func setBootstrapNodesV5(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.YoloV2Bootnodes
 	case ctx.GlobalBool(VictionFlag.Name):
 		urls = params.VictionBootnodes
+	case ctx.GlobalBool(VicdevnetFlag.Name):
+		urls = []string{}
 	case cfg.BootstrapNodesV5 != nil:
 		return // already set, don't apply defaults.
 	}
@@ -1499,7 +1507,7 @@ func SetShhConfig(ctx *cli.Context, stack *node.Node) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag, VictionFlag, VictestFlag)
+	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag, VictionFlag, VictestFlag, VicdevnetFlag)
 	CheckExclusive(ctx, LegacyLightServFlag, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, GCModeFlag, "archive", TxLookupLimitFlag)
@@ -1644,6 +1652,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 		}
 		cfg.Genesis = core.DefaultVictestGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.VictestGenesisHash)
+	case ctx.GlobalBool(VicdevnetFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 69
+		}
+		cfg.Genesis = core.DefaultVicdevnetGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1832,6 +1845,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultVictionGenesisBlock()
 	case ctx.GlobalBool(VictestFlag.Name):
 		genesis = core.DefaultVictestGenesisBlock()
+	case ctx.GlobalBool(VicdevnetFlag.Name):
+		genesis = core.DefaultVicdevnetGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}

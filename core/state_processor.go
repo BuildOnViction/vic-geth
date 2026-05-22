@@ -185,7 +185,22 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // and uses the input parameters for its environment. It returns the receipt
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
+//
+// On POSV chains, BlockSigner transactions (0x89) are handled without the EVM
+// when past the TIPSigning fork — they only increment the sender nonce and
+// produce a zero-gas receipt. This reuses the same ApplySignTransaction function
+// called by StateProcessor.applyVictionTransaction during block import.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	// POSV: BlockSigner (0x89) bypass — same logic as applyVictionTransaction.
+	if tx.To() != nil && config.Viction != nil &&
+		tx.IsSigningTransaction(config.Viction.ValidatorBlockSignContract) &&
+		config.IsTIPSigning(header.Number) {
+		handled, receipt, _, err, _ := ApplySignTransaction(config, statedb, tx, header, usedGas)
+		if handled {
+			return receipt, err
+		}
+	}
+
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, err

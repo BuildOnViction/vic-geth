@@ -88,7 +88,38 @@ func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *p
 func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig,
 	header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
-	return viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
+	pairs, offset, err := viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
+	if err != viction.ErrInvalidAttestorList {
+		// Either success or a non-recoverable error — propagate as-is.
+		return pairs, offset, err
+	}
+
+	// Fallback: checkpointHeader.NewAttestors is absent or inconsistent.
+	// Re-derive attestor indices from the randomize contract state at the
+	// checkpoint root.  This is exactly what the miner computed in Prepare(),
+	// so all nodes reach the same result deterministically.
+	if config.Viction == nil || checkpointHeader == nil {
+		return nil, 0, err
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, 0, err
+	}
+	stateAtCheckpoint, sErr := s.blockchain.StateAt(checkpointHeader.Root)
+	if sErr != nil {
+		log.Warn("PosvGetCreatorAttestorPairs: state fallback failed, cannot load checkpoint state",
+			"checkpoint", checkpointHeader.Number, "err", sErr)
+		return nil, 0, err
+	}
+	attestorIdxs, aErr := viction.GetAttestors(config.Viction, validators, stateAtCheckpoint)
+	if aErr != nil {
+		log.Warn("PosvGetCreatorAttestorPairs: state fallback failed, cannot compute attestors",
+			"checkpoint", checkpointHeader.Number, "err", aErr)
+		return nil, 0, err
+	}
+	log.Warn("PosvGetCreatorAttestorPairs: NewAttestors absent in checkpoint, using state-based fallback",
+		"checkpoint", checkpointHeader.Number, "number", header.Number)
+	return viction.BuildCreatorAttestorPairs(config, config.Posv, header.Number.Uint64(), validators, attestorIdxs)
 }
 
 // PosvGetEpochReward calculates and distributes reward at checkpoint block.
@@ -256,7 +287,8 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 	log.Info("PosvBackend set on Posv engine")
 	if head := eth.blockchain.CurrentHeader(); head != nil {
 		if err := eth.engine.VerifyHeader(eth.blockchain, head, true); err != nil {
-			log.Warn("Head invalid after full POSV check", "number", head.Number, "hash", head.Hash(), "err", err)
+			log.Warn("Head invalid after full POSV check", "number", head.Number, "hash", head.Hash(), "err", err,
+				"hint", "often missing M2 attestor on post-epoch head; rewind or re-sync if chain stuck")
 		}
 	}
 

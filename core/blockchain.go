@@ -2130,6 +2130,30 @@ func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (i
 	return 0, nil
 }
 
+// posvAttestorEngine is implemented by *posv.Posv for M2 (attestor) recovery.
+type posvAttestorEngine interface {
+	Attestor(header *types.Header) (common.Address, error)
+}
+
+// reorgHeaderM1M2 returns the block creator (consensus Author, M1) and attestor
+// (M2) when the engine exposes Attestor; M2 is zero if unsupported or missing.
+func reorgHeaderM1M2(engine consensus.Engine, h *types.Header) (m1, m2 common.Address) {
+	var err error
+	m1, err = engine.Author(h)
+	if err != nil {
+		m1 = common.Address{}
+	}
+	eng, ok := engine.(posvAttestorEngine)
+	if !ok {
+		return m1, m2
+	}
+	m2, err = eng.Attestor(h)
+	if err != nil {
+		m2 = common.Address{}
+	}
+	return m1, m2
+}
+
 // reorg takes two blocks, an old chain and a new chain and will reconstruct the
 // blocks and inserts them to be part of the new canonical chain and accumulates
 // potential missing transactions and post an event about them.
@@ -2234,7 +2258,16 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 			return fmt.Errorf("invalid new chain")
 		}
 	}
-	// Ensure the user sees large reorgs
+	// Per-block detail for reorg analysis (M1 = Author/sealer, M2 = attestor on POSV).
+	for _, b := range oldChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::old", "branch", "old", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+	for _, b := range newChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::new", "branch", "new", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+
 	if len(oldChain) > 0 && len(newChain) > 0 {
 		logFn := log.Info
 		msg := "Chain reorg detected"

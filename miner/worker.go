@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -166,6 +167,14 @@ type worker struct {
 	snapshotBlock *types.Block
 	snapshotState *state.StateDB
 
+	// posvLastParentCommitHash stores the parent hash of the most recently
+	// committed POSV block to prevent duplicate seals on the same parent.
+	// Matches victionchain's lastParentBlockCommit semantics.
+	// Accessed from mainLoop only; sync/atomic.Value makes the intent explicit
+	// and keeps the race detector happy if a future refactor introduces
+	// cross-goroutine access.  Stores common.Hash; zero value == never set.
+	posvLastParentCommitHash atomic.Value
+
 	// atomic status counters
 	running int32 // The indicator whether the consensus engine is running or not.
 	newTxs  int32 // New arrival transaction count since last sealing work submitting.
@@ -179,6 +188,18 @@ type worker struct {
 
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
+
+	// [POSV] self-attest hook: set by the eth backend when this node is also
+	// the assigned M2 for blocks it mines.  Called in resultLoop before
+	// WriteBlockWithState so the persisted block already carries header.Attestor.
+	// Nil when not applicable (non-POSV chains, or M2 duty handled by a peer).
+	posvSelfAttestHook func(*types.Block) *types.Block
+
+	// [POSV] sign block hook: fires after a block is successfully sealed or
+	// imported, creating a BlockSigner.sign() vote transaction and injecting it
+	// into the local tx pool so this validator is credited at the next epoch.
+	// Set by the eth backend (setupPosvMinerHook).
+	posvSignBlockHook func(*types.Block) error
 
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
@@ -378,12 +399,17 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
 			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
-				// Short circuit if no new transaction arrives.
-				if atomic.LoadInt32(&w.newTxs) == 0 {
+				// POSV: always retry on timer to handle out-of-turn block creation
+				// when the in-turn validator is offline. This matches victionchain's
+				// timeout-based retry in worker.update().
+				if w.chainConfig.Posv != nil {
+					commit(true, commitInterruptResubmit)
+				} else if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
 					continue
+				} else {
+					commit(true, commitInterruptResubmit)
 				}
-				commit(true, commitInterruptResubmit)
 			}
 
 		case interval := <-w.resubmitIntervalCh:
@@ -595,6 +621,47 @@ func (w *worker) resultLoop() {
 				log.Error("Block found but no relative pending task", "number", block.Number(), "sealhash", sealhash, "hash", hash)
 				continue
 			}
+			// [POSV] self-attest: when this node is both the block creator (M1) and
+			// the assigned attestor (M2), attach the Attestor signature before
+			// persisting.  Locally mined blocks bypass the P2P fetcher, so the
+			// normal posvPropagatedBlockAppendAttestor hook never fires for them.
+			// Run this before stamping receipts/logs so all hashes are consistent
+			// in a single pass.
+			posvSelfAttested := false
+			if w.posvSelfAttestHook != nil {
+				if attested := w.posvSelfAttestHook(block); attested != nil {
+					block = attested
+					hash = block.Hash()
+					posvSelfAttested = true
+				}
+			}
+
+			// [POSV] M1-only guard: when POSV is active, block number > epoch,
+			// and the self-attest hook did NOT attest (M1 != M2), skip
+			// WriteBlockWithState. The block will propagate to the assigned M2
+			// via P2P broadcast (NewMinedBlockEvent) and return fully attested
+			// through the fetcher's posvAppendAttestorHook. Writing M1-only
+			// blocks locally would cause a forced reorg when the attested block
+			// (with a different hash due to Attestor field) arrives.
+			// This matches victionchain's wait() behavior.
+			if w.chainConfig.Posv != nil &&
+				block.NumberU64() >= w.chainConfig.Posv.Epoch &&
+				!posvSelfAttested {
+				log.Debug("POSV: M1-only block, skip local write, broadcast for M2 attestation",
+					"number", block.Number(), "sealhash", sealhash, "hash", hash)
+				w.mux.Post(core.NewMinedBlockEvent{Block: block})
+				// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
+				if w.posvSignBlockHook != nil {
+					log.Debug("[POSV resultLoop] firing sign hook (M1-only path)", "block", block.NumberU64())
+					if err := w.posvSignBlockHook(block); err != nil {
+						log.Error("POSV: sign block hook failed (M1-only)", "number", block.NumberU64(), "err", err)
+					}
+				} else {
+					log.Warn("[POSV resultLoop] posvSignBlockHook is nil (M1-only path)", "block", block.NumberU64())
+				}
+				continue
+			}
+
 			// Different block could share same sealhash, deep copy here to prevent write-write conflict.
 			var (
 				receipts = make([]*types.Receipt, len(task.receipts))
@@ -627,8 +694,25 @@ func (w *worker) resultLoop() {
 			// Broadcast the block and announce chain insertion event
 			w.mux.Post(core.NewMinedBlockEvent{Block: block})
 
-			// Insert the block into the set of pending ones to resultLoop for confirmations
-			w.unconfirmed.Insert(block.NumberU64(), block.Hash())
+			// Insert the block into the set of pending ones to resultLoop for confirmations.
+			// POSV Prepare clears header.Coinbase; locally sealed blocks use this node's etherbase.
+			creator := block.Coinbase()
+			if creator == (common.Address{}) {
+				w.mu.RLock()
+				creator = w.coinbase
+				w.mu.RUnlock()
+			}
+			w.unconfirmed.Insert(block.NumberU64(), block.Hash(), creator)
+
+			// [POSV] Submit BlockSigner.sign() vote tx for the block we just sealed.
+			if w.posvSignBlockHook != nil {
+				log.Debug("[POSV resultLoop] firing sign hook (full write path)", "block", block.NumberU64())
+				if err := w.posvSignBlockHook(block); err != nil {
+					log.Error("POSV: sign block hook failed", "number", block.NumberU64(), "err", err)
+				}
+			} else {
+				log.Warn("[POSV resultLoop] posvSignBlockHook is nil (full write path)", "block", block.NumberU64())
+			}
 
 		case <-w.exitCh:
 			return
@@ -719,6 +803,37 @@ func (w *worker) updateSnapshot() {
 	w.snapshotState = w.current.state.Copy()
 }
 
+// ensureGasPool initialises the gas pool for the current environment if it has
+// not been set yet.  Returns false when w.current is nil (caller should abort).
+func (w *worker) ensureGasPool() bool {
+	if w.current == nil {
+		return false
+	}
+	if w.current.gasPool == nil {
+		w.current.gasPool = new(core.GasPool).AddGas(w.current.header.GasLimit)
+	}
+	return true
+}
+
+// checkInterrupt inspects the interrupt signal and sends resubmit-interval
+// feedback when needed.  Returns (shouldReturn, isNewHead):
+//   - shouldReturn=true  → the caller must stop processing transactions.
+//   - isNewHead=true     → the current semi-finished work should be discarded
+//     (new head arrived); false means resubmit (work is still usable).
+func (w *worker) checkInterrupt(interrupt *int32) (shouldReturn bool, isNewHead bool) {
+	if interrupt == nil || atomic.LoadInt32(interrupt) == commitInterruptNone {
+		return false, false
+	}
+	if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
+		ratio := float64(w.current.header.GasLimit-w.current.gasPool.Gas()) / float64(w.current.header.GasLimit)
+		if ratio < 0.1 {
+			ratio = 0.1
+		}
+		w.resubmitAdjustCh <- &intervalAdjust{ratio: ratio, inc: true}
+	}
+	return true, atomic.LoadInt32(interrupt) == commitInterruptNewHead
+}
+
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
@@ -734,13 +849,8 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 }
 
 func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) bool {
-	// Short circuit if current is nil
-	if w.current == nil {
+	if !w.ensureGasPool() {
 		return true
-	}
-
-	if w.current.gasPool == nil {
-		w.current.gasPool = new(core.GasPool).AddGas(w.current.header.GasLimit)
 	}
 
 	var coalescedLogs []*types.Log
@@ -752,19 +862,8 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		// (3) worker recreate the mining block with any newly arrived transactions, the interrupt signal is 2.
 		// For the first two cases, the semi-finished work will be discarded.
 		// For the third case, the semi-finished work will be submitted to the consensus engine.
-		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
-			// Notify resubmit loop to increase resubmitting interval due to too frequent commits.
-			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
-				ratio := float64(w.current.header.GasLimit-w.current.gasPool.Gas()) / float64(w.current.header.GasLimit)
-				if ratio < 0.1 {
-					ratio = 0.1
-				}
-				w.resubmitAdjustCh <- &intervalAdjust{
-					ratio: ratio,
-					inc:   true,
-				}
-			}
-			return atomic.LoadInt32(interrupt) == commitInterruptNewHead
+		if stop, isNewHead := w.checkInterrupt(interrupt); stop {
+			return isNewHead
 		}
 		// If we don't have enough gas for any further transactions then we're done
 		if w.current.gasPool.Gas() < params.TxGas {
@@ -851,8 +950,19 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
+	isPosv := w.chainConfig.Posv != nil
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
+
+	// [POSV] Dedup: don't seal twice on the same parent.
+	if isPosv {
+		if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
+			return
+		}
+		if !w.turnCommitNewWorkWithPosv(parent.Header()) {
+			return
+		}
+	}
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)
@@ -860,7 +970,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	// this will ensure we're not going off too far in the future
 	if now := time.Now().Unix(); timestamp > now+1 {
 		wait := time.Duration(timestamp-now) * time.Second
-		log.Info("Mining too far in the future", "wait", common.PrettyDuration(wait))
+		log.Debug("Mining too far in the future", "wait", common.PrettyDuration(wait))
 		time.Sleep(wait)
 	}
 
@@ -868,10 +978,17 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     num.Add(num, common.Big1),
-		GasLimit:   core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil),
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
 	}
+
+	// Gas limit: fixed for POSV, dynamic for other consensus.
+	if isPosv {
+		header.GasLimit = params.VictionGasLimit
+	} else {
+		header.GasLimit = core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil)
+	}
+
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
 	if w.isRunning() {
 		if w.coinbase == (common.Address{}) {
@@ -903,40 +1020,66 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to create mining context", "err", err)
 		return
 	}
+
 	// Create the current work task and check any fork transitions needed
 	env := w.current
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(env.state)
 	}
-	// Accumulate the uncles for the current block
-	uncles := make([]*types.Header, 0, 2)
-	commitUncles := func(blocks map[common.Hash]*types.Block) {
-		// Clean up stale uncle blocks first
-		for hash, uncle := range blocks {
-			if uncle.NumberU64()+staleThreshold <= header.Number.Uint64() {
-				delete(blocks, hash)
-			}
+
+	// [POSV] Fork-specific state mutations.
+	if isPosv {
+		if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
+			env.state.DeleteAddress(w.chainConfig.Viction.ValidatorBlockSignContract)
 		}
-		for hash, uncle := range blocks {
-			if len(uncles) == 2 {
-				break
-			}
-			if err := w.commitUncle(env, uncle.Header()); err != nil {
-				log.Trace("Possible uncle rejected", "hash", hash, "reason", err)
-			} else {
-				log.Debug("Committing new uncle to block", "hash", hash)
-				uncles = append(uncles, uncle.Header())
-			}
+		if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
+			misc.ApplyVIPVRC25Upgrade(env.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
+		}
+		if w.chainConfig.SaigonBlock != nil && w.chainConfig.SaigonBlock.Cmp(header.Number) <= 0 {
+			misc.ApplySaigonHardFork(env.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)
 		}
 	}
-	// Prefer to locally generated uncle
-	commitUncles(w.localUncles)
-	commitUncles(w.remoteUncles)
 
-	// Create an empty block based on temporary copied state for
-	// sealing in advance without waiting block execution finished.
-	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
-		w.commit(uncles, nil, false, tstart)
+	// Uncle processing (non-POSV only; POSV has no uncles).
+	var uncles []*types.Header
+	if !isPosv {
+		uncles = make([]*types.Header, 0, 2)
+		commitUncles := func(blocks map[common.Hash]*types.Block) {
+			for hash, uncle := range blocks {
+				if uncle.NumberU64()+staleThreshold <= header.Number.Uint64() {
+					delete(blocks, hash)
+				}
+			}
+			for hash, uncle := range blocks {
+				if len(uncles) == 2 {
+					break
+				}
+				if err := w.commitUncle(env, uncle.Header()); err != nil {
+					log.Trace("Possible uncle rejected", "hash", hash, "reason", err)
+				} else {
+					log.Debug("Committing new uncle to block", "hash", hash)
+					uncles = append(uncles, uncle.Header())
+				}
+			}
+		}
+		commitUncles(w.localUncles)
+		commitUncles(w.remoteUncles)
+
+		// Create an empty block based on temporary copied state for
+		// sealing in advance without waiting block execution finished.
+		if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
+			w.commit(uncles, nil, false, tstart)
+		}
+	}
+
+	// [POSV] Epoch blocks carry only state mutations from Prepare/Finalize,
+	// no user transactions allowed.
+	if isPosv {
+		epoch := w.chainConfig.Posv.Epoch
+		if epoch > 0 && header.Number.Uint64()%epoch == 0 {
+			w.commit(nil, w.fullTaskHook, true, tstart)
+			return
+		}
 	}
 
 	// Fill the block with all available pending transactions.
@@ -945,13 +1088,29 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to fetch pending transactions", "err", err)
 		return
 	}
-	// Short circuit if there is no available pending transactions.
-	// But if we disable empty precommit already, ignore it. Since
-	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
-		w.updateSnapshot()
-		return
+
+	// Short circuit if there is no available pending transactions (non-POSV only).
+	if !isPosv {
+		if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
+			w.updateSnapshot()
+			return
+		}
 	}
+
+	// [POSV] Extract and commit special transactions first.
+	if isPosv {
+		checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), w.chain, nil)
+		validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+		signers := make(map[common.Address]struct{}, len(validators))
+		for _, v := range validators {
+			signers[v] = struct{}{}
+		}
+		specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+		if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
+			return
+		}
+	}
+
 	// Split the pending transactions into locals and remotes
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 	for _, account := range w.eth.TxPool().Locals() {
@@ -972,6 +1131,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			return
 		}
 	}
+
 	w.commit(uncles, w.fullTaskHook, true, tstart)
 }
 
@@ -992,6 +1152,9 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		select {
 		case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
 			w.unconfirmed.Shift(block.NumberU64() - 1)
+			if w.chainConfig.Posv != nil && w.isRunning() {
+				w.posvLastParentCommitHash.Store(block.ParentHash())
+			}
 			log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
 				"uncles", len(uncles), "txs", w.current.tcount,
 				"gas", block.GasUsed(), "fees", totalFees(block, receipts),

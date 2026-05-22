@@ -16,11 +16,30 @@
 package blocksigner
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/contracts/blocksigner/contract"
-	"math/big"
+	"github.com/ethereum/go-ethereum/core/types"
 )
+
+// [7s62] MergeSignRange controls sign-tx submission frequency after TIP2019.
+// Before TIP2019 every imported block triggers a sign tx; after TIP2019 only
+// every MergeSignRange-th block does, reducing pool spam (mirrors victionchain).
+const MergeSignRange = uint64(15)
+
+// [7s62] CreateTxSign builds an unsigned BlockSigner.sign(blockNumber, blockHash)
+// transaction.  The calldata is ABI-encoded manually to avoid an ethclient
+// round-trip; the caller is responsible for signing and injecting into the pool.
+//
+//	selector: sign(uint256,bytes32) → e341eaa4
+func CreateTxSign(blockNumber *big.Int, blockHash common.Hash, nonce uint64, blockSignerAddr common.Address) *types.Transaction {
+	data := common.Hex2Bytes("e341eaa4")
+	inputData := append(data, common.LeftPadBytes(blockNumber.Bytes(), 32)...)
+	inputData = append(inputData, blockHash.Bytes()...)
+	return types.NewTransaction(nonce, blockSignerAddr, big.NewInt(0), 200000, big.NewInt(0), inputData)
+}
 
 type BlockSigner struct {
 	*contract.BlockSignerSession

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -84,6 +85,8 @@ type fetcherTester struct {
 	blocks  map[common.Hash]*types.Block  // Blocks belonging to the tester
 	drops   map[string]bool               // Map of peers dropped by the fetcher
 
+	broadcastN int32 // times broadcastBlock was invoked (tests)
+
 	lock sync.RWMutex
 }
 
@@ -124,6 +127,7 @@ func (f *fetcherTester) verifyHeader(header *types.Header) error {
 
 // broadcastBlock is a nop placeholder for the block broadcasting.
 func (f *fetcherTester) broadcastBlock(block *types.Block, propagate bool) {
+	atomic.AddInt32(&f.broadcastN, 1)
 }
 
 // chainHeight retrieves the current height (block number) of the chain.
@@ -568,6 +572,159 @@ func TestQueueGapFill(t *testing.T) {
 	tester.fetcher.Enqueue("valid", blocks[hashes[skip]])
 	verifyImportCount(t, imported, len(hashes)-1)
 	verifyChainHeight(t, tester, uint64(len(hashes)-1))
+}
+
+func TestAppendAttestorHookUnchangedBlock(t *testing.T) {
+	hashes, blocks := makeChain(1, 0, genesis)
+	original := blocks[hashes[0]]
+
+	// Set Attestor on the block so the hook is NOT triggered by the fallback
+	// check (line 921: len(block.Attestor()) == 0). This test verifies that
+	// the hook is not called when verifyHeader returns nil AND the block
+	// already has an attestor.
+	mutatedHeader := types.CopyHeader(original.Header())
+	mutatedHeader.Attestor = make([]byte, 65)
+	original = original.WithSeal(mutatedHeader)
+
+	tester := newTester(false)
+	imported := make(chan interface{}, 1)
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		imported <- block
+	}
+	hookCalls := 0
+	verifyCalls := 0
+	tester.fetcher.verifyHeader = func(header *types.Header) error {
+		verifyCalls++
+		return nil
+	}
+	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
+		hookCalls++
+		return block, false, nil
+	})
+
+	tester.fetcher.Enqueue("valid", original)
+	verifyImportEvent(t, imported, true)
+
+	if verifyCalls != 1 {
+		t.Fatalf("verify header call count mismatch, got %d, want %d", verifyCalls, 1)
+	}
+	if hookCalls != 0 {
+		t.Fatalf("hook should not be called when header verification passes")
+	}
+}
+
+func TestAppendAttestorHookMutatedBlock(t *testing.T) {
+	hashes, blocks := makeChain(1, 0, genesis)
+	original := blocks[hashes[0]]
+
+	tester := newTester(false)
+	imported := make(chan interface{}, 1)
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		imported <- block
+	}
+
+	mutatedHeader := types.CopyHeader(original.Header())
+	mutatedHeader.Attestor = make([]byte, 65)
+	mutated := original.WithSeal(mutatedHeader)
+
+	verifyCalls := 0
+	seenOriginal := false
+	seenMutated := false
+	tester.fetcher.verifyHeader = func(header *types.Header) error {
+		verifyCalls++
+		switch header.Hash() {
+		case original.Header().Hash():
+			seenOriginal = true
+			return consensus.ErrNoValidatorSignature
+		case mutated.Header().Hash():
+			seenMutated = true
+			return nil
+		default:
+			t.Fatalf("verified unexpected header hash %s", header.Hash())
+		}
+		return nil
+	}
+	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
+		if block.Hash() != original.Hash() {
+			t.Fatalf("hook received unexpected block hash, got %s, want %s", block.Hash(), original.Hash())
+		}
+		return mutated, true, nil
+	})
+
+	tester.fetcher.Enqueue("valid", original)
+	verifyImportEvent(t, imported, true)
+
+	if verifyCalls != 2 {
+		t.Fatalf("verify header call count mismatch, got %d, want %d", verifyCalls, 2)
+	}
+	if !seenOriginal || !seenMutated {
+		t.Fatalf("expected both original and mutated headers to be verified")
+	}
+	if tester.getBlock(mutated.Hash()) == nil {
+		t.Fatalf("mutated block not imported")
+	}
+}
+
+func TestAppendAttestorHookError(t *testing.T) {
+	hashes, blocks := makeChain(1, 0, genesis)
+	original := blocks[hashes[0]]
+
+	tester := newTester(false)
+	imported := make(chan interface{}, 1)
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		imported <- block
+	}
+	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
+		return nil, false, errors.New("append attestor failed")
+	})
+	tester.fetcher.verifyHeader = func(header *types.Header) error {
+		return consensus.ErrNoValidatorSignature
+	}
+
+	tester.fetcher.Enqueue("valid", original)
+	verifyImportEvent(t, imported, false)
+
+	tester.lock.RLock()
+	dropped := tester.drops["valid"]
+	tester.lock.RUnlock()
+	if dropped {
+		t.Fatalf("peer dropped due to local append attestor hook error")
+	}
+	if tester.chainHeight() != 0 {
+		t.Fatalf("chain progressed unexpectedly, got %d, want %d", tester.chainHeight(), 0)
+	}
+}
+
+// POSV: when we are not the attestor, the block is still imported without M2
+// attestation (for compatibility with victionchain). The creator-signed block
+// is also relayed so the assigned attestor can receive it through the mesh.
+func TestAppendAttestorHookSkipImportStillRelays(t *testing.T) {
+	hashes, blocks := makeChain(1, 0, genesis)
+	original := blocks[hashes[0]]
+
+	tester := newTester(false)
+	imported := make(chan interface{}, 1)
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		imported <- block
+	}
+	tester.fetcher.verifyHeader = func(header *types.Header) error {
+		return consensus.ErrNoValidatorSignature
+	}
+	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
+		return block, false, nil
+	})
+
+	tester.fetcher.Enqueue("valid", original)
+	// Block should NOT be imported when this node is not the assigned attestor.
+	// The fetcher relays the block but returns without inserting, matching
+	// victionchain behavior (the block hash changes once M2 is appended).
+	verifyImportEvent(t, imported, false)
+	for i := 0; i < 50 && atomic.LoadInt32(&tester.broadcastN) == 0; i++ {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if n := atomic.LoadInt32(&tester.broadcastN); n < 1 {
+		t.Fatalf("expected at least one relay broadcast, got %d", n)
+	}
 }
 
 // Tests that blocks arriving from various sources (multiple propagations, hash

@@ -18,6 +18,7 @@
 package fetcher
 
 import (
+	"encoding/hex"
 	"errors"
 	"math/rand"
 	"time"
@@ -189,11 +190,17 @@ type BlockFetcher struct {
 	dropPeer       peerDropFn         // Drops a peer for misbehaving
 
 	// Testing hooks
-	announceChangeHook func(common.Hash, bool)           // Method to call upon adding or deleting a hash from the blockAnnounce list
-	queueChangeHook    func(common.Hash, bool)           // Method to call upon adding or deleting a block from the import queue
-	fetchingHook       func([]common.Hash)               // Method to call upon starting a block (eth/61) or header (eth/62) fetch
-	completingHook     func([]common.Hash)               // Method to call upon starting a block body fetch (eth/62)
-	importedHook       func(*types.Header, *types.Block) // Method to call upon successful header or block import (both eth/61 and eth/62)
+	announceChangeHook     func(common.Hash, bool)           // Method to call upon adding or deleting a hash from the blockAnnounce list
+	queueChangeHook        func(common.Hash, bool)           // Method to call upon adding or deleting a block from the import queue
+	fetchingHook           func([]common.Hash)               // Method to call upon starting a block (eth/61) or header (eth/62) fetch
+	completingHook         func([]common.Hash)               // Method to call upon starting a block body fetch (eth/62)
+	importedHook           func(*types.Header, *types.Block) // Method to call upon successful header or block import (both eth/61 and eth/62)
+	posvAppendAttestorHook func(*types.Block) (*types.Block, bool, error)
+	// [7s62] posvSignBlockHook is called after every successfully imported block on
+	// the POSV path.  It creates and injects a BlockSigner.sign() vote transaction
+	// into the local tx pool, so validator nodes participate in block-sign
+	// accounting even when they are not the block creator (F-3 fix).
+	posvSignBlockHook func(*types.Block) error
 }
 
 // NewBlockFetcher creates a block fetcher to retrieve blocks based on hash announcements.
@@ -235,6 +242,36 @@ func (f *BlockFetcher) Start() {
 // operations.
 func (f *BlockFetcher) Stop() {
 	close(f.quit)
+}
+
+// SetPOSVAppendAttestorHook configures a POSV-only callback to mutate propagated
+// blocks with attestor data before header verification/import.
+func (f *BlockFetcher) SetPOSVAppendAttestorHook(hook func(*types.Block) (*types.Block, bool, error)) {
+	f.posvAppendAttestorHook = hook
+}
+
+// [7s62] SetPOSVSignBlockHook registers a callback that fires after a propagated
+// block is successfully imported on the POSV code path.  Use it to submit
+// BlockSigner vote transactions to the local tx pool.
+func (f *BlockFetcher) SetPOSVSignBlockHook(hook func(*types.Block) error) {
+	f.posvSignBlockHook = hook
+}
+
+// applyPOSVAttestorHook resolves the block to import on POSV chains.
+func (f *BlockFetcher) applyPOSVAttestorHook(block *types.Block) (*types.Block, bool, error) {
+	if f.posvAppendAttestorHook == nil {
+		return block, false, nil
+	}
+	updatedBlock, attestorAppended, err := f.posvAppendAttestorHook(block)
+	if err != nil {
+		return nil, false, err
+	}
+	if updatedBlock == nil {
+		// Treat a nil return as "no change": callers must not interpret
+		// attestorAppended=true without a valid updated block.
+		return block, false, nil
+	}
+	return updatedBlock, attestorAppended, nil
 }
 
 // Notify announces the fetcher of the potential availability of a new block in
@@ -787,49 +824,176 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 	go func() {
 		defer func() { f.done <- hash }()
 
-		// If the parent's unknown, abort insertion
+		// If the parent's unknown, abort insertion.
+		// POSV: parent may be transiently absent during a concurrent reorg; retry
+		// once after a short wait before giving up so the M2 duty is not missed.
 		parent := f.getBlock(block.ParentHash())
+		if parent == nil && f.posvAppendAttestorHook != nil {
+			time.Sleep(150 * time.Millisecond)
+			parent = f.getBlock(block.ParentHash())
+		}
 		if parent == nil {
 			log.Debug("Unknown parent of propagated block", "peer", peer, "number", block.Number(), "hash", hash, "parent", block.ParentHash())
 			return
 		}
-		// Quickly validate the header and propagate the block if it passes
-		switch err := f.verifyHeader(block.Header()); err {
-		case nil:
-			// All ok, quickly propagate to our peers
-			blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
-			go f.broadcastBlock(block, true)
+		// Keep upstream behavior unchanged when POSV hook is not configured.
+		if f.posvAppendAttestorHook == nil {
+			switch err := f.verifyHeader(block.Header()); err {
+			case nil:
+				// All ok, quickly propagate to our peers
+				blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
+				go f.broadcastBlock(block, true)
 
-		case consensus.ErrNoValidatorSignature:
-			// Block from phase 1 without attestor signature, propagate to network
-			// so attesters can receive and sign it. Don't drop the peer.
-			// Don't insert into local chain — wait for the attested version.
-			log.Debug("Propagated block without attestor (phase 1)", "peer", peer, "number", block.Number(), "hash", hash)
-			blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
-			go f.broadcastBlock(block, true)
+			case consensus.ErrNoValidatorSignature:
+				// Block from phase 1 without attestor signature, propagate to network
+				// so attesters can receive and sign it. Don't drop the peer.
+				// Don't insert into local chain — wait for the attested version.
+				log.Debug("Propagated block without attestor (phase 1)", "peer", peer, "number", block.Number(), "hash", hash)
+				blockBroadcastOutTimer.UpdateSince(block.ReceivedAt)
+				go f.broadcastBlock(block, true)
+				return
+
+			case consensus.ErrFutureBlock:
+				// Weird future block, don't fail, but neither propagate
+
+			default:
+				// Something went very wrong, drop the peer
+				log.Debug("Propagated block verification failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
+				f.dropPeer(peer)
+				return
+			}
+			// Run the actual import and log any issues
+			if _, err := f.insertChain(types.Blocks{block}); err != nil {
+				log.Debug("Propagated block import failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
+				return
+			}
+			// If import succeeded, broadcast the block
+			blockAnnounceOutTimer.UpdateSince(block.ReceivedAt)
+			go f.broadcastBlock(block, false)
+
+			// Invoke the testing hook if needed
+			if f.importedHook != nil {
+				f.importedHook(nil, block)
+			}
 			return
+		}
+		// POSV: sleep+re-verify on ErrFutureBlock (viction-style). Non-POSV path above stays
+		// aligned with upstream geth for easier merges.
+		importBlock := block
+		shouldPropagateFast := true
+		// Verify as usual. Trigger POSV attestor append only when header is missing
+		// validator signature (matching Viction fetcher semantics).
+		const maxFutureRetries = 3 // drop peer after ~3×allowedFutureBlockTime (~45 s)
 
-		case consensus.ErrFutureBlock:
-			// Weird future block, don't fail, but neither propagate
+		// waitAndVerify retries verifyHeader for b, sleeping through ErrFutureBlock.
+		// Returns (needAttestorHook=true, nil) on ErrNoValidatorSignature.
+		// Returns (false, nil) on success.
+		// Returns (false, errDrop) when the peer should be dropped and the import aborted;
+		// the caller must check for errDrop != nil and return after dropping the peer.
+		waitAndVerify := func(b *types.Block) (needHook bool, dropPeer bool) {
+			for retries := 0; retries <= maxFutureRetries; retries++ {
+				switch err := f.verifyHeader(b.Header()); err {
+				case nil:
+					return false, false
+				case consensus.ErrFutureBlock:
+					if retries == maxFutureRetries {
+						log.Debug("Propagated block future-block retries exceeded, dropping peer",
+							"peer", peer, "number", b.Number(), "hash", b.Hash())
+						return false, true
+					}
+					shouldPropagateFast = false
+					until := time.Unix(int64(b.Time()), 0)
+					if d := time.Until(until); d > 0 {
+						log.Debug("Propagated block still future, waiting",
+							"peer", peer, "number", b.Number(), "hash", b.Hash(), "wait", d)
+						time.Sleep(d)
+					} else {
+						time.Sleep(50 * time.Millisecond)
+					}
+				case consensus.ErrNoValidatorSignature:
+					return true, false
+				default:
+					log.Warn("Propagated block verification failed (POSV path)",
+						"peer", peer, "number", b.Number(), "hash", b.Hash(), "err", err)
+					return false, true
+				}
+			}
+			return false, false
+		}
 
-		default:
-			// Something went very wrong, drop the peer
-			log.Debug("Propagated block verification failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
+		posvNeedHook, drop := waitAndVerify(block)
+		if drop {
 			f.dropPeer(peer)
 			return
 		}
+		// Check if block needs M2 attestor: block number > epoch and no attestor yet
+		if !posvNeedHook && f.posvAppendAttestorHook != nil && len(block.Attestor()) == 0 {
+			posvNeedHook = true
+		}
+		log.Info("[Fetcher-POSV] first header verify done", "peer", peer, "number", block.NumberU64(), "hash", hash,
+			"needAttestorHook", posvNeedHook, "parent", block.ParentHash())
+		if posvNeedHook {
+			log.Info("[Fetcher-POSV]:Propagated block POSV attestor append", "number", block.Number(), "hash", hash, "attestor", hex.EncodeToString(block.Attestor()))
+			updatedBlock, attestorAppended, hookErr := f.applyPOSVAttestorHook(block)
+			if hookErr != nil {
+				log.Warn("[Fetcher-POSV]:Propagated block POSV attestor append failed", "number", block.Number(), "hash", hash, "err", hookErr)
+				return
+			}
+			if attestorAppended {
+				log.Info("[Fetcher-POSV]:Propagated block POSV attestor appended", "number", updatedBlock.Number(), "hash", updatedBlock.Hash())
+			}
+			// Not this node's attestor duty: relay the creator-signed block so
+			// the assigned attestor may receive it, but do NOT import — the
+			// block hash will change once M2 attestor is appended, so importing
+			// now would create a stale entry.  This matches victionchain behavior
+			// (fetcher.go:691-697) where non-M2 nodes broadcast + return.
+			if !attestorAppended {
+				log.Info("[Fetcher-POSV] not assigned attestor, relaying without import", "peer", peer,
+					"number", block.NumberU64(), "hash", hash, "diff", block.Difficulty().String(), "parent", block.ParentHash())
+				go f.broadcastBlock(block, true)
+				importBlock = block
+			} else {
+				importBlock = updatedBlock
+				log.Info("[Fetcher-POSV]:attestorAppended", "block", importBlock.NumberU64(), "attestor", hex.EncodeToString(importBlock.Attestor()))
+
+				_, drop = waitAndVerify(importBlock)
+				if drop {
+					f.dropPeer(peer)
+					return
+				}
+			}
+		}
+		log.Info("[Fetcher-POSV] ready to insert propagated block", "peer", peer, "number", importBlock.NumberU64(), "hash", importBlock.Hash(),
+			"attestorLen", len(importBlock.Attestor()), "fastBroadcast", shouldPropagateFast)
+		// All ok, quickly propagate to our peers
+		if shouldPropagateFast {
+			blockBroadcastOutTimer.UpdateSince(importBlock.ReceivedAt)
+			go f.broadcastBlock(importBlock, true)
+		}
+
 		// Run the actual import and log any issues
-		if _, err := f.insertChain(types.Blocks{block}); err != nil {
-			log.Debug("Propagated block import failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
+		if n, err := f.insertChain(types.Blocks{importBlock}); err != nil {
+			log.Warn("[Fetcher-POSV] insertChain failed after verify", "peer", peer, "processed", n,
+				"number", importBlock.NumberU64(), "hash", importBlock.Hash(), "err", err)
 			return
 		}
+		log.Info("[Fetcher-POSV] insertChain OK", "peer", peer, "number", importBlock.NumberU64(), "hash", importBlock.Hash())
 		// If import succeeded, broadcast the block
-		blockAnnounceOutTimer.UpdateSince(block.ReceivedAt)
-		go f.broadcastBlock(block, false)
+		blockAnnounceOutTimer.UpdateSince(importBlock.ReceivedAt)
+		go f.broadcastBlock(importBlock, false)
+
+		// [7s62] Invoke POSV block-sign hook: submit a BlockSigner.sign() vote tx to
+		// the local tx pool so this validator is credited for the block even when it
+		// was not the creator.  Errors are non-fatal — log and continue.
+		if f.posvSignBlockHook != nil {
+			if err := f.posvSignBlockHook(importBlock); err != nil {
+				log.Warn("[Fetcher-POSV] Block-sign hook failed", "number", importBlock.Number(), "hash", importBlock.Hash(), "err", err)
+			}
+		}
 
 		// Invoke the testing hook if needed
 		if f.importedHook != nil {
-			f.importedHook(nil, block)
+			f.importedHook(nil, importBlock)
 		}
 	}()
 }

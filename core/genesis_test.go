@@ -443,6 +443,16 @@ func TestVictestGenesisHash(t *testing.T) {
 	}
 }
 
+// TestVicdevnetGenesisHash checks VicdevnetGenesisHash matches the embedded default genesis.
+func TestVicdevnetGenesisHash(t *testing.T) {
+	g := DefaultVicdevnetGenesisBlock()
+	hash := g.ToBlock(nil).Hash()
+	if params.VicdevnetGenesisHash != hash {
+		t.Errorf("params.VicdevnetGenesisHash mismatch: constant %s, ToBlock hash %s",
+			params.VicdevnetGenesisHash.Hex(), hash.Hex())
+	}
+}
+
 // TestVictionSetupGenesis tests that SetupGenesisBlock recognizes Viction genesis hash
 func TestVictionSetupGenesis(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()

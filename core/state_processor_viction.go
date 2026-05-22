@@ -21,7 +21,11 @@ import (
 // activeFeeBalance holds the per-block running VRC25 fee capacity map for
 // the block currently being processed.  It is set by beforeProcess (via
 // victionProcessorState) and read by vrc25BuyGas during each transaction.
-var activeFeeBalance map[common.Address]*big.Int
+// Protected by activeFeeBalanceMu.
+var (
+	activeFeeBalance   map[common.Address]*big.Int
+	activeFeeBalanceMu sync.RWMutex
+)
 
 // TradingEngine is the interface the TomoX engine must satisfy.
 // Defined here to avoid an import cycle between core and legacy/tomox.
@@ -178,9 +182,13 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 	if !p.config.IsAtlas(header.Number) &&
 		p.config.Viction != nil && p.config.Viction.VRC25Contract != (common.Address{}) {
 		p.victionState.feeBalance = vrc25.GetAllFeeCapacities(statedb, p.config.Viction.VRC25Contract)
+		activeFeeBalanceMu.Lock()
 		activeFeeBalance = p.victionState.feeBalance
+		activeFeeBalanceMu.Unlock()
 	} else {
+		activeFeeBalanceMu.Lock()
 		activeFeeBalance = nil
+		activeFeeBalanceMu.Unlock()
 	}
 
 	// Open TomoX and TomoZ tries from the parent block.
@@ -250,7 +258,9 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB) error {
 	// Clear the package-level feeBalance pointer; it is only valid during
 	// block processing and must not leak to the next block.
+	activeFeeBalanceMu.Lock()
 	activeFeeBalance = nil
+	activeFeeBalanceMu.Unlock()
 
 	// Pre-Atlas: flush accumulated VRC25 fee updates to state.
 	if p.victionState != nil && !p.config.IsAtlas(block.Number()) &&
@@ -408,13 +418,17 @@ func (p *StateProcessor) applyEmptyTransaction(statedb *state.StateDB, tx *types
 // applySignTransaction processes a block-signer registration transaction (0x89)
 // by incrementing the sender's nonce and producing a zero-gas receipt.
 func (p *StateProcessor) applySignTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
-	var root []byte
-	if p.config.IsByzantium(header.Number) {
-		statedb.Finalise(true)
-	} else {
-		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
-	}
-	from, err := types.Sender(types.MakeSigner(p.config, header.Number), tx)
+	return ApplySignTransaction(p.config, statedb, tx, header, usedGas)
+}
+
+// ApplySignTransaction is the standalone version of applySignTransaction.
+// It processes a BlockSigner special transaction (0x89) without the EVM:
+// increments the sender nonce, adds a log entry, and returns a zero-gas receipt.
+// Used by both the StateProcessor (block import) and the miner (block creation).
+func ApplySignTransaction(config *params.ChainConfig, statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	// Validate nonce BEFORE Finalise to avoid invalidating the snapshot
+	// on error (the caller may need to RevertToSnapshot).
+	from, err := types.Sender(types.MakeSigner(config, header.Number), tx)
 	if err != nil {
 		return true, nil, 0, err, nil
 	}
@@ -424,16 +438,26 @@ func (p *StateProcessor) applySignTransaction(statedb *state.StateDB, tx *types.
 	} else if nonce > tx.Nonce() {
 		return true, nil, 0, ErrNonceTooLow, nil
 	}
+
+	// Update the state with pending changes
+	var root []byte
+	if config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
+	}
+
 	statedb.SetNonce(from, nonce+1)
 
+	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
 	receipt := types.NewReceipt(root, false, *usedGas)
 	receipt.TxHash = tx.Hash()
 	receipt.GasUsed = 0
-
-	log := &types.Log{}
-	log.Address = p.config.Viction.ValidatorBlockSignContract
-	log.BlockNumber = header.Number.Uint64()
-	statedb.AddLog(log)
+	// Set the receipt logs and create a bloom for filtering
+	logEntry := &types.Log{}
+	logEntry.Address = config.Viction.ValidatorBlockSignContract
+	logEntry.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(logEntry)
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 

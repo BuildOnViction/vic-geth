@@ -37,8 +37,9 @@ var (
 	YoloV2GenesisHash = common.HexToHash("0x498a7239036dd2cd09e2bb8a80922b78632017958c332b42044c250d603a8a3e")
 
 	// Viction genesis hashes
-	VictionGenesisHash = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
-	VictestGenesisHash = common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
+	VictionGenesisHash   = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
+	VictestGenesisHash   = common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
+	VicdevnetGenesisHash = common.HexToHash("0x672b317f13b6c0bce7427009577674351c0f98d991f20f230454147d152cff0e")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -241,8 +242,9 @@ var (
 		},
 	}
 
-	VictionChainConfig = readChainSpec("viction_specs/viction.json") // Viction mainnet chain config
-	VictestChainConfig = readChainSpec("viction_specs/victest.json") // Viction testnet chain config
+	VictionChainConfig   = readChainSpec("viction_specs/viction.json")   // Viction mainnet chain config
+	VictestChainConfig   = readChainSpec("viction_specs/victest.json")   // Viction testnet chain config
+	VicdevnetChainConfig = readChainSpec("viction_specs/vicdevnet.json") // Viction devnet chain config
 
 	// AllEthashProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Ethash consensus.

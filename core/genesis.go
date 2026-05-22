@@ -251,6 +251,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.VictionChainConfig
 	case ghash == params.VictestGenesisHash:
 		return params.VictestChainConfig
+	case ghash == params.VicdevnetGenesisHash:
+		return params.VicdevnetChainConfig
 	default:
 		return params.AllEthashProtocolChanges
 	}
@@ -459,6 +461,21 @@ func DefaultVictestGenesisBlock() *Genesis {
 		Mixhash:    common.Hash{},
 		Coinbase:   common.Address{},
 		Alloc:      readVictionAlloc("viction_allocs/victest.json"),
+	}
+}
+
+// DefaultVicdevnetGenesisBlock returns the Viction devnet genesis block.
+func DefaultVicdevnetGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VicdevnetChainConfig,
+		Nonce:      0,
+		Timestamp:  0x69ca2091,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000000e72ca8777f4475d9bab9532ff8a3f8bf61511a1139731ca2442d3f573728be6de59aa984dc1b3931c9a90163e724de1ca70cd894185e9523ce843893cecb689a74983f232835c6dc1ba5ddc5478d35852bdcd259f52eeb8a17c985970ff881f97ff563a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   0x47b760,
+		Difficulty: big.NewInt(0x1),
+		Mixhash:    common.Hash{},
+		Coinbase:   common.Address{},
+		Alloc:      readVictionAlloc("viction_allocs/vicdevnet.json"),
 	}
 }
 

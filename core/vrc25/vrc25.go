@@ -135,6 +135,9 @@ func GetFeeCapacity(statedb vm.StateDB, vrc25Contract common.Address, addr *comm
 	}
 	feeCapKey := state.StorageLocationOfMappingElement(state.StorageLocationFromSlot(SlotVRC25Contract["tokensState"]), addr.Hash().Bytes())
 	feeCapHash := statedb.GetState(vrc25Contract, feeCapKey.Hash())
+	if feeCapHash == (common.Hash{}) {
+		return nil
+	}
 	return feeCapHash.Big()
 }
 
