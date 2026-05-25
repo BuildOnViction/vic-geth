@@ -83,8 +83,9 @@ func (st *StateTransition) isVRC25Transaction() bool {
 
 // vrc25RefundGas handles gas refund for sponsored transactions.
 func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
+	blockNum := st.evm.Context.BlockNumber
+
 	if st.isVRC25Transaction() {
-		blockNum := st.evm.Context.BlockNumber
 		if !st.evm.ChainConfig().IsAtlas(blockNum) {
 			// Pre-Atlas VRC25: buyGas was skipped entirely, nothing to refund.
 			return
@@ -104,8 +105,11 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 		}
 		// Refund remaining native balance to the VRC25 issuer contract.
 		st.state.AddBalance(st.payer, remaining)
+	} else if st.evm.ChainConfig().IsPrePrometheus(blockNum) {
+		// Post-PrePrometheus normal tx: refund remaining gas to sender.
+		st.state.AddBalance(st.msg.From(), remaining)
 	}
-	// Post-Atlas non-VRC25: no refund - remaining gas is burned.
+	// Between Atlas and PrePrometheus, normal tx: no refund (gas burned).
 }
 
 // applyTransactionFee distributes the transaction fee to the correct recipient.
