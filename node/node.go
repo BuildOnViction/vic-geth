@@ -298,6 +298,10 @@ func (n *Node) openDataDir() error {
 		return nil // ephemeral
 	}
 
+	if err := migrateLegacyInstanceDir(n.config.DataDir, n.config.name()); err != nil {
+		return err
+	}
+
 	instdir := filepath.Join(n.config.DataDir, n.config.name())
 	if err := os.MkdirAll(instdir, 0700); err != nil {
 		return err

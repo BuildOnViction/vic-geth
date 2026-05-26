@@ -46,7 +46,7 @@ import (
 )
 
 const (
-	clientIdentifier = "tomo" // Client identifier to advertise over the network
+	clientIdentifier = "viction" // Client identifier to advertise over the network
 )
 
 var (
