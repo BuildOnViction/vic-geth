@@ -292,25 +292,18 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 		}
 	}
 
-	// Initialize legacy TomoX trading engine for historical block replay.
-	// Required to sync pre-Atlas blocks containing TomoX order matching transactions (0x91).
-	tradingDb, err := stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
+	// Initialize legacy TomoX/TomoZ engines for historical block replay.
+	// Both share a single LevelDB ("tomox") since TradingStateDB and LendingStateDB
+	// use independent trie roots and their key-spaces never collide.
+	tomoxDb, err := stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
 	if err != nil {
-		log.Error("Failed to open TomoX trading database", "err", err)
+		log.Error("Failed to open TomoX database", "err", err)
 		return nil
 	}
-	tomoxEngine := tomox.NewWithDB(tradingDb, eth.blockchain.Config())
+	tomoxEngine := tomox.NewWithDB(tomoxDb, eth.blockchain.Config())
 	eth.blockchain.SetTradingEngine(tomoxEngine)
 
-	// Initialize legacy TomoZ lending engine for historical block replay.
-	// Required to sync pre-Atlas blocks containing TomoZ lending order transactions (0x93).
-	// Must share the same tomoxEngine instance so lending price lookups hit the same trading state.
-	lendingDb, err := stack.OpenDatabase("tomoxlending", 256, 256, "eth/db/tomoxlending/")
-	if err != nil {
-		log.Error("Failed to open TomoZ lending database", "err", err)
-		return nil
-	}
-	lendingEngine := tomoxlending.New(lendingDb, tomoxEngine, eth.blockchain.Config())
+	lendingEngine := tomoxlending.New(tomoxDb, tomoxEngine, eth.blockchain.Config())
 	eth.blockchain.SetLendingEngine(lendingEngine)
 
 	return nil
