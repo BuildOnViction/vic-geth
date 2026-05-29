@@ -45,7 +45,6 @@ func migrateLegacyInstanceDir(dataDir, targetName string) (fileutil.Releaser, er
 
 		log.Info("Migrating instance datadir", "from", src, "to", target)
 		if err := os.Rename(src, target); err != nil {
-			release.Release()
 			return nil, err
 		}
 		return release, nil
