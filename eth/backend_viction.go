@@ -13,6 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/eth/viction"
 	"github.com/ethereum/go-ethereum/legacy/tomox"
 	"github.com/ethereum/go-ethereum/legacy/tomoxlending"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
@@ -272,6 +274,17 @@ func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *ty
 
 // setupPosvBackend wires the POSV engine backend and the legacy TomoX/TomoZ engines
 // for historical block replay (pre-Atlas sync).
+// openTomoXDatabase opens the TomoX LevelDB.
+//   - If --tomox.datadir is set, that explicit path is used directly.
+//   - Otherwise the database is created at {datadir}/{instance}/tomox.
+func openTomoXDatabase(cfg *Config, stack *node.Node) (ethdb.Database, error) {
+	if cfg.TomoXDataDir != "" {
+		log.Info("Opening TomoX database at custom path", "path", cfg.TomoXDataDir)
+		return rawdb.NewLevelDBDatabase(cfg.TomoXDataDir, 256, 256, "eth/db/tomox/")
+	}
+	return stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
+}
+
 func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
 	if chainConfig.Posv == nil {
 		return nil
@@ -295,7 +308,7 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 	// Initialize legacy TomoX/TomoZ engines for historical block replay.
 	// Both share a single LevelDB ("tomox") since TradingStateDB and LendingStateDB
 	// use independent trie roots and their key-spaces never collide.
-	tomoxDb, err := stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
+	tomoxDb, err := openTomoXDatabase(eth.config, stack)
 	if err != nil {
 		log.Error("Failed to open TomoX database", "err", err)
 		return nil

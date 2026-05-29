@@ -738,6 +738,13 @@ var (
 		Usage: "External EVM configuration (default = built-in interpreter)",
 		Value: "",
 	}
+
+	// TomoX data directory
+	TomoXDataDirFlag = DirectoryFlag{
+		Name:  "tomox.datadir",
+		Usage: "Data directory for the TomoX databases",
+		Value: DirectoryString(filepath.Join(DataDirFlag.Value.String(), "tomox")),
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1707,6 +1714,16 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 		if cfg.NetworkId == 1 {
 			SetDNSDiscoveryDefaults(cfg, params.MainnetGenesisHash)
 		}
+	}
+}
+
+// SetTomoXConfig sets the TomoX data directory on the eth config from the
+// --tomox.datadir CLI flag.
+// If the flag is not set, cfg.TomoXDataDir is left empty and the node will
+// use its instance directory (stack.ResolvePath("tomox")).
+func SetTomoXConfig(ctx *cli.Context, cfg *eth.Config) {
+	if ctx.GlobalIsSet(TomoXDataDirFlag.Name) {
+		cfg.TomoXDataDir = ctx.GlobalString(TomoXDataDirFlag.Name)
 	}
 }
 
