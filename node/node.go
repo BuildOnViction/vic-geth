@@ -298,15 +298,22 @@ func (n *Node) openDataDir() error {
 		return nil // ephemeral
 	}
 
-	instdir, release, err := prepareInstanceDirectory(n.config.DataDir, n.config.name())
+	release, err := migrateLegacyInstanceDir(n.config.DataDir, n.config.name())
 	if err != nil {
 		return convertFileLockError(err)
 	}
-	n.dirLock = release
-	if instdir != "" {
-		n.log.Info("Using instance directory", "instdir", instdir)
+
+	instdir := filepath.Join(n.config.DataDir, n.config.name())
+	if err := os.MkdirAll(instdir, 0700); err != nil {
+		return err
 	}
-	return nil
+
+	if release != nil {
+		n.dirLock = release
+		return nil
+	}
+	n.dirLock, _, err = fileutil.Flock(filepath.Join(instdir, "LOCK"))
+	return convertFileLockError(err)
 }
 
 func (n *Node) closeDataDir() {
