@@ -298,21 +298,14 @@ func (n *Node) openDataDir() error {
 		return nil // ephemeral
 	}
 
-	if err := migrateLegacyInstanceDir(n.config.DataDir, n.config.name()); err != nil {
-		return err
-	}
-
-	instdir := filepath.Join(n.config.DataDir, n.config.name())
-	if err := os.MkdirAll(instdir, 0700); err != nil {
-		return err
-	}
-	// Lock the instance directory to prevent concurrent use by another instance as well as
-	// accidental use of the instance directory as a database.
-	release, _, err := fileutil.Flock(filepath.Join(instdir, "LOCK"))
+	instdir, release, err := prepareInstanceDirectory(n.config.DataDir, n.config.name())
 	if err != nil {
 		return convertFileLockError(err)
 	}
 	n.dirLock = release
+	if instdir != "" {
+		n.log.Info("Using instance directory", "instdir", instdir)
+	}
 	return nil
 }
 

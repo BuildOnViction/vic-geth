@@ -10,37 +10,53 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/prometheus/tsdb/fileutil"
 )
 
 // legacyInstanceNames lists historical instance directory names under DataDir.
 // Order matters: newer names are tried first.
 var legacyInstanceNames = []string{"tomo", "geth"}
 
-// migrateLegacyInstanceDir renames a legacy instance directory (tomo, geth) to
-// the current instance name (e.g. viction) when the target does not exist yet.
-func migrateLegacyInstanceDir(dataDir, targetName string) error {
+// prepareInstanceDirectory resolves {dataDir}/{targetName} for the running node.
+// When a legacy directory (tomo, geth) must be renamed to the target name, the
+// legacy LOCK is acquired before os.Rename so a concurrent node still using the
+// legacy path prevents the rename (and returns ErrDatadirUsed).
+func prepareInstanceDirectory(dataDir, targetName string) (instdir string, release fileutil.Releaser, err error) {
 	if dataDir == "" || targetName == "" {
-		return nil
+		return "", nil, nil
 	}
 	target := filepath.Join(dataDir, targetName)
-	if instanceDirHasData(target) {
-		return nil
+
+	if !instanceDirHasData(target) {
+		for _, legacy := range legacyInstanceNames {
+			if legacy == targetName {
+				continue
+			}
+			src := filepath.Join(dataDir, legacy)
+			if !instanceDirHasData(src) {
+				continue
+			}
+			if common.FileExist(target) {
+				return "", nil, fmt.Errorf("cannot migrate instance datadir from %q to %q: destination path already exists; remove or rename %q, then restart",src, target, target)
+			}
+			release, _, err := fileutil.Flock(filepath.Join(src, "LOCK"))
+			if err != nil {
+				return "", nil, err
+			}
+			log.Info("Migrating instance datadir", "from", src, "to", target)
+			if err := os.Rename(src, target); err != nil {
+				release.Release()
+				return "", nil, err
+			}
+			return target, release, nil
+		}
+		if err := os.MkdirAll(target, 0700); err != nil {
+			return "", nil, err
+		}
 	}
-	for _, legacy := range legacyInstanceNames {
-		if legacy == targetName {
-			continue
-		}
-		src := filepath.Join(dataDir, legacy)
-		if !instanceDirHasData(src) {
-			continue
-		}
-		if common.FileExist(target) {
-			return fmt.Errorf("legacy datadir %q exists but %q is already present; migrate or remove %q manually", src, target, target)
-		}
-		log.Info("Migrating instance datadir", "from", src, "to", target)
-		return os.Rename(src, target)
-	}
-	return nil
+
+	release, _, err = fileutil.Flock(filepath.Join(target, "LOCK"))
+	return target, release, err
 }
 
 func instanceDirHasData(dir string) bool {
