@@ -743,7 +743,7 @@ var (
 	TomoXDataDirFlag = DirectoryFlag{
 		Name:  "tomox.datadir",
 		Usage: "Data directory for the TomoX databases",
-		Value: DirectoryString(filepath.Join(DataDirFlag.Value.String(), "tomox")),
+		Value: "",
 	}
 )
 
