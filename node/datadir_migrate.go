@@ -13,43 +13,50 @@ import (
 	"github.com/prometheus/tsdb/fileutil"
 )
 
-// legacyInstanceNames lists historical instance directory names under DataDir.
-// Order matters: newer names are tried first.
-var legacyInstanceNames = []string{"tomo", "geth"}
+// legacyInstanceDir is the historical instance directory name that may need
+// to be migrated to the current instance name (e.g. "viction").
+const legacyInstanceDir = "tomo"
 
-// migrateLegacyInstanceDir renames a legacy instance directory (tomo, geth) to
-// the current instance name (e.g. viction) when the target does not exist yet.
-func migrateLegacyInstanceDir(dataDir, targetName string) (fileutil.Releaser, error) {
-	if dataDir == "" || targetName == "" {
-		return nil, nil
-	}
-	target := filepath.Join(dataDir, targetName)
-	if instanceDirHasData(target) {
-		return nil, nil
-	}
-	for _, legacy := range legacyInstanceNames {
-		if legacy == targetName {
-			continue
-		}
-		src := filepath.Join(dataDir, legacy)
-		if !instanceDirHasData(src) {
-			continue
-		}
-		if common.FileExist(target) {
-			return nil, fmt.Errorf("cannot migrate instance datadir from %q to %q: destination path already exists; remove or rename %q, then restart", src, target, target)
-		}
-		release, _, err := fileutil.Flock(filepath.Join(src, "LOCK"))
-		if err != nil {
-			return nil, err
-		}
+// migrateLegacyInstanceDir resolves the instance directory path and migrates
+// the legacy "tomo" directory to targetName when needed.
+//
+// Returns:
+//   - instdir: the resolved instance directory path (always set when no error)
+//   - release: non-nil only when migration happened; holds the lock on the
+//     moved LOCK file and must be assigned to n.dirLock by the caller
+//   - err: non-nil if migration was attempted but failed
+func migrateLegacyInstanceDir(dataDir, targetName string) (instdir string, release fileutil.Releaser, err error) {
+	instdir = filepath.Join(dataDir, targetName)
 
-		log.Info("Migrating instance datadir", "from", src, "to", target)
-		if err := os.Rename(src, target); err != nil {
-			return nil, err
-		}
-		return release, nil
+	// Skip migration if the target already has node data or if the target
+	// name is the legacy name itself.
+	if instanceDirHasData(instdir) || targetName == legacyInstanceDir {
+		return instdir, nil, nil
 	}
-	return nil, nil
+
+	src := filepath.Join(dataDir, legacyInstanceDir)
+	if !instanceDirHasData(src) {
+		return instdir, nil, nil
+	}
+
+	// Guard against renaming over an existing (but empty) target directory.
+	if common.FileExist(instdir) {
+		return "", nil, fmt.Errorf(
+			"cannot migrate instance datadir from %q to %q: destination already exists; remove or rename %q, then restart",
+			src, instdir, instdir,
+		)
+	}
+
+	release, _, err = fileutil.Flock(filepath.Join(src, "LOCK"))
+	if err != nil {
+		return "", nil, err
+	}
+
+	log.Info("Migrating instance datadir", "from", src, "to", instdir)
+	if err = os.Rename(src, instdir); err != nil {
+		return "", nil, err
+	}
+	return instdir, release, nil
 }
 
 func instanceDirHasData(dir string) bool {
