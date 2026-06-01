@@ -20,6 +20,7 @@
     "istanbulBlock": 30915660,
     "saigonBlock": 86158494,
     "atlasBlock": 97705094,
+    "prePrometheusBlock": 110712671,
     "posv": {
       "period": 2,
       "epoch": 900,
