@@ -46,7 +46,7 @@ import (
 )
 
 const (
-	clientIdentifier = "geth" // Client identifier to advertise over the network
+	clientIdentifier = "viction" // Client identifier to advertise over the network
 )
 
 var (
@@ -161,6 +161,7 @@ var (
 		utils.GpoMaxGasPriceFlag,
 		utils.EWASMInterpreterFlag,
 		utils.EVMInterpreterFlag,
+		utils.TomoXDataDirFlag,
 		configFileFlag,
 	}
 

@@ -298,18 +298,27 @@ func (n *Node) openDataDir() error {
 		return nil // ephemeral
 	}
 
-	instdir := filepath.Join(n.config.DataDir, n.config.name())
-	if err := os.MkdirAll(instdir, 0700); err != nil {
-		return err
-	}
-	// Lock the instance directory to prevent concurrent use by another instance as well as
-	// accidental use of the instance directory as a database.
-	release, _, err := fileutil.Flock(filepath.Join(instdir, "LOCK"))
+	instdir, release, err := migrateLegacyInstanceDir(n.config.DataDir, n.config.name())
 	if err != nil {
 		return convertFileLockError(err)
 	}
-	n.dirLock = release
-	return nil
+
+	// check if migration happened and if so, no need to acquire lock
+	if release != nil {
+		// Migration happened: lock was acquired on the source LOCK file,
+		// which moved with the directory — no need to Flock again.
+		n.dirLock = release
+		return nil
+	}
+
+	// create instance directory if it doesn't exist
+	if err := os.MkdirAll(instdir, 0700); err != nil {
+		return convertFileLockError(err)
+	}
+
+	// No migration: acquire an exclusive lock to prevent concurrent use.
+	n.dirLock, _, err = fileutil.Flock(filepath.Join(instdir, "LOCK"))
+	return convertFileLockError(err)
 }
 
 func (n *Node) closeDataDir() {

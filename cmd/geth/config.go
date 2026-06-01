@@ -146,6 +146,9 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 	utils.SetShhConfig(ctx, stack)
 
+	// Set TomoX data directory from --tomox.datadir (if provided).
+	utils.SetTomoXConfig(ctx, &cfg.Eth)
+
 	return stack, cfg
 }
 
