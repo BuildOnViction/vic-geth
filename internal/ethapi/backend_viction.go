@@ -15,6 +15,8 @@ import (
 type BackendViction interface {
 	Backend
 	GetRewardByHash(ctx context.Context, hash common.Hash) (*posv.EpochReward, error)
+	GetRewardByNumber(ctx context.Context, number rpc.BlockNumber) (*posv.EpochReward, error)
+	GetRewardByHashOrNumber(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*posv.EpochReward, error)
 	GetAttestorsPairsByHash(ctx context.Context, hash common.Hash) (map[common.Address]common.Address, error)
 	GetAttestorsPairsByNumber(ctx context.Context, number rpc.BlockNumber) (map[common.Address]common.Address, error)
 	GetBlockFinalityByHash(ctx context.Context, blockHash common.Hash) (uint, error)

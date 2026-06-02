@@ -14,39 +14,76 @@ import (
 )
 
 // GetRewardByHash returns the epoch reward breakdown for the checkpoint block identified by hash.
-//
-// Use this when you want to know how rewards were distributed at the end of a specific epoch.
-// The hash must be the hash of a checkpoint block (block number divisible by epoch size, e.g. 900,
+// The hash must identify a checkpoint block (block number divisible by the epoch size, e.g. 900,
 // 1800, 2700 ...). Passing a non-checkpoint hash returns an error.
 //
 // Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
-// state is only kept for the most recent ~128 blocks. Querying an older checkpoint will fail
-// with "missing trie node" unless the node is running in archive mode (--gcmode=archive).
-//
-// Example (JSON-RPC):
-//
-//	curl -X POST http://localhost:8545 \
-//	  -H "Content-Type: application/json" \
-//	  -d '{"jsonrpc":"2.0","method":"eth_getRewardByHash","params":["0x<checkpoint-block-hash>"],"id":1}'
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
 func (s *EthAPIBackend) GetRewardByHash(ctx context.Context, hash common.Hash) (*posv.EpochReward, error) {
 	header, err := s.HeaderByHash(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
-	if header == nil || header.Number.Uint64()%s.eth.blockchain.Config().Posv.Epoch != 0 {
-		return nil, errors.New("header is not a checkpoint block")
-	}
-	engine := s.Engine().(*posv.Posv)
-	statedb, err := s.eth.blockchain.StateAt(header.Root)
+	return s.getEpochRewardByCheckpointHeader(header)
+}
+
+// GetRewardByNumber returns the epoch reward breakdown for the checkpoint block at the given number.
+// The block number must be divisible by the epoch size (e.g. 900, 1800, 2700 ...).
+// Passing a non-checkpoint number returns an error.
+//
+// Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
+func (s *EthAPIBackend) GetRewardByNumber(ctx context.Context, number rpc.BlockNumber) (*posv.EpochReward, error) {
+	header, err := s.HeaderByNumber(ctx, number)
 	if err != nil {
-		log.Info("Failed to get state at", "hash", hash, "error", err)
 		return nil, err
 	}
+	return s.getEpochRewardByCheckpointHeader(header)
+}
+
+// GetRewardByHashOrNumber returns the epoch reward breakdown for the checkpoint block identified
+// by either a block hash or a block number. The resolved block must be a checkpoint block
+// (block number divisible by the epoch size). Passing a non-checkpoint identifier returns an error.
+//
+// Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
+func (s *EthAPIBackend) GetRewardByHashOrNumber(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*posv.EpochReward, error) {
+	header, err := s.HeaderByNumberOrHash(ctx, blockNrOrHash)
+	if err != nil {
+		return nil, err
+	}
+	return s.getEpochRewardByCheckpointHeader(header)
+}
+
+func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (*posv.EpochReward, error) {
+	if header == nil {
+		return nil, errors.New("header at block number or hash is not found")
+	}
+
+	cfg := s.eth.blockchain.Config()
+	if header.Number.Uint64()%cfg.Posv.Epoch != 0 {
+		return nil, errors.New("header is not a checkpoint block")
+	}
+
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+
+	statedb, err := s.eth.blockchain.StateAt(header.Root)
+	if err != nil {
+		log.Info("Failed to get state at", "hash", header.Hash(), "error", err)
+		return nil, err
+	}
+
 	epochReward, err := s.eth.PosvGetEpochReward(
 		engine,
-		s.eth.blockchain.Config(),
-		s.eth.blockchain.Config().Posv,
-		s.eth.blockchain.Config().Viction,
+		cfg,
+		cfg.Posv,
+		cfg.Viction,
 		header,
 		s.eth.blockchain,
 		statedb,
@@ -59,7 +96,6 @@ func (s *EthAPIBackend) GetRewardByHash(ctx context.Context, hash common.Hash) (
 		return nil, errors.New("epoch reward is nil")
 	}
 	return epochReward, nil
-
 }
 
 func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common.Hash) (map[common.Address]common.Address, error) {
