@@ -71,7 +71,7 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 
 	statedb, err := s.eth.blockchain.StateAt(header.Root)
 	if err != nil {
-		log.Info("Failed to get state at", "root", header.Root, "error", err)
+		log.Info("Failed to get state at", "hash", header.Hash(), "error", err)
 		return nil, err
 	}
 
