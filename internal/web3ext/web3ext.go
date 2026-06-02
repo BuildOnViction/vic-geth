@@ -23,10 +23,11 @@ var Modules = map[string]string{
 	"chequebook": ChequebookJs,
 	"clique":     CliqueJs,
 	"posv":       PosvJs,
-	"viction":    VictionJs,
 	"ethash":     EthashJs,
 	"debug":      DebugJs,
-	"eth":        EthJs,
+	// Load Viction helpers under the eth module so they're always available
+	// wherever eth is exposed by the node.
+	"eth":      EthJs + VictionJs,
 	"miner":      MinerJs,
 	"net":        NetJs,
 	"personal":   PersonalJs,
@@ -944,49 +945,62 @@ web3._extend({
 	]
 });
 `
+// VictionJs extends the eth namespace with Viction/PoSV-specific methods.
+//
+// All RPC calls use the eth_ prefix so they work over HTTP, WS and IPC without
+// needing a separate namespace.  A convenience sub-object eth.viction mirrors
+// every method for discoverability and to allow a clean cut-over in future.
 const VictionJs = `
 web3._extend({
 	property: 'eth',
 	methods: [
-			new web3._extend.Method({
-				name: 'getRewardByHash',
-				call: 'eth_getRewardByHash',
-				params: 1
-			}),
-			new web3._extend.Method({
-				name: 'getAttestorsPairsByHash',
-				call: 'eth_getAttestorsPairsByHash',
-				params: 1
-			}),
-			new web3._extend.Method({
-				name: 'getAttestorsPairsByNumber',
-				call: 'eth_getAttestorsPairsByNumber',
-				params: 1
-			}),
-			new web3._extend.Method({
-    			name: 'getBlockFinalityByHash',
-    			call: 'eth_getBlockFinalityByHash',
-    			params: 1
-			}),
-			new web3._extend.Method({
-    			name: 'getBlockFinalityByNumber',
-    			call: 'eth_getBlockFinalityByNumber',
-    			params: 1
-			}),
-	],
-	properties: [
-		new web3._extend.Property({
-			name: 'pendingTransactions',
-			getter: 'eth_pendingTransactions',
-			outputFormatter: function(txs) {
-				var formatted = [];
-				for (var i = 0; i < txs.length; i++) {
-					formatted.push(web3._extend.formatters.outputTransactionFormatter(txs[i]));
-					formatted[i].blockHash = null;
-				}
-				return formatted;
-			}
+		new web3._extend.Method({
+			name: 'getRewardByHash',
+			call: 'eth_getRewardByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByNumber',
+			call: 'eth_getRewardByNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByHashOrNumber',
+			call: 'eth_getRewardByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getAttestorsPairsByHash',
+			call: 'eth_getAttestorsPairsByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getAttestorsPairsByNumber',
+			call: 'eth_getAttestorsPairsByNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByHash',
+			call: 'eth_getBlockFinalityByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByNumber',
+			call: 'eth_getBlockFinalityByNumber',
+			params: 1
 		}),
 	]
 });
+(function() {
+	var vic = {};
+	var methods = [
+		'getRewardByHash', 'getRewardByNumber', 'getRewardByHashOrNumber',
+		'getAttestorsPairsByHash', 'getAttestorsPairsByNumber',
+		'getBlockFinalityByHash', 'getBlockFinalityByNumber'
+	];
+	for (var i = 0; i < methods.length; i++) {
+		vic[methods[i]] = web3.eth[methods[i]];
+	}
+	web3.eth.viction = vic;
+})();
 `

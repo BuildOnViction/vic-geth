@@ -31,8 +31,12 @@ func (s *PublicVictionBlockChainAPI) GetRewardByHash(ctx context.Context, hash c
 	return s.b.GetRewardByHash(ctx, hash)
 }
 
-func (s *PublicVictionBlockChainAPI) GetBlockFinalityByHash(ctx context.Context, hash common.Hash) (uint, error) {
-	return s.b.GetBlockFinalityByHash(ctx, hash)
+func (s *PublicVictionBlockChainAPI) GetRewardByNumber(ctx context.Context, number rpc.BlockNumber) (*posv.EpochReward, error) {
+	return s.b.GetRewardByNumber(ctx, number)
+}
+
+func (s *PublicVictionBlockChainAPI) GetRewardByHashOrNumber(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*posv.EpochReward, error) {
+	return s.b.GetRewardByHashOrNumber(ctx, blockNrOrHash)
 }
 
 func (s *PublicVictionBlockChainAPI) GetBlockFinalityByNumber(ctx context.Context, number rpc.BlockNumber) (uint, error) {
