@@ -991,16 +991,4 @@ web3._extend({
 		}),
 	]
 });
-(function() {
-	var vic = {};
-	var methods = [
-		'getRewardByHash', 'getRewardByNumber', 'getRewardByHashOrNumber',
-		'getAttestorsPairsByHash', 'getAttestorsPairsByNumber',
-		'getBlockFinalityByHash', 'getBlockFinalityByNumber'
-	];
-	for (var i = 0; i < methods.length; i++) {
-		vic[methods[i]] = web3.eth[methods[i]];
-	}
-	web3.eth.viction = vic;
-})();
 `
