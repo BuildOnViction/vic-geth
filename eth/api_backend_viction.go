@@ -14,22 +14,12 @@ import (
 )
 
 // GetRewardByHash returns the epoch reward breakdown for the checkpoint block identified by hash.
-// GetRewardByNumber returns the epoch reward breakdown for the checkpoint block identified by number.
-// GetRewardByHashOrNumber returns the epoch reward breakdown for the checkpoint block identified by hash or number.
-//
-// Use this when you want to know how rewards were distributed at the end of a specific epoch.
-// The hash must be the hash of a checkpoint block (block number divisible by epoch size, e.g. 900,
+// The hash must identify a checkpoint block (block number divisible by the epoch size, e.g. 900,
 // 1800, 2700 ...). Passing a non-checkpoint hash returns an error.
 //
 // Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
-// state is only kept for the most recent ~128 blocks. Querying an older checkpoint will fail
-// with "missing trie node" unless the node is running in archive mode (--gcmode=archive).
-//
-// Example (JSON-RPC):
-//
-//	curl -X POST http://localhost:8545 \
-//	  -H "Content-Type: application/json" \
-//	  -d '{"jsonrpc":"2.0","method":"eth_getRewardByHash","params":["0x<checkpoint-block-hash>"],"id":1}'
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
 func (s *EthAPIBackend) GetRewardByHash(ctx context.Context, hash common.Hash) (*posv.EpochReward, error) {
 	header, err := s.HeaderByHash(ctx, hash)
 	if err != nil {
@@ -38,6 +28,13 @@ func (s *EthAPIBackend) GetRewardByHash(ctx context.Context, hash common.Hash) (
 	return s.getEpochRewardByCheckpointHeader(header)
 }
 
+// GetRewardByNumber returns the epoch reward breakdown for the checkpoint block at the given number.
+// The block number must be divisible by the epoch size (e.g. 900, 1800, 2700 ...).
+// Passing a non-checkpoint number returns an error.
+//
+// Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
 func (s *EthAPIBackend) GetRewardByNumber(ctx context.Context, number rpc.BlockNumber) (*posv.EpochReward, error) {
 	header, err := s.HeaderByNumber(ctx, number)
 	if err != nil {
@@ -46,6 +43,13 @@ func (s *EthAPIBackend) GetRewardByNumber(ctx context.Context, number rpc.BlockN
 	return s.getEpochRewardByCheckpointHeader(header)
 }
 
+// GetRewardByHashOrNumber returns the epoch reward breakdown for the checkpoint block identified
+// by either a block hash or a block number. The resolved block must be a checkpoint block
+// (block number divisible by the epoch size). Passing a non-checkpoint identifier returns an error.
+//
+// Note: requires the state trie at that block to be available. On a pruning (full-sync) node,
+// state is only kept for the most recent ~128 blocks; querying an older checkpoint will fail
+// with "missing trie node" unless the node runs in archive mode (--gcmode=archive).
 func (s *EthAPIBackend) GetRewardByHashOrNumber(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*posv.EpochReward, error) {
 	header, err := s.HeaderByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
