@@ -56,7 +56,7 @@ func (s *EthAPIBackend) GetRewardByHashOrNumber(ctx context.Context, blockNrOrHa
 
 func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (*posv.EpochReward, error) {
 	if header == nil {
-		return nil, errors.New("header is not a checkpoint block")
+		return nil, errors.New("header at block number or hash is not found")
 	}
 
 	cfg := s.eth.blockchain.Config()
@@ -93,7 +93,6 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 	}
 	return epochReward, nil
 }
-
 
 func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common.Hash) (map[common.Address]common.Address, error) {
 	header, err := s.HeaderByHash(ctx, hash)

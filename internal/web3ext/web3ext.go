@@ -948,7 +948,6 @@ web3._extend({
 // VictionJs extends the eth namespace with Viction/PoSV-specific methods.
 //
 // All RPC calls use the eth_ prefix so they work over HTTP, WS and IPC without
-// needing a separate namespace.  A convenience sub-object eth.viction mirrors
 // every method for discoverability and to allow a clean cut-over in future.
 const VictionJs = `
 web3._extend({
