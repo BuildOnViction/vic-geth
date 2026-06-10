@@ -58,6 +58,10 @@ func migrateLegacyInstanceDir(dataDir, targetName string) (instdir string, relea
 	if err = os.Rename(src, instdir); err != nil {
 		return "", nil, err
 	}
+
+	if err := migrateLegacyTomoXDir(dataDir, targetName); err != nil {
+		return "", nil, err
+	}
 	return instdir, release, nil
 }
 

@@ -305,9 +305,6 @@ func (n *Node) openDataDir() error {
 
 	// check if migration happened and if so, no need to acquire lock
 	if release != nil {
-		if err := migrateLegacyTomoXDir(n.config.DataDir, n.config.name()); err != nil {
-			return convertFileLockError(err)
-		}
 		// Migration happened: lock was acquired on the source LOCK file,
 		// which moved with the directory — no need to Flock again.
 		n.dirLock = release
