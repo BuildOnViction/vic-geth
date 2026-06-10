@@ -21,10 +21,7 @@ const legacyInstanceDir = "tomo"
 const legacyTomoXDir = "tomox"
 
 // migrateLegacyInstanceDir resolves the instance directory path and migrates
-// the legacy "tomo" directory to targetName when needed. TomoX under
-// {datadir}/tomo/tomox is moved with the rename; root-level {datadir}/tomox is
-// moved by migrateLegacyTomoXDir after a successful instance migration.
-//
+// the legacy "tomo" directory to targetName when needed
 // Returns:
 //   - instdir: the resolved instance directory path (always set when no error)
 //   - release: non-nil only when migration happened; holds the lock on the
