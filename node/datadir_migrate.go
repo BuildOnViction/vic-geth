@@ -17,9 +17,11 @@ import (
 // to be migrated to the current instance name (e.g. "viction").
 const legacyInstanceDir = "tomo"
 
+// legacyTomoXDir is the TomoX LevelDB directory name.
+const legacyTomoXDir = "tomox"
+
 // migrateLegacyInstanceDir resolves the instance directory path and migrates
-// the legacy "tomo" directory to targetName when needed.
-//
+// the legacy "tomo" directory to targetName when needed
 // Returns:
 //   - instdir: the resolved instance directory path (always set when no error)
 //   - release: non-nil only when migration happened; holds the lock on the
@@ -56,7 +58,51 @@ func migrateLegacyInstanceDir(dataDir, targetName string) (instdir string, relea
 	if err = os.Rename(src, instdir); err != nil {
 		return "", nil, err
 	}
+
+	if err := migrateLegacyTomoXDir(dataDir, targetName); err != nil {
+		return "", nil, err
+	}
 	return instdir, release, nil
+}
+
+// migrateLegacyTomoXDir moves a legacy root-level TomoX database
+// ({datadir}/tomox) into the instance directory. It is only called after a
+// successful tomo → targetName instance migration.
+func migrateLegacyTomoXDir(dataDir, targetName string) error {
+	dst := filepath.Join(dataDir, targetName, legacyTomoXDir)
+	if tomoxDirHasData(dst) {
+		return nil
+	}
+
+	src := filepath.Join(dataDir, legacyTomoXDir)
+	if !tomoxDirHasData(src) {
+		return nil
+	}
+	if common.FileExist(dst) {
+		return fmt.Errorf(
+			"cannot migrate TomoX datadir from %q to %q: destination already exists; remove or rename %q, then restart",
+			src, dst, dst,
+		)
+	}
+	log.Info("Migrating TomoX datadir", "from", src, "to", dst)
+	return os.Rename(src, dst)
+}
+
+func tomoxDirHasData(dir string) bool {
+	for _, name := range []string{"CURRENT", "LOCK"} {
+		if common.FileExist(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) > 0
 }
 
 func instanceDirHasData(dir string) bool {
