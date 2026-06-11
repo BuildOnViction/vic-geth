@@ -17,13 +17,13 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	chain consensus.ChainReader,
 ) ([]common.Address, error) {
 	if bc == nil {
-		return []common.Address{}, fmt.Errorf("blockchain not initialized (block %v)", header.Number)
+		return []common.Address{}, fmt.Errorf("[Viction] blockchain not initialized (block %v)", header.Number)
 	}
 	// Viction reads signers from the contract using the state trie at the checkpoint block.
 	// This avoids relying on where the BlockSign tx ended up being included.
 	statedb, err := bc.State()
 	if err != nil {
-		return nil, fmt.Errorf("penalize/default: failed to get statedb at checkpoint root: %w", err)
+		return nil, fmt.Errorf("[Viction] penalize/default: failed to get statedb at checkpoint root: %w", err)
 	}
 	blockNumber := header.Number.Uint64()
 	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch

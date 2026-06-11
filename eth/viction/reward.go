@@ -75,7 +75,7 @@ func CalcRewardsForValidators(
 			signedBlockHash := common.BytesToHash(txData[len(txData)-common.HashLength:])
 			msg, err := tx.AsMessage(signer)
 			if err != nil {
-				logger.Debug("CalcRewardsForValidators: failed to get sender", "txHash", tx.Hash().Hex(), "err", err)
+				logger.Debug("[Viction] CalcRewardsForValidators: failed to get sender", "txHash", tx.Hash().Hex(), "err", err)
 				continue
 			}
 			blockSigners[signedBlockHash] = append(blockSigners[signedBlockHash], msg.From())
