@@ -79,7 +79,7 @@ func (l *LendingItem) VerifyLendingItem(lendingSMC common.Address, relayerSMC co
 		return err
 	}
 	if valid, _ := IsValidPair(lendingSMC, state, l.Relayer, l.LendingToken, l.Term); valid == false {
-		return fmt.Errorf("invalid pair . LendToken %s . Term: %v", l.LendingToken.Hex(), l.Term)
+		return fmt.Errorf("[LendingState] invalid pair . LendToken %s . Term: %v", l.LendingToken.Hex(), l.Term)
 	}
 	if l.Status == LendingStatusNew {
 		if err := l.VerifyLendingType(); err != nil {
@@ -107,21 +107,21 @@ func (l *LendingItem) VerifyLendingItem(lendingSMC common.Address, relayerSMC co
 		}
 	}
 	if !IsValidRelayer(lendingSMC, relayerSMC, state, l.Relayer) {
-		return fmt.Errorf("VerifyLendingItem: invalid relayer. address: %s", l.Relayer.Hex())
+		return fmt.Errorf("[LendingState] VerifyLendingItem: invalid relayer. address: %s", l.Relayer.Hex())
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyLendingSide() error {
 	if l.Side != Borrowing && l.Side != Investing {
-		return fmt.Errorf("VerifyLendingSide: invalid side . Side: %s", l.Side)
+		return fmt.Errorf("[LendingState] VerifyLendingSide: invalid side . Side: %s", l.Side)
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyCollateral(lendingSMC common.Address, state *state.StateDB) error {
 	if l.CollateralToken.String() == EmptyAddress || l.CollateralToken.String() == l.LendingToken.String() {
-		return fmt.Errorf("invalid collateral %s", l.CollateralToken.Hex())
+		return fmt.Errorf("[LendingState] invalid collateral %s", l.CollateralToken.Hex())
 	}
 	validCollateral := false
 	collateralList, _ := GetCollaterals(lendingSMC, state, l.Relayer, l.LendingToken, l.Term)
@@ -132,35 +132,35 @@ func (l *LendingItem) VerifyCollateral(lendingSMC common.Address, state *state.S
 		}
 	}
 	if !validCollateral {
-		return fmt.Errorf("invalid collateral %s", l.CollateralToken.Hex())
+		return fmt.Errorf("[LendingState] invalid collateral %s", l.CollateralToken.Hex())
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyLendingInterest() error {
 	if l.Interest == nil || l.Interest.Sign() <= 0 {
-		return fmt.Errorf("VerifyLendingInterest: invalid interest. Interest: %v", l.Interest)
+		return fmt.Errorf("[LendingState] VerifyLendingInterest: invalid interest. Interest: %v", l.Interest)
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyLendingQuantity() error {
 	if l.Quantity == nil || l.Quantity.Sign() <= 0 {
-		return fmt.Errorf("VerifyLendingQuantity: invalid quantity. Quantity: %v", l.Quantity)
+		return fmt.Errorf("[LendingState] VerifyLendingQuantity: invalid quantity. Quantity: %v", l.Quantity)
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyLendingType() error {
 	if valid, ok := ValidInputLendingType[l.Type]; !ok && !valid {
-		return fmt.Errorf("VerifyLendingType: invalid lending type. Type: %s", l.Type)
+		return fmt.Errorf("[LendingState] VerifyLendingType: invalid lending type. Type: %s", l.Type)
 	}
 	return nil
 }
 
 func (l *LendingItem) VerifyLendingStatus() error {
 	if valid, ok := ValidInputLendingStatus[l.Status]; !ok && !valid {
-		return fmt.Errorf("VerifyLendingStatus: invalid lending status. Status: %s", l.Status)
+		return fmt.Errorf("[LendingState] VerifyLendingStatus: invalid lending status. Status: %s", l.Status)
 	}
 	return nil
 }
@@ -218,11 +218,11 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
 		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
-			return fmt.Errorf("VerifyBalance: process deposit for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
+			return fmt.Errorf("[LendingState] VerifyBalance: process deposit for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}
 		tokenBalance := GetTokenBalance(lendingTrade.Borrower, lendingTrade.CollateralToken, statedb)
 		if tokenBalance.Cmp(quantity) < 0 {
-			return fmt.Errorf("VerifyBalance: not enough balance to process deposit for lendingTrade."+
+			return fmt.Errorf("[LendingState] VerifyBalance: not enough balance to process deposit for lendingTrade."+
 				"lendingTradeId: %v. Token: %s. ExpectedBalance: %s. ActualBalance: %s",
 				lendingTradeId, lendingTrade.CollateralToken.Hex(), quantity.String(), tokenBalance.String())
 		}
@@ -230,13 +230,13 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
 		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
-			return fmt.Errorf("VerifyBalance: process payment for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
+			return fmt.Errorf("[LendingState] VerifyBalance: process payment for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}
 		tokenBalance := GetTokenBalance(lendingTrade.Borrower, lendingTrade.LendingToken, statedb)
 		paymentBalance := CalculateTotalRepayValue(uint64(time.Now().Unix()), lendingTrade.LiquidationTime, lendingTrade.Term, lendingTrade.Interest, lendingTrade.Amount)
 
 		if tokenBalance.Cmp(paymentBalance) < 0 {
-			return fmt.Errorf("VerifyBalance: not enough balance to process payment for lendingTrade."+
+			return fmt.Errorf("[LendingState] VerifyBalance: not enough balance to process payment for lendingTrade."+
 				"lendingTradeId: %v. Token: %s. ExpectedBalance: %s. ActualBalance: %s",
 				lendingTradeId, lendingTrade.LendingToken.Hex(), paymentBalance.String(), tokenBalance.String())
 
@@ -248,7 +248,7 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 			case LendingStatusNew:
 				// make sure that investor have enough lendingToken
 				if balance := GetTokenBalance(userAddress, lendingToken, statedb); balance.Cmp(quantity) < 0 {
-					return fmt.Errorf("VerifyBalance: investor doesn't have enough lendingToken. User: %s. Token: %s. Expected: %v. Have: %v", userAddress.Hex(), lendingToken.Hex(), quantity, balance)
+					return fmt.Errorf("[LendingState] VerifyBalance: investor doesn't have enough lendingToken. User: %s. Token: %s. Expected: %v. Have: %v", userAddress.Hex(), lendingToken.Hex(), quantity, balance)
 				}
 				// check quantity: reject if it's too small
 				if lendTokenTOMOPrice != nil && lendTokenTOMOPrice.Sign() > 0 {
@@ -278,11 +278,11 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 
 				actualBalance := GetTokenBalance(userAddress, lendingToken, statedb)
 				if actualBalance.Cmp(cancelFee) < 0 {
-					return fmt.Errorf("VerifyBalance: investor doesn't have enough lendingToken to pay cancel fee. LendingToken: %s . ExpectedBalance: %s . ActualBalance: %s",
+					return fmt.Errorf("[LendingState] VerifyBalance: investor doesn't have enough lendingToken to pay cancel fee. LendingToken: %s . ExpectedBalance: %s . ActualBalance: %s",
 						lendingToken.Hex(), cancelFee.String(), actualBalance.String())
 				}
 			default:
-				return fmt.Errorf("VerifyBalance: invalid status of investing lendingitem. Status: %s", status)
+				return fmt.Errorf("[LendingState] VerifyBalance: invalid status of investing lendingitem. Status: %s", status)
 			}
 			return nil
 		case Borrowing:
@@ -296,7 +296,7 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 				expectedBalance := settleBalanceResult.CollateralLockedAmount
 				actualBalance := GetTokenBalance(userAddress, collateralToken, statedb)
 				if actualBalance.Cmp(expectedBalance) < 0 {
-					return fmt.Errorf("VerifyBalance: borrower doesn't have enough collateral token.  User: %s. CollateralToken: %s . ExpectedBalance: %s . ActualBalance: %s",
+					return fmt.Errorf("[LendingState] VerifyBalance: borrower doesn't have enough collateral token.  User: %s. CollateralToken: %s . ExpectedBalance: %s . ActualBalance: %s",
 						userAddress.Hex(), collateralToken.Hex(), expectedBalance.String(), actualBalance.String())
 				}
 			case LendingStatusCancelled:
@@ -309,18 +309,18 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 				cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
 				actualBalance := GetTokenBalance(userAddress, collateralToken, statedb)
 				if actualBalance.Cmp(cancelFee) < 0 {
-					return fmt.Errorf("VerifyBalance: borrower doesn't have enough collateralToken to pay cancel fee. User: %s. CollateralToken: %s . ExpectedBalance: %s . ActualBalance: %s",
+					return fmt.Errorf("[LendingState] VerifyBalance: borrower doesn't have enough collateralToken to pay cancel fee. User: %s. CollateralToken: %s . ExpectedBalance: %s . ActualBalance: %s",
 						userAddress.Hex(), lendingToken.Hex(), cancelFee.String(), actualBalance.String())
 				}
 			default:
-				return fmt.Errorf("VerifyBalance: invalid status of borrowing lendingitem. Status: %s", status)
+				return fmt.Errorf("[LendingState] VerifyBalance: invalid status of borrowing lendingitem. Status: %s", status)
 			}
 			return nil
 		default:
-			return fmt.Errorf("VerifyBalance: unknown lending side")
+			return fmt.Errorf("[LendingState] VerifyBalance: unknown lending side")
 		}
 	default:
-		return fmt.Errorf("VerifyBalance: unknown lending type")
+		return fmt.Errorf("[LendingState] VerifyBalance: unknown lending type")
 	}
 	return nil
 }

@@ -120,7 +120,7 @@ func (db *cachingDB) CopyTrie(t Trie) Trie {
 	case *TomoXTrie:
 		return t.Copy()
 	default:
-		panic(fmt.Errorf("unknown trie type %T", t))
+		panic(fmt.Errorf("[LendingState] unknown trie type %T", t))
 	}
 }
 

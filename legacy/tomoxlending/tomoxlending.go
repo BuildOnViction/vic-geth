@@ -66,11 +66,11 @@ func (l *Lending) GetLendingState(block *types.Block, author common.Address) (*l
 		return nil, err
 	}
 	if l.lendingStateCache == nil {
-		return nil, errors.New("Not initialized tomox")
+		return nil, errors.New("[Tomoxlending] Not initialized tomox")
 	}
 	state, err := lendingstate.New(root, l.lendingStateCache)
 	if err != nil {
-		log.Info("Not found lending state when GetLendingState", "block", block.Number(), "lendingRoot", root.Hex())
+		log.Info("[Tomoxlending] Not found lending state when GetLendingState", "block", block.Number(), "lendingRoot", root.Hex())
 	}
 	return state, err
 }
@@ -124,25 +124,25 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 
 	allPairs, err := lendingstate.GetAllLendingPairs(l.config.Viction.LendingRegistrationSMC, statedb)
 	if err != nil {
-		log.Debug("Not found all trading pairs", "error", err)
+		log.Debug("[Tomoxlending] Not found all trading pairs", "error", err)
 		return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, nil
 	}
 	allLendingBooks, err := lendingstate.GetAllLendingBooks(l.config.Viction.LendingRegistrationSMC, statedb)
 	if err != nil {
-		log.Debug("Not found all lending books", "error", err)
+		log.Debug("[Tomoxlending] Not found all lending books", "error", err)
 		return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, nil
 	}
 
 	// liquidate trades by time
 	for lendingBook := range allLendingBooks {
 		lowestTime, tradingIds := lendingState.GetLowestLiquidationTime(lendingBook, blockTime)
-		log.Debug("ProcessLiquidationData time", "tradeIds", len(tradingIds))
+		log.Debug("[Tomoxlending] ProcessLiquidationData time", "tradeIds", len(tradingIds))
 		for lowestTime.Sign() > 0 && lowestTime.Cmp(blockTime) < 0 {
 			for _, tradingId := range tradingIds {
-				log.Debug("ProcessRepay", "lowestTime", lowestTime, "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingId", tradingId.Hex())
+				log.Debug("[Tomoxlending] ProcessRepay", "lowestTime", lowestTime, "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingId", tradingId.Hex())
 				trade, err := l.ProcessRepayLendingTrade(header, chain, lendingState, statedb, tradingState, lendingBook, tradingId.Big().Uint64())
 				if err != nil {
-					log.Error("Fail when process payment ", "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingId", tradingId, "error", err)
+					log.Error("[Tomoxlending] Fail when process payment ", "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingId", tradingId, "error", err)
 					return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, err
 				}
 				if trade != nil && trade.Hash != (common.Hash{}) {
@@ -163,7 +163,7 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 		orderbook := tradingstate.GetTradingOrderBookHash(lendingPair.CollateralToken, lendingPair.LendingToken)
 		_, collateralPrice, err := l.GetCollateralPrices(header, chain, statedb, tradingState, lendingPair.CollateralToken, lendingPair.LendingToken)
 		if err != nil || collateralPrice == nil || collateralPrice.Sign() == 0 {
-			log.Error("Fail when get price collateral/lending ", "CollateralToken", lendingPair.CollateralToken.Hex(), "LendingToken", lendingPair.LendingToken.Hex(), "error", err)
+			log.Error("[Tomoxlending] Fail when get price collateral/lending ", "CollateralToken", lendingPair.CollateralToken.Hex(), "LendingToken", lendingPair.LendingToken.Hex(), "error", err)
 			// ignore this pair, do not throw error
 			continue
 		}
@@ -176,16 +176,16 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 					if trade.AutoTopUp {
 						if newTrade, err := l.AutoTopUp(statedb, tradingState, lendingState, lendingBook, tradingIdHash, collateralPrice); err == nil {
 							// if this action complete successfully, do not liquidate this trade in this epoch
-							log.Debug("AutoTopUp", "borrower", trade.Borrower.Hex(), "collateral", newTrade.CollateralToken.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLockedAmount", newTrade.CollateralLockedAmount)
+							log.Debug("[Tomoxlending] AutoTopUp", "borrower", trade.Borrower.Hex(), "collateral", newTrade.CollateralToken.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLockedAmount", newTrade.CollateralLockedAmount)
 							autoTopUpTrades = append(autoTopUpTrades, newTrade)
 							updatedTrades[newTrade.Hash] = newTrade
 							continue
 						}
 					}
-					log.Debug("LiquidationTrade", "highestLiquidatePrice", highestLiquidatePrice, "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex())
+					log.Debug("[Tomoxlending] LiquidationTrade", "highestLiquidatePrice", highestLiquidatePrice, "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex())
 					newTrade, err := l.LiquidationTrade(lendingState, statedb, tradingState, lendingBook, tradingIdHash.Big().Uint64())
 					if err != nil {
-						log.Error("Fail when remove liquidation newTrade", "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "error", err)
+						log.Error("[Tomoxlending] Fail when remove liquidation newTrade", "time", blockTime, "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "error", err)
 						return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, err
 					}
 					if newTrade != nil && newTrade.Hash != (common.Hash{}) {
@@ -212,22 +212,22 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 		newLiquidatePrice := new(big.Int).Mul(collateralPrice, liquidationRate)
 		newLiquidatePrice = new(big.Int).Div(newLiquidatePrice, depositRate)
 		allLowertLiquidationData := tradingState.GetAllLowerLiquidationPriceData(orderbook, recalLiquidatePrice)
-		log.Debug("ProcessLiquidationData", "orderbook", orderbook.Hex(), "collateralPrice", collateralPrice, "recallRate", recallRate, "recalLiquidatePrice", recalLiquidatePrice, "newLiquidatePrice", newLiquidatePrice, "allLowertLiquidationData", len(allLowertLiquidationData))
+		log.Debug("[Tomoxlending] ProcessLiquidationData", "orderbook", orderbook.Hex(), "collateralPrice", collateralPrice, "recallRate", recallRate, "recalLiquidatePrice", recalLiquidatePrice, "newLiquidatePrice", newLiquidatePrice, "allLowertLiquidationData", len(allLowertLiquidationData))
 		for price, liquidationData := range allLowertLiquidationData {
 			if price.Sign() > 0 && recalLiquidatePrice.Cmp(price) > 0 {
 				for lendingBook, tradingIds := range liquidationData {
 					for _, tradingIdHash := range tradingIds {
-						log.Debug("Process Recall", "price", price, "lendingBook", lendingBook, "tradingIdHash", tradingIdHash.Hex())
+						log.Debug("[Tomoxlending] Process Recall", "price", price, "lendingBook", lendingBook, "tradingIdHash", tradingIdHash.Hex())
 						trade := lendingState.GetLendingTrade(lendingBook, tradingIdHash)
-						log.Debug("TestRecall", "borrower", trade.Borrower.Hex(), "lendingToken", trade.LendingToken.Hex(), "collateral", trade.CollateralToken.Hex(), "price", price, "tradingIdHash", tradingIdHash.Hex())
+						log.Debug("[Tomoxlending] TestRecall", "borrower", trade.Borrower.Hex(), "lendingToken", trade.LendingToken.Hex(), "collateral", trade.CollateralToken.Hex(), "price", price, "tradingIdHash", tradingIdHash.Hex())
 						if trade.AutoTopUp {
 							err, _, newTrade := l.ProcessRecallLendingTrade(lendingState, statedb, tradingState, lendingBook, tradingIdHash, newLiquidatePrice)
 							if err != nil {
-								log.Error("ProcessRecallLendingTrade", "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLiquidatePrice", newLiquidatePrice, "err", err)
+								log.Error("[Tomoxlending] ProcessRecallLendingTrade", "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLiquidatePrice", newLiquidatePrice, "err", err)
 								return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, err
 							}
 							// if this action complete successfully, do not liquidate this trade in this epoch
-							log.Debug("AutoRecall", "borrower", trade.Borrower.Hex(), "collateral", newTrade.CollateralToken.Hex(), "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLockedAmount", newTrade.CollateralLockedAmount)
+							log.Debug("[Tomoxlending] AutoRecall", "borrower", trade.Borrower.Hex(), "collateral", newTrade.CollateralToken.Hex(), "lendingBook", lendingBook.Hex(), "tradingIdHash", tradingIdHash.Hex(), "newLockedAmount", newTrade.CollateralLockedAmount)
 							autoRecallTrades = append(autoRecallTrades, newTrade)
 							updatedTrades[newTrade.Hash] = newTrade
 						}
@@ -237,6 +237,6 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 		}
 	}
 
-	log.Debug("ProcessLiquidationData", "updatedTrades", len(updatedTrades), "liquidated", len(liquidatedTrades), "autoRepay", len(autoRepayTrades), "autoTopUp", len(autoTopUpTrades), "autoRecall", len(autoRecallTrades))
+	log.Debug("[Tomoxlending] ProcessLiquidationData", "updatedTrades", len(updatedTrades), "liquidated", len(liquidatedTrades), "autoRepay", len(autoRepayTrades), "autoTopUp", len(autoTopUpTrades), "autoRecall", len(autoRecallTrades))
 	return updatedTrades, liquidatedTrades, autoRepayTrades, autoTopUpTrades, autoRecallTrades, nil
 }

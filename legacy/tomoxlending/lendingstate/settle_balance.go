@@ -45,7 +45,7 @@ func GetSettleBalance(isTomoXLendingFork bool,
 	lendTokenDecimal,
 	collateralTokenDecimal *big.Int,
 	quantityToLend *big.Int) (*LendingSettleBalance, error) {
-	log.Debug("GetSettleBalance", "takerSide", takerSide, "borrowFeeRate", borrowFeeRate, "lendingToken", lendingToken, "collateralToken", collateralToken, "quantityToLend", quantityToLend)
+	log.Debug("[LendingState] GetSettleBalance", "takerSide", takerSide, "borrowFeeRate", borrowFeeRate, "lendingToken", lendingToken, "collateralToken", collateralToken, "quantityToLend", quantityToLend)
 	if collateralPrice == nil || collateralPrice.Sign() <= 0 {
 		return nil, ErrInvalidCollateralPrice
 	}
@@ -69,7 +69,7 @@ func GetSettleBalance(isTomoXLendingFork bool,
 			takerFee = new(big.Int).Div(takerFee, tradingstate.TomoXBaseFee)
 
 			if quantityToLend.Cmp(takerFee) <= 0 || quantityToLend.Cmp(defaultFee) <= 0 {
-				log.Debug("quantity lending too small", "quantityToLend", quantityToLend, "takerFee", takerFee)
+				log.Debug("[LendingState] quantity lending too small", "quantityToLend", quantityToLend, "takerFee", takerFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			if lendingToken.String() != tradingstate.TomoNativeAddress && lendTokenTOMOPrice != nil && lendTokenTOMOPrice.Cmp(common.Big0) > 0 {
@@ -80,13 +80,13 @@ func GetSettleBalance(isTomoXLendingFork bool,
 				defaultFeeInTOMO = new(big.Int).Div(defaultFeeInTOMO, lendTokenDecimal)
 
 				if (exTakerReceivedFee.Cmp(RelayerLendingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerLendingFee) <= 0 {
-					log.Debug("takerFee too small", "quantityToLend", quantityToLend, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
+					log.Debug("[LendingState] takerFee too small", "quantityToLend", quantityToLend, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
 					return result, ErrQuantityTradeTooSmall
 				}
 			} else if lendingToken.String() == tradingstate.TomoNativeAddress {
 				exTakerReceivedFee := takerFee
 				if (exTakerReceivedFee.Cmp(RelayerLendingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerLendingFee) <= 0 {
-					log.Debug("takerFee too small", "quantityToLend", quantityToLend, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
+					log.Debug("[LendingState] takerFee too small", "quantityToLend", quantityToLend, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
 					return result, ErrQuantityTradeTooSmall
 				}
 			}
@@ -119,7 +119,7 @@ func GetSettleBalance(isTomoXLendingFork bool,
 			makerFee := new(big.Int).Mul(quantityToLend, borrowFeeRate)
 			makerFee = new(big.Int).Div(makerFee, tradingstate.TomoXBaseFee)
 			if quantityToLend.Cmp(makerFee) <= 0 || quantityToLend.Cmp(defaultFee) <= 0 {
-				log.Debug("quantity lending too small", "quantityToLend", quantityToLend, "makerFee", makerFee)
+				log.Debug("[LendingState] quantity lending too small", "quantityToLend", quantityToLend, "makerFee", makerFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			if lendingToken.String() != tradingstate.TomoNativeAddress && lendTokenTOMOPrice != nil && lendTokenTOMOPrice.Cmp(common.Big0) > 0 {
@@ -130,13 +130,13 @@ func GetSettleBalance(isTomoXLendingFork bool,
 				defaultFeeInTOMO = new(big.Int).Div(defaultFeeInTOMO, lendTokenDecimal)
 
 				if (exMakerReceivedFee.Cmp(RelayerLendingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerLendingFee) <= 0 {
-					log.Debug("makerFee too small", "quantityToLend", quantityToLend, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
+					log.Debug("[LendingState] makerFee too small", "quantityToLend", quantityToLend, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
 					return result, ErrQuantityTradeTooSmall
 				}
 			} else if lendingToken.String() == tradingstate.TomoNativeAddress {
 				exMakerReceivedFee := makerFee
 				if (exMakerReceivedFee.Cmp(RelayerLendingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerLendingFee) <= 0 {
-					log.Debug("makerFee too small", "quantityToLend", quantityToLend, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
+					log.Debug("[LendingState] makerFee too small", "quantityToLend", quantityToLend, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
 					return result, ErrQuantityTradeTooSmall
 				}
 			}
@@ -169,7 +169,7 @@ func GetSettleBalance(isTomoXLendingFork bool,
 		borrowFee = new(big.Int).Div(borrowFee, tradingstate.TomoXBaseFee)
 
 		if quantityToLend.Cmp(borrowFee) <= 0 || quantityToLend.Cmp(defaultFee) <= 0 {
-			log.Debug("quantity lending too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee)
+			log.Debug("[LendingState] quantity lending too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee)
 			return result, ErrQuantityTradeTooSmall
 		}
 		if lendingToken.String() != tradingstate.TomoNativeAddress && lendTokenTOMOPrice != nil && lendTokenTOMOPrice.Cmp(common.Big0) > 0 {
@@ -181,13 +181,13 @@ func GetSettleBalance(isTomoXLendingFork bool,
 			defaultFeeInTOMO = new(big.Int).Div(defaultFeeInTOMO, lendTokenDecimal)
 
 			if (exReceivedFee.Cmp(RelayerLendingFee) <= 0 && exReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerLendingFee) <= 0 {
-				log.Debug("takerFee too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee, "exReceivedFee", exReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
+				log.Debug("[LendingState] takerFee too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee, "exReceivedFee", exReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFeeInTOMO", defaultFeeInTOMO)
 				return result, ErrQuantityTradeTooSmall
 			}
 		} else if lendingToken.String() == tradingstate.TomoNativeAddress {
 			exReceivedFee := borrowFee
 			if (exReceivedFee.Cmp(RelayerLendingFee) <= 0 && exReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerLendingFee) <= 0 {
-				log.Debug("takerFee too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee, "exReceivedFee", exReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
+				log.Debug("[LendingState] takerFee too small", "quantityToLend", quantityToLend, "borrowFee", borrowFee, "exReceivedFee", exReceivedFee, "borrowFeeRate", borrowFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 		}
