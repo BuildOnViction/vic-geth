@@ -60,22 +60,22 @@ func (s *EthAPIBackend) GetRewardByHashOrNumber(ctx context.Context, blockNrOrHa
 
 func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (*posv.EpochReward, error) {
 	if header == nil {
-		return nil, errors.New("header at block number or hash is not found")
+		return nil, errors.New("[ETH] header at block number or hash is not found")
 	}
 
 	cfg := s.eth.blockchain.Config()
 	if header.Number.Uint64()%cfg.Posv.Epoch != 0 {
-		return nil, errors.New("header is not a checkpoint block")
+		return nil, errors.New("[ETH] header is not a checkpoint block")
 	}
 
 	engine, ok := s.Engine().(*posv.Posv)
 	if !ok {
-		return nil, errors.New("engine is not a posv engine")
+		return nil, errors.New("[ETH] engine is not a posv engine")
 	}
 
 	statedb, err := s.eth.blockchain.StateAt(header.Root)
 	if err != nil {
-		log.Info("Failed to get state at", "hash", header.Hash(), "error", err)
+		log.Info("[ETH] Failed to get state at", "hash", header.Hash(), "error", err)
 		return nil, err
 	}
 
@@ -93,7 +93,7 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 		return nil, err
 	}
 	if epochReward == nil {
-		return nil, errors.New("epoch reward is nil")
+		return nil, errors.New("[ETH] epoch reward is nil")
 	}
 	return epochReward, nil
 }
@@ -104,16 +104,16 @@ func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common
 		return nil, err
 	}
 	if header == nil {
-		return nil, errors.New("header not found")
+		return nil, errors.New("[ETH] header not found")
 	}
 	posvConfig := s.eth.blockchain.Config().Posv
 	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
 	if checkpointHeader == nil {
-		return nil, errors.New("checkpoint header not found")
+		return nil, errors.New("[ETH] checkpoint header not found")
 	}
 	engine, ok := s.Engine().(*posv.Posv)
 	if !ok {
-		return nil, errors.New("engine is not a posv engine")
+		return nil, errors.New("[ETH] engine is not a posv engine")
 	}
 	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
 	return pairs, err
@@ -127,15 +127,15 @@ func (s *EthAPIBackend) GetAttestorsPairsByNumber(ctx context.Context, number rp
 
 	posvConfig := s.eth.blockchain.Config().Posv
 	if header == nil {
-		return nil, errors.New("header not found")
+		return nil, errors.New("[ETH] header not found")
 	}
 	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
 	if checkpointHeader == nil {
-		return nil, errors.New("checkpoint header not found")
+		return nil, errors.New("[ETH] checkpoint header not found")
 	}
 	engine, ok := s.Engine().(*posv.Posv)
 	if !ok {
-		return nil, errors.New("engine is not a posv engine")
+		return nil, errors.New("[ETH] engine is not a posv engine")
 	}
 	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
 	return pairs, err
@@ -171,15 +171,15 @@ func (s *EthAPIBackend) getBlockFinality(ctx context.Context, block *types.Block
 	var finalityLegacy uint
 	masternodes, err := s.GetMasternodes(ctx, block)
 	if err != nil {
-		log.Error("Failed to get masternodes", "number", block.NumberU64(), "hash", block.Hash(), "err", err)
+		log.Error("[ETH] Failed to get masternodes", "number", block.NumberU64(), "hash", block.Hash(), "err", err)
 	} else if len(masternodes) == 0 {
-		log.Error("Empty masternodes", "number", block.NumberU64(), "hash", block.Hash())
+		log.Error("[ETH] Empty masternodes", "number", block.NumberU64(), "hash", block.Hash())
 	} else {
 		// Masternodes available — compute legacy finality.
 		finalityLegacy, err = s.findFinalityOfBlock(ctx, block, masternodes)
 		if err != nil {
 			// Legacy finality calculation failed; fall through to findClosestFinalizedBlock.
-			log.Error("Failed to find legacy finality of block", "number", block.NumberU64(), "hash", block.Hash(), "err", err)
+			log.Error("[ETH] Failed to find legacy finality of block", "number", block.NumberU64(), "hash", block.Hash(), "err", err)
 		} else if finalityLegacy == 100 {
 			return 100, nil
 		}
@@ -302,7 +302,7 @@ func (s *EthAPIBackend) GetMasternodes(ctx context.Context, b *types.Block) ([]c
 				masternodes = posv.ExtractValidatorsFromCheckpointHeader(prevCheckpointBlock.Header())
 			}
 		} else {
-			log.Error("Undefined POSV consensus engine")
+			log.Error("[ETH] Undefined POSV consensus engine")
 		}
 	}
 	return masternodes, nil
@@ -349,7 +349,7 @@ func (s *EthAPIBackend) getSigners(ctx context.Context, block *types.Block, engi
 	masternodes := posv.ExtractValidatorsFromCheckpointHeader(checkpointBlock.Header())
 	signers, err = s.GetSignersFromBlocks(ctx, block.NumberU64(), block.Hash(), masternodes)
 	if err != nil {
-		log.Error("Fail to get signers from block signer SC.", "error", err)
+		log.Error("[ETH] Fail to get signers from block signer SC.", "error", err)
 		return nil, err
 	}
 	validator, _ := engine.Attestor(block.Header())
@@ -430,7 +430,7 @@ func (s *EthAPIBackend) GetValidators(b *types.Block) ([]common.Address, error) 
 				validators = posv.ExtractValidatorsFromCheckpointHeader(prevCheckpointBlock.Header())
 			}
 		} else {
-			log.Error("Undefined POSV consensus engine")
+			log.Error("[ETH] Undefined POSV consensus engine")
 		}
 	}
 	return validators, nil
