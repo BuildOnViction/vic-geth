@@ -82,7 +82,7 @@ func (self *stateLendingBook) getTrie(db Database) Trie {
 		self.trie, err = db.OpenStorageTrie(self.lendingBook, self.data.Root)
 		if err != nil {
 			self.trie, _ = db.OpenStorageTrie(self.price, EmptyHash)
-			self.setError(fmt.Errorf("can't create storage trie: %v", err))
+			self.setError(fmt.Errorf("[TradingState] can't create storage trie: %v", err))
 		}
 	}
 	return self.trie

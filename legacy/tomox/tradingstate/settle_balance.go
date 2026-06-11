@@ -30,7 +30,7 @@ func (settleBalance *SettleBalance) String() string {
 }
 
 func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.Int, baseToken, quoteToken common.Address, makerPrice *big.Int, makerFeeRate *big.Int, baseTokenDecimal *big.Int, quoteTokenDecimal *big.Int, quantityToTrade *big.Int) (*SettleBalance, error) {
-	log.Debug("GetSettleBalance", "takerSide", takerSide, "takerFeeRate", takerFeeRate, "baseToken", baseToken, "quoteToken", quoteToken, "makerPrice", makerPrice, "makerFeeRate", makerFeeRate, "baseTokenDecimal", baseTokenDecimal, "quantityToTrade", quantityToTrade, "quotePrice", quotePrice)
+	log.Debug("[TradingState] GetSettleBalance", "takerSide", takerSide, "takerFeeRate", takerFeeRate, "baseToken", baseToken, "quoteToken", quoteToken, "makerPrice", makerPrice, "makerFeeRate", makerFeeRate, "baseTokenDecimal", baseTokenDecimal, "quantityToTrade", quantityToTrade, "quotePrice", quotePrice)
 	var result *SettleBalance
 	//result = map[common.Address]map[string]interface{}{}
 
@@ -49,7 +49,7 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 
 	if takerSide == Bid {
 		if quoteTokenQuantity.Cmp(makerFee) <= 0 || quoteTokenQuantity.Cmp(defaultFee) <= 0 {
-			log.Debug("quantity trade too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "defaultFee", defaultFee)
+			log.Debug("[TradingState] quantity trade too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "defaultFee", defaultFee)
 			return result, ErrQuantityTradeTooSmall
 		}
 		if quoteToken.String() != TomoNativeAddress && quotePrice != nil && quotePrice.Cmp(common.Big0) > 0 {
@@ -60,24 +60,24 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 			exMakerReceivedFee := new(big.Int).Mul(makerFee, quotePrice)
 			exMakerReceivedFee = new(big.Int).Div(exMakerReceivedFee, quoteTokenDecimal)
 			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerFee) <= 0 {
-				log.Debug("makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
+				log.Debug("[TradingState] makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := new(big.Int).Mul(takerFee, quotePrice)
 			exTakerReceivedFee = new(big.Int).Div(exTakerReceivedFee, quoteTokenDecimal)
 			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerFee) <= 0 {
-				log.Debug("takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
+				log.Debug("[TradingState] takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
 				return result, ErrQuantityTradeTooSmall
 			}
 		} else if quoteToken.String() == TomoNativeAddress {
 			exMakerReceivedFee := makerFee
 			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
-				log.Debug("makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
+				log.Debug("[TradingState] makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := takerFee
 			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
-				log.Debug("takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
+				log.Debug("[TradingState] takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 		}
@@ -105,7 +105,7 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 		}
 	} else {
 		if quoteTokenQuantity.Cmp(takerFee) <= 0 || quoteTokenQuantity.Cmp(defaultFee) <= 0 {
-			log.Debug("quantity trade too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee)
+			log.Debug("[TradingState] quantity trade too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee)
 			return result, ErrQuantityTradeTooSmall
 		}
 		if quoteToken.String() != TomoNativeAddress && quotePrice != nil && quotePrice.Cmp(common.Big0) > 0 {
@@ -115,26 +115,26 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 
 			exMakerReceivedFee := new(big.Int).Mul(makerFee, quotePrice)
 			exMakerReceivedFee = new(big.Int).Div(exMakerReceivedFee, quoteTokenDecimal)
-			log.Debug("exMakerReceivedFee", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice)
+			log.Debug("[TradingState] exMakerReceivedFee", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice)
 			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerFee) <= 0 {
-				log.Debug("makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultMakerFeeInTOMO", defaultFeeInTOMO)
+				log.Debug("[TradingState] makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultMakerFeeInTOMO", defaultFeeInTOMO)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := new(big.Int).Mul(takerFee, quotePrice)
 			exTakerReceivedFee = new(big.Int).Div(exTakerReceivedFee, quoteTokenDecimal)
 			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInTOMO.Cmp(RelayerFee) <= 0 {
-				log.Debug("takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
+				log.Debug("[TradingState] takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInTOMO", defaultFeeInTOMO)
 				return result, ErrQuantityTradeTooSmall
 			}
 		} else if quoteToken.String() == TomoNativeAddress {
 			exMakerReceivedFee := makerFee
 			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
-				log.Debug("makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
+				log.Debug("[TradingState] makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := takerFee
 			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
-				log.Debug("takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
+				log.Debug("[TradingState] takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 		}

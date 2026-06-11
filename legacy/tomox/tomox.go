@@ -107,23 +107,23 @@ func (tomox *TomoX) GetTradingStateRoot(block *types.Block, author common.Addres
 func (tomox *TomoX) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, baseToken common.Address, quoteToken common.Address) (*big.Int, error) {
 	price := tradingStateDb.GetMediumPriceBeforeEpoch(tradingstate.GetTradingOrderBookHash(baseToken, quoteToken))
 	if price != nil && price.Sign() > 0 {
-		log.Debug("GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "price", price)
+		log.Debug("[TomoX] GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "price", price)
 		return price, nil
 	} else {
 		inversePrice := tradingStateDb.GetMediumPriceBeforeEpoch(tradingstate.GetTradingOrderBookHash(quoteToken, baseToken))
-		log.Debug("GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "inversePrice", inversePrice)
+		log.Debug("[TomoX] GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "inversePrice", inversePrice)
 		if inversePrice != nil && inversePrice.Sign() > 0 {
 			quoteTokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, quoteToken)
 			if err != nil || quoteTokenDecimal.Sign() == 0 {
-				return nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", quoteToken.String(), err)
+				return nil, fmt.Errorf("[TomoX] fail to get tokenDecimal. Token: %v . Err: %v", quoteToken.String(), err)
 			}
 			baseTokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, baseToken)
 			if err != nil || baseTokenDecimal.Sign() == 0 {
-				return nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", baseToken.String(), err)
+				return nil, fmt.Errorf("[TomoX] fail to get tokenDecimal. Token: %v . Err: %v", baseToken.String(), err)
 			}
 			price = new(big.Int).Mul(baseTokenDecimal, quoteTokenDecimal)
 			price = new(big.Int).Div(price, inversePrice)
-			log.Debug("GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "baseTokenDecimal", baseTokenDecimal, "quoteTokenDecimal", quoteTokenDecimal, "inversePrice", inversePrice)
+			log.Debug("[TomoX] GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "baseTokenDecimal", baseTokenDecimal, "quoteTokenDecimal", quoteTokenDecimal, "inversePrice", inversePrice)
 			return price, nil
 		}
 	}
@@ -152,7 +152,7 @@ func (tomox *TomoX) ConvertTOMOToToken(chain tradingstate.ChainContext, statedb 
 
 	tokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, token)
 	if err != nil || tokenDecimal.Sign() == 0 {
-		return common.Big0, common.Big0, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", token.String(), err)
+		return common.Big0, common.Big0, fmt.Errorf("[TomoX] fail to get tokenDecimal. Token: %v . Err: %v", token.String(), err)
 	}
 	tokenQuantity := new(big.Int).Mul(quantity, tokenDecimal)
 	tokenQuantity = new(big.Int).Div(tokenQuantity, tokenPriceInTomo)

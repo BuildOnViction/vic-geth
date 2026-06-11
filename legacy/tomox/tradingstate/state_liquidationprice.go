@@ -104,7 +104,7 @@ func (self *liquidationPriceState) getTrie(db Database) Trie {
 		self.trie, err = db.OpenStorageTrie(self.liquidationPrice, self.data.Root)
 		if err != nil {
 			self.trie, _ = db.OpenStorageTrie(self.liquidationPrice, EmptyHash)
-			self.setError(fmt.Errorf("can't create storage trie: %v", err))
+			self.setError(fmt.Errorf("[TradingState] can't create storage trie: %v", err))
 		}
 	}
 	return self.trie
@@ -179,7 +179,7 @@ func (self *liquidationPriceState) getStateLendingBook(db Database, lendingBook 
 	}
 	var data orderList
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state lending book ", "orderbook", self.orderBook, "liquidation price", self.liquidationPrice, "lendingBook", lendingBook, "err", err)
+		log.Error("[TradingState] Failed to decode state lending book ", "orderbook", self.orderBook, "liquidation price", self.liquidationPrice, "lendingBook", lendingBook, "err", err)
 		return nil
 	}
 	// Insert into the live set.
