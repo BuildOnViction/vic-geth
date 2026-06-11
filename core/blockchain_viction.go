@@ -49,18 +49,18 @@ func (bc *BlockChain) commitVictionStateDirect(block *types.Block) error {
 		tradingRoot := sp.victionState.committedTradingRoot
 		if tradingRoot != (common.Hash{}) {
 			if err := sp.tradingEngine.GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoX: trading trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+				return fmt.Errorf("[Core] TomoX: trading trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoX: trading trie flushed to disk (archive)", "block", block.NumberU64(), "root", tradingRoot.Hex())
+			log.Trace("[Core] TomoX: trading trie flushed to disk (archive)", "block", block.NumberU64(), "root", tradingRoot.Hex())
 		}
 	}
 	if sp.victionState.lendingStateDB != nil && sp.lendingEngine != nil {
 		lendingRoot := sp.victionState.committedLendingRoot
 		if lendingRoot != (common.Hash{}) {
 			if err := sp.lendingEngine.GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoZ: lending trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+				return fmt.Errorf("[Core] TomoZ: lending trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoZ: lending trie flushed to disk (archive)", "block", block.NumberU64(), "root", lendingRoot.Hex())
+			log.Trace("[Core] TomoZ: lending trie flushed to disk (archive)", "block", block.NumberU64(), "root", lendingRoot.Hex())
 		}
 	}
 	return nil
@@ -94,9 +94,9 @@ func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
 			sp.tradingTriegc.Push(tradingRoot, -int64(current))
 
 			if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit failed", "block", current, "err", err)
+				log.Error("[Core] TomoX: trading trieDB.Commit failed", "block", current, "err", err)
 			} else {
-				log.Trace("TomoX: trading trie flushed to disk", "block", current, "root", tradingRoot)
+				log.Trace("[Core] TomoX: trading trie flushed to disk", "block", current, "root", tradingRoot)
 			}
 
 			// Dereference roots old enough to no longer need keeping in memory.
@@ -123,9 +123,9 @@ func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
 			sp.lendingTriegc.Push(lendingRoot, -int64(current))
 
 			if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit failed", "block", current, "err", err)
+				log.Error("[Core] TomoZ: lending trieDB.Commit failed", "block", current, "err", err)
 			} else {
-				log.Trace("TomoZ: lending trie flushed to disk", "block", current, "root", lendingRoot)
+				log.Trace("[Core] TomoZ: lending trie flushed to disk", "block", current, "root", lendingRoot)
 			}
 
 			if current > TriesInMemory {
@@ -163,7 +163,7 @@ func (bc *BlockChain) stopViction() {
 		for !sp.tradingTriegc.Empty() {
 			root := sp.tradingTriegc.PopItem().(common.Hash)
 			if err := tradingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit(shutdown) failed", "root", root, "err", err)
+				log.Error("[Core] TomoX: trading trieDB.Commit(shutdown) failed", "root", root, "err", err)
 			}
 			tradingTrieDB.Dereference(root)
 		}
@@ -175,7 +175,7 @@ func (bc *BlockChain) stopViction() {
 		for !sp.lendingTriegc.Empty() {
 			root := sp.lendingTriegc.PopItem().(common.Hash)
 			if err := lendingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit(shutdown) failed", "root", root, "err", err)
+				log.Error("[Core] TomoZ: lending trieDB.Commit(shutdown) failed", "root", root, "err", err)
 			}
 			lendingTrieDB.Dereference(root)
 		}
@@ -186,34 +186,34 @@ func (bc *BlockChain) stopViction() {
 func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
 	sp, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("SetTradingEngine: processor is not a *StateProcessor, trading engine not installed")
+		log.Error("[Core] SetTradingEngine: processor is not a *StateProcessor, trading engine not installed")
 		return
 	}
 	sp.SetTradingEngine(engine)
-	log.Info("TomoX trading engine installed on state processor")
+	log.Info("[Core] TomoX trading engine installed on state processor")
 }
 
 // SetLendingEngine injects the TomoZ lending engine into the block processor.
 func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
 	sp, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("SetLendingEngine: processor is not a *StateProcessor, lending engine not installed")
+		log.Error("[Core] SetLendingEngine: processor is not a *StateProcessor, lending engine not installed")
 		return
 	}
 	sp.SetLendingEngine(engine)
-	log.Info("TomoZ lending engine installed on state processor")
+	log.Info("[Core] TomoZ lending engine installed on state processor")
 }
 
 func (bc *BlockChain) UpdateM1() error {
 	engine, ok := bc.Engine().(*posv.Posv)
 	if bc.Config().Posv == nil || !ok {
-		return fmt.Errorf("PoSV engine is not enabled")
+		return fmt.Errorf("[Core] PoSV engine is not enabled")
 	}
-	log.Info("It's time to update new set of masternodes for the next epoch...")
+	log.Info("[Core] It's time to update new set of masternodes for the next epoch...")
 
 	contractAddress := bc.chainConfig.Viction.ValidatorContract
 	if contractAddress == (common.Address{}) {
-		return fmt.Errorf("validator contract address is not set in chain config")
+		return fmt.Errorf("[Core] validator contract address is not set in chain config")
 	}
 
 	var candidates []common.Address
@@ -222,7 +222,7 @@ func (bc *BlockChain) UpdateM1() error {
 	// if can't get anything, request from contracts
 	stateDB, err := bc.State()
 	if err != nil {
-		return fmt.Errorf("failed to get state at current root (block %v): %v", bc.CurrentHeader().Number, err)
+		return fmt.Errorf("[Core] failed to get state at current root (block %v): %v", bc.CurrentHeader().Number, err)
 	}
 	candidates = stateDB.VicGetCandidates(contractAddress)
 
@@ -236,8 +236,8 @@ func (bc *BlockChain) UpdateM1() error {
 		}
 	}
 	if len(ms) == 0 {
-		log.Error("No masternode found. Stopping node")
-		return fmt.Errorf("no masternode found")
+		log.Error("[Core] No masternode found. Stopping node")
+		return fmt.Errorf("[Core] no masternode found")
 	} else {
 		header := bc.CurrentHeader()
 		if bc.Config().IsAtlas(header.Number) {
@@ -251,12 +251,12 @@ func (bc *BlockChain) UpdateM1() error {
 				return ms[i].Stake.Cmp(ms[j].Stake) >= 0
 			})
 		}
-		log.Info("Ordered list of masternode candidates")
+		log.Info("[Core] Ordered list of masternode candidates")
 		for _, m := range ms {
-			log.Info("", "address", m.Address.String(), "stake", m.Stake)
+			log.Info("[Core] ", "address", m.Address.String(), "stake", m.Stake)
 		}
 		// update masternodes
-		log.Info("Updating new set of masternodes")
+		log.Info("[Core] Updating new set of masternodes")
 		if len(ms) > int(bc.chainConfig.Viction.ValidatorMaxCount) {
 			err = engine.UpdateMasternodes(bc, header, ms[:bc.chainConfig.Viction.ValidatorMaxCount])
 		} else {
@@ -265,7 +265,7 @@ func (bc *BlockChain) UpdateM1() error {
 		if err != nil {
 			return err
 		}
-		log.Info("Masternodes are ready for the next epoch")
+		log.Info("[Core] Masternodes are ready for the next epoch")
 	}
 	return nil
 }

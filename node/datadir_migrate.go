@@ -44,7 +44,7 @@ func migrateLegacyInstanceDir(dataDir, targetName string) (instdir string, relea
 	// Guard against renaming over an existing (but empty) target directory.
 	if common.FileExist(instdir) {
 		return "", nil, fmt.Errorf(
-			"cannot migrate instance datadir from %q to %q: destination already exists; remove or rename %q, then restart",
+			"[Node] cannot migrate instance datadir from %q to %q: destination already exists; remove or rename %q, then restart",
 			src, instdir, instdir,
 		)
 	}
@@ -54,7 +54,7 @@ func migrateLegacyInstanceDir(dataDir, targetName string) (instdir string, relea
 		return "", nil, err
 	}
 
-	log.Info("Migrating instance datadir", "from", src, "to", instdir)
+	log.Info("[Node] Migrating instance datadir", "from", src, "to", instdir)
 	if err = os.Rename(src, instdir); err != nil {
 		return "", nil, err
 	}
@@ -80,11 +80,11 @@ func migrateLegacyTomoXDir(dataDir, targetName string) error {
 	}
 	if common.FileExist(dst) {
 		return fmt.Errorf(
-			"cannot migrate TomoX datadir from %q to %q: destination already exists; remove or rename %q, then restart",
+			"[Node] cannot migrate TomoX datadir from %q to %q: destination already exists; remove or rename %q, then restart",
 			src, dst, dst,
 		)
 	}
-	log.Info("Migrating TomoX datadir", "from", src, "to", dst)
+	log.Info("[Node] Migrating TomoX datadir", "from", src, "to", dst)
 	return os.Rename(src, dst)
 }
 
