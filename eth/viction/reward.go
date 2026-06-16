@@ -133,8 +133,9 @@ func CalcRewardsForValidators(
 
 func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header, validatorRewards map[common.Address]*posv.ValidatorReward, statedb *state.StateDB, logger log.Logger,
-) (map[common.Address]*big.Int, error) {
+) (map[common.Address]*big.Int, map[common.Address]map[common.Address]*big.Int, error) {
 	stakeholderRewards := make(map[common.Address]*big.Int)
+	nestedRewards := make(map[common.Address]map[common.Address]*big.Int)
 	blockNumber := header.Number.Uint64()
 	rewardValidatorPercent := vicConfig.RewardValidatorPercent
 	rewardVoterPercent := vicConfig.RewardVoterPercent
@@ -155,11 +156,13 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 
 		// 		validatorRewardTotal := new(big.Int).Set(vr.Reward)
 		distributedTotal := new(big.Int)
+		validatorNested := make(map[common.Address]*big.Int)
 
 		owner, _ := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, validator)
 		rewardForOwner := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardValidatorPercent))
 		rewardForOwner.Div(rewardForOwner, common.Big100)
 		addBalance(stakeholderRewards, owner, rewardForOwner)
+		addBalance(validatorNested, owner, new(big.Int).Set(rewardForOwner))
 		distributedTotal.Add(distributedTotal, rewardForOwner)
 
 		voters := statedb.VicGetValidatorVoters(vicConfig.ValidatorContract, validator)
@@ -188,6 +191,7 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 					rcap := new(big.Int).Mul(totalVoterReward, voteCap)
 					rcap.Div(rcap, totalCap)
 					addBalance(stakeholderRewards, addr, rcap)
+					addBalance(validatorNested, addr, new(big.Int).Set(rcap))
 					voterRewardDistributed.Add(voterRewardDistributed, rcap)
 				}
 			}
@@ -198,6 +202,7 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 			rewardForFoundation := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardFoundationPercent))
 			rewardForFoundation.Div(rewardForFoundation, common.Big100)
 			addBalance(stakeholderRewards, vicConfig.RewardFoundationAddress, rewardForFoundation)
+			addBalance(validatorNested, vicConfig.RewardFoundationAddress, new(big.Int).Set(rewardForFoundation))
 			distributedTotal.Add(distributedTotal, rewardForFoundation)
 		}
 
@@ -207,7 +212,8 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 		// 		logger.Warn("CalcRewardsForStakeholders: significant reward distribution mismatch", "validator", validator.Hex(), "totalReward", validatorRewardTotal.String(), "distributed", distributedTotal.String(), "missing", missing.String())
 		// 	}
 		// }
+		nestedRewards[validator] = validatorNested
 	}
 
-	return stakeholderRewards, nil
+	return stakeholderRewards, nestedRewards, nil
 }

@@ -38,8 +38,9 @@ const (
 // EpochReward stores number of sign made by each validator and rewards for
 // all stakeholders (validators and voters) in an epoch.
 type EpochReward struct {
-	ValidatorRewards  map[common.Address]*ValidatorReward `json:"signers"`
-	StakholderRewards map[common.Address]*big.Int         `json:"rewards"`
+	Rewards           map[common.Address]map[common.Address]*big.Int `json:"rewards"`
+	ValidatorRewards  map[common.Address]*ValidatorReward            `json:"signers"`
+	StakholderRewards map[common.Address]*big.Int                    `json:"-"`
 }
 
 type ValidatorReward struct {

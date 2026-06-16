@@ -168,11 +168,12 @@ func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, 
 		rewardState = statedb
 	}
 
-	stakeholderRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, rewardState, logger)
+	stakeholderRewards, nestedRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, rewardState, logger)
 	if err != nil {
 		return nil, err
 	}
 	epochRewards.StakholderRewards = stakeholderRewards
+	epochRewards.Rewards = nestedRewards
 
 	return epochRewards, nil
 }
