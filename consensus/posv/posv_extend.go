@@ -40,7 +40,7 @@ const (
 type EpochReward struct {
 	Rewards           map[common.Address]map[common.Address]*big.Int `json:"rewards"`
 	ValidatorRewards  map[common.Address]*ValidatorReward            `json:"signers"`
-	StakholderRewards map[common.Address]*big.Int                    `json:"-"`
+	StakeholderRewards map[common.Address]*big.Int                    `json:"-"`
 }
 
 type ValidatorReward struct {
