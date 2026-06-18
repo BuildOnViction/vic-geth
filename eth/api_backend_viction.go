@@ -5,12 +5,26 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/sortlgc"
+)
+
+const (
+	statusMasternode = "MASTERNODE"
+	statusProposed   = "PROPOSED"
+	statusSlashed    = "SLASHED"
+	fieldEpoch       = "epoch"
+	fieldSuccess     = "success"
+	fieldStatus      = "status"
+	fieldCapacity    = "capacity"
+	fieldCandidates  = "candidates"
 )
 
 // GetRewardByHash returns the epoch reward breakdown for the checkpoint block identified by hash.
@@ -459,4 +473,173 @@ func (s *EthAPIBackend) findNearestSignedBlock(ctx context.Context, b *types.Blo
 	}
 	return nil
 
+}
+
+func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber) (map[string]interface{}, error) {
+	result := map[string]interface{}{
+		fieldSuccess: true,
+	}
+
+	if _, ok := s.Engine().(*posv.Posv); !ok {
+		log.Error("Undefined POSV consensus engine")
+		result[fieldSuccess] = false
+		return result, errors.New("undefined POSV consensus engine")
+	}
+	epochConfig := s.eth.blockchain.Config().Posv.Epoch
+
+	checkpointNumber, epochNumber := s.GetPreviousCheckpointFromEpoch(ctx, epoch)
+	result[fieldEpoch] = epochNumber.Int64()
+
+	block, err := s.BlockByNumber(ctx, checkpointNumber)
+	if err != nil || block == nil {
+		result[fieldSuccess] = false
+		return result, err
+	}
+
+	header := block.Header()
+	if header == nil {
+		log.Error("Empty header at checkpoint", "num", checkpointNumber)
+		return result, errors.New("empty header at checkpoint")
+	}
+
+	vicConfig := s.eth.blockchain.Config().Viction
+	if vicConfig == nil {
+		log.Error("Undefined Viction config")
+		result[fieldSuccess] = false
+		return result, errors.New("undefined Viction config")
+	}
+	stateBlockNr := checkpointNumber
+	if epoch == rpc.LatestEpochNumber {
+		stateBlockNr = rpc.BlockNumber(s.eth.blockchain.CurrentBlock().Number().Uint64())
+	}
+	candidates, err := s.loadValidatorCandidates(ctx, vicConfig, stateBlockNr)
+	if err != nil {
+		log.Error("Failed to load validator candidates", "block", stateBlockNr, "error", err)
+		result[fieldSuccess] = false
+		return result, err
+	}
+
+	statusMap := make(map[string]map[string]interface{}, len(candidates))
+	for _, candidate := range candidates {
+		statusMap[candidate.Address.String()] = map[string]interface{}{
+			fieldStatus:   statusProposed,
+			fieldCapacity: candidate.Stake,
+		}
+	}
+
+	// First, Sort candidates by capacity
+	sortedCandidates := append([]posv.Masternode(nil), candidates...)
+	stateBlockNum := big.NewInt(int64(stateBlockNr))
+	if s.eth.blockchain.Config().IsAtlas(stateBlockNum) {
+		sort.SliceStable(sortedCandidates, func(i, j int) bool {
+			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+		})
+	} else {
+		sortlgc.Slice(sortedCandidates, func(i, j int) bool {
+			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+		})
+	}
+
+	// Second, Find candidates that have masternode status
+	var masternodes []common.Address
+	masternodes = posv.ExtractValidatorsFromCheckpointHeader(header)
+
+	if len(masternodes) == 0 {
+		log.Debug("Masternodes list cannot be found", "len(masternodes)", len(masternodes))
+		result[fieldSuccess] = false
+		return result, errors.New("masternodes list cannot be found")
+	}
+	for _, addr := range masternodes {
+		if statusMap[addr.String()] != nil {
+			statusMap[addr.String()][fieldStatus] = statusMasternode
+		}
+	}
+
+	// Third, Get penalties list
+	var penalties []common.Address
+	penalties = posv.DecodePenaltiesFromHeader(header.Penalties)
+
+	// check last 5 epochs to find penalize masternodes
+	for i:= uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
+		if header.Number.Uint64() < epochConfig * i {
+			break
+		}
+		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig * i
+		prevCheckpointHeader, err := s.HeaderByNumber(ctx, rpc.BlockNumber(prevCheckpointBlockNumber))
+		if prevCheckpointHeader == nil || err != nil {
+			log.Error("Failed to get previous checkpoint header", "error", err)
+			continue
+		}
+		prevPenalties := posv.DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
+		if len(prevPenalties) > 0 {
+			penalties = append(penalties, prevPenalties...)
+		}
+	}
+
+	// map slashing status
+	if len(penalties) == 0 {
+		result[fieldCandidates] = statusMap
+		return result, nil
+	}
+
+	var topCandidates []posv.Masternode
+	if len(sortedCandidates) > int(vicConfig.ValidatorMaxCount) {
+		topCandidates = sortedCandidates[:vicConfig.ValidatorMaxCount]
+	} else {
+		topCandidates = sortedCandidates
+	}
+	// check penalties from checkpoint headers and modify status of a node to SLASHED if it's in top 150 candidates
+	// if it's SLASHED but it's out of top 150, the status should be still PROPOSED
+	for _, pen := range penalties {
+		for _, candidate := range topCandidates {
+			if candidate.Address == pen && statusMap[pen.String()] != nil {
+				statusMap[pen.String()][fieldStatus] = statusSlashed
+			}
+		}
+	}
+	// update result
+	result[fieldCandidates] = statusMap
+	return result, nil
+}
+
+func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.Masternode, error) {
+	statedb, _, err := s.StateAndHeaderByNumber(ctx, blockNr)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
+	candidates := make([]posv.Masternode, 0, len(addresses))
+	for _, addr := range addresses {
+		if addr == (common.Address{}) {
+			continue
+		}
+		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
+		candidates = append(candidates, posv.Masternode{Address: addr, Stake: cap})
+	}
+	if len(candidates) == 0 {
+		log.Debug("Candidates list cannot be found", "len(candidates)", len(candidates))
+		return nil, errors.New("candidates list cannot be found")
+	}
+	return candidates, nil
+}
+
+func (s *EthAPIBackend) GetPreviousCheckpointFromEpoch(ctx context.Context, epochNum rpc.EpochNumber) (rpc.BlockNumber, rpc.EpochNumber) {
+	var checkpointNumber uint64
+	epoch := s.eth.blockchain.Config().Posv.Epoch
+
+	if epochNum == rpc.LatestEpochNumber {
+		blockNumer := s.eth.blockchain.CurrentBlock().Number().Uint64()
+		diff := blockNumer % epoch
+		checkpointNumber = blockNumer - diff
+		epochNum = rpc.EpochNumber(checkpointNumber / epoch)
+		if diff > 0 {
+			epochNum += 1
+		}
+	} else if epochNum < 2 {
+		checkpointNumber = 0
+	} else {
+		checkpointNumber = epoch * (uint64(epochNum) - 1)
+	}
+	return rpc.BlockNumber(checkpointNumber), epochNum
 }

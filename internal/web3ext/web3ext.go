@@ -988,6 +988,11 @@ web3._extend({
 			call: 'eth_getBlockFinalityByNumber',
 			params: 1
 		}),
+		new web3._extend.Method({
+			name: 'getCandidates',
+			call: 'eth_getCandidates',
+			params: 1
+		}),
 	]
 });
 `
