@@ -503,6 +503,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 
 	vicConfig := s.eth.blockchain.Config().Viction
+	if vicConfig == nil {
+		log.Error("Undefined Viction config")
+		result[fieldSuccess] = false
+		return result, errors.New("undefined Viction config")
+	}
 	stateBlockNr := checkpointNumber
 	if epoch == rpc.LatestEpochNumber {
 		stateBlockNr = rpc.BlockNumber(s.eth.blockchain.CurrentBlock().Number().Uint64())
@@ -555,7 +560,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	penalties = posv.DecodePenaltiesFromHeader(header.Penalties)
 
 	// check last 5 epochs to find penalize masternodes
-	for i:= uint64(0); i <= vicConfig.PenaltyEpochCount; i++ {
+	for i:= uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
 		if header.Number.Uint64() < epochConfig * i {
 			break
 		}
