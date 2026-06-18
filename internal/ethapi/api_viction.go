@@ -46,3 +46,7 @@ func (s *PublicVictionBlockChainAPI) GetBlockFinalityByHash(ctx context.Context,
 func (s *PublicVictionBlockChainAPI) GetBlockFinalityByNumber(ctx context.Context, number rpc.BlockNumber) (uint, error) {
 	return s.b.GetBlockFinalityByNumber(ctx, number)
 }
+
+func (s *PublicVictionBlockChainAPI) GetCandidates(ctx context.Context, epoch rpc.EpochNumber) (map[string]interface{}, error) {
+	return s.b.GetCandidates(ctx, epoch)
+}
