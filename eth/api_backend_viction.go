@@ -503,6 +503,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 
 	vicConfig := s.eth.blockchain.Config().Viction
+	if vicConfig == nil {
+		log.Error("Undefined Viction config")
+		result[fieldSuccess] = false
+		return result, errors.New("undefined Viction config")
+	}
 	stateBlockNr := checkpointNumber
 	if epoch == rpc.LatestEpochNumber {
 		stateBlockNr = rpc.BlockNumber(s.eth.blockchain.CurrentBlock().Number().Uint64())
