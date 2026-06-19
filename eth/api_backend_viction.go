@@ -510,7 +510,10 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 	stateBlockNr := checkpointNumber
 	if epoch == rpc.LatestEpochNumber {
-		stateBlockNr = rpc.BlockNumber(s.eth.blockchain.CurrentBlock().Number().Uint64())
+		stateBlockNr = rpc.LatestBlockNumber
+		if block, state := s.eth.miner.Pending(); block != nil && state != nil {
+			stateBlockNr = rpc.PendingBlockNumber
+		}
 	}
 	candidates, err := s.loadValidatorCandidates(ctx, vicConfig, stateBlockNr)
 	if err != nil {
@@ -529,8 +532,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 
 	// First, Sort candidates by capacity
 	sortedCandidates := append([]posv.Masternode(nil), candidates...)
-	stateBlockNum := big.NewInt(int64(stateBlockNr))
-	if s.eth.blockchain.Config().IsAtlas(stateBlockNum) {
+	forkBlockNum := big.NewInt(int64(stateBlockNr))
+	if stateBlockNr == rpc.LatestBlockNumber || stateBlockNr == rpc.PendingBlockNumber {
+		forkBlockNum = s.eth.blockchain.CurrentBlock().Number()
+	}
+	if s.eth.blockchain.Config().IsAtlas(forkBlockNum) {
 		sort.SliceStable(sortedCandidates, func(i, j int) bool {
 			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
 		})
