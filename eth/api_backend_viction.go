@@ -572,8 +572,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 			log.Error("Failed to get previous checkpoint header", "error", err)
 			continue
 		}
-		for _, addr := range posv.DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties) {
-			penalized[addr] = struct{}{}
+		prevPenalties := posv.DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
+		if len(prevPenalties) > 0 {
+			for _, addr := range prevPenalties {
+				penalized[addr] = struct{}{}
+			}
 		}
 	}
 
