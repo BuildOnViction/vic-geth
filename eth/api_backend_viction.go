@@ -526,7 +526,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	for _, candidate := range candidates {
 		statusMap[candidate.Address.String()] = map[string]interface{}{
 			fieldStatus:   statusProposed,
-			fieldCapacity: candidate.Stake,
+			fieldCapacity: candidate.Stake.String(),
 		}
 	}
 
