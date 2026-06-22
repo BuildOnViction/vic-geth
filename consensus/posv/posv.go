@@ -364,8 +364,8 @@ func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators 
 func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header) error {
 	chain, ok := chainH.(consensus.ChainReader)
 	if !ok {
-		log.Error("No chain reader provided for checkpoint preparation")
-		return fmt.Errorf("no chain reader provided for checkpoint preparation")
+		log.Error("[POSV] No chain reader provided for checkpoint preparation")
+		return fmt.Errorf("[POSV] no chain reader provided for checkpoint preparation")
 	}
 
 	// Mark as PoSV block so EncodeRLP always produces 18 fields
@@ -496,16 +496,16 @@ func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 		if epoch > 0 && number%epoch == 0 && number > epoch {
 			chainReader, ok := chain.(consensus.ChainReader)
 			if !ok {
-				log.Error("No chain reader provided for epoch reward distribution")
+				log.Error("[POSV] No chain reader provided for epoch reward distribution")
 			}
 
 			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chainReader, state, log.Root())
 			if err != nil {
-				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+				log.Warn("[POSV] Finalize: epoch reward failed", "block", number, "err", err)
 			}
 			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
 			if err != nil {
-				log.Warn("Finalize: add balance rewards failed", "block", number, "err", err)
+				log.Warn("[POSV] Finalize: add balance rewards failed", "block", number, "err", err)
 			}
 		}
 	}
@@ -538,7 +538,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	}
 	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
 	if c.config.Period == 0 && len(block.Transactions()) == 0 {
-		log.Info("Sealing paused, waiting for transactions")
+		log.Info("[POSV] Sealing paused, waiting for transactions")
 		results <- nil
 
 		return nil
@@ -558,7 +558,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		// may not yet be in the snapshot at epoch boundaries).
 		parent := chain.GetHeader(header.ParentHash, number-1)
 		if parent == nil {
-			return fmt.Errorf("Posv.Seal: %w", errUnauthorizedSigner)
+			return fmt.Errorf("[POSV] Posv.Seal: %w", errUnauthorizedSigner)
 		}
 		checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
 		validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
@@ -570,7 +570,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 			}
 		}
 		if !found {
-			return fmt.Errorf("Posv.Seal: %w", errUnauthorizedSigner)
+			return fmt.Errorf("[POSV] Posv.Seal: %w", errUnauthorizedSigner)
 		}
 	}
 	// If we're amongst the recent signers, wait for the next block.
@@ -583,7 +583,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 				if number < limit || seen > number-limit {
 					// Allow epoch blocks through even if recently signed
 					if number%c.config.Epoch != 0 {
-						log.Info("Signed recently, must wait for others", "signer", signer, "number", number,
+						log.Info("[POSV] Signed recently, must wait for others", "signer", signer, "number", number,
 							"sealhash", SealHash(header), "recentBlock", seen, "recentsLimit", limit,
 							"signers", len(snap.Signers))
 						return nil
@@ -597,7 +597,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	// wiggle — out-of-turn ordering is handled by the worker's hop-based wait.
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		log.Trace("Out-of-turn signing requested")
+		log.Trace("[POSV] Out-of-turn signing requested")
 	}
 	// Sign all the things!
 	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypePosv, PosvRLP(header))
@@ -606,7 +606,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	}
 	copy(header.Extra[len(header.Extra)-ExtraSeal:], sighash)
 	// Wait until sealing is terminated or delay timeout.
-	log.Info("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	log.Info("[POSV] Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
 	go func() {
 		select {
 		case <-stop:
@@ -617,7 +617,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+			log.Warn("[POSV] Sealing result is not read by miner", "sealhash", SealHash(header))
 		}
 	}()
 
@@ -637,7 +637,7 @@ func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, pa
 // uncles as this consensus mechanism doesn't permit uncles.
 func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
 	if len(block.Uncles()) > 0 {
-		return errors.New("uncles not allowed")
+		return errors.New("[POSV] uncles not allowed")
 	}
 	return nil
 }
@@ -668,7 +668,7 @@ func encodeSigHeader(w io.Writer, header *types.Header) {
 		header.Nonce,
 	}
 	if err := rlp.Encode(w, enc); err != nil {
-		panic("can't encode: " + err.Error())
+		panic("[POSV] can't encode: " + err.Error())
 	}
 }
 
@@ -714,7 +714,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							break
 						}
 						if time.Since(lastLog) >= 5*time.Second {
-							log.Info("VerifyHeaders: waiting for gap block state before verifying checkpoint",
+							log.Info("[POSV] VerifyHeaders: waiting for gap block state before verifying checkpoint",
 								"checkpoint", number, "requiredBlock", requiredBlock,
 								"currentBlock", cb.NumberU64())
 							lastLog = time.Now()
@@ -747,7 +747,7 @@ func (c *Posv) Signer() common.Address { return c.signer }
 
 func (c *Posv) UpdateMasternodes(chain consensus.ChainReader, header *types.Header, ms []Masternode) error {
 	number := header.Number.Uint64()
-	log.Trace("take snapshot", "number", number, "hash", header.Hash())
+	log.Trace("[POSV] take snapshot", "number", number, "hash", header.Hash())
 	// get snapshot
 	snap, err := c.snapshot(chain, number, header.Hash(), nil)
 	if err != nil {
@@ -763,7 +763,7 @@ func (c *Posv) UpdateMasternodes(chain consensus.ChainReader, header *types.Head
 		nm = append(nm, n.Address.String())
 	}
 	c.recents.Add(snap.Hash, snap)
-	log.Info("New set of masternodes has been updated to snapshot", "number", snap.Number, "hash", snap.Hash, "new masternodes", nm)
+	log.Info("[POSV] New set of masternodes has been updated to snapshot", "number", snap.Number, "hash", snap.Hash, "new masternodes", nm)
 	return nil
 }
 

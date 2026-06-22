@@ -56,7 +56,7 @@ type TomoXTrie struct {
 // cachelimit sets the number of past cache generations to keep.
 func NewTomoXTrie(root common.Hash, db *trie.Database) (*TomoXTrie, error) {
 	if db == nil {
-		panic("trie.NewTomoXTrie called without a database")
+		panic("[TradingState] trie.NewTomoXTrie called without a database")
 	}
 	trie, err := trie.New(root, db)
 	if err != nil {
@@ -70,7 +70,7 @@ func NewTomoXTrie(root common.Hash, db *trie.Database) (*TomoXTrie, error) {
 func (t *TomoXTrie) Get(key []byte) []byte {
 	res, err := t.TryGet(key)
 	if err != nil {
-		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+		log.Error(fmt.Sprintf("[TradingState] Unhandled trie error: %v", err))
 	}
 	return res
 }
@@ -106,7 +106,7 @@ func (t *TomoXTrie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
 // stored in the trie.
 func (t *TomoXTrie) Update(key, value []byte) {
 	if err := t.TryUpdate(key, value); err != nil {
-		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+		log.Error(fmt.Sprintf("[TradingState] Unhandled trie error: %v", err))
 	}
 }
 
@@ -130,7 +130,7 @@ func (t *TomoXTrie) TryUpdate(key, value []byte) error {
 // Delete removes any existing value for key from the trie.
 func (t *TomoXTrie) Delete(key []byte) {
 	if err := t.TryDelete(key); err != nil {
-		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+		log.Error(fmt.Sprintf("[TradingState] Unhandled trie error: %v", err))
 	}
 }
 

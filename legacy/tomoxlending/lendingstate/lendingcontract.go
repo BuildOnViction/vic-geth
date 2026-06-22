@@ -74,7 +74,7 @@ func IsValidRelayer(lendingSMC common.Address, relayerSMC common.Address, stated
 		balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
 		expectedFund := new(big.Int).Mul(tradingstate.BasePrice, tradingstate.RelayerLockedFund)
 		if balance.Cmp(expectedFund) <= 0 {
-			log.Debug("Relayer is not in relayer list", "relayer", coinbase.String(), "balance", balance, "expected", expectedFund)
+			log.Debug("[LendingState] Relayer is not in relayer list", "relayer", coinbase.String(), "balance", balance, "expected", expectedFund)
 			return false
 		}
 		return true
@@ -269,10 +269,10 @@ func GetAllLendingBooks(lendingSMC common.Address, statedb *state.StateDB) (mapL
 	baseTokens := GetSupportedBaseToken(lendingSMC, statedb)
 	terms := GetSupportedTerms(lendingSMC, statedb)
 	if len(baseTokens) == 0 {
-		return nil, fmt.Errorf("GetAllLendingBooks: empty baseToken list")
+		return nil, fmt.Errorf("[LendingState] GetAllLendingBooks: empty baseToken list")
 	}
 	if len(terms) == 0 {
-		return nil, fmt.Errorf("GetAllLendingPairs: empty term list")
+		return nil, fmt.Errorf("[LendingState] GetAllLendingPairs: empty term list")
 	}
 	for _, baseToken := range baseTokens {
 		for _, term := range terms {
@@ -291,10 +291,10 @@ func GetAllLendingPairs(lendingSMC common.Address, statedb *state.StateDB) (allP
 	baseTokens := GetSupportedBaseToken(lendingSMC, statedb)
 	collaterals := GetAllCollateral(lendingSMC, statedb)
 	if len(baseTokens) == 0 {
-		return allPairs, fmt.Errorf("GetAllLendingPairs: empty baseToken list")
+		return allPairs, fmt.Errorf("[LendingState] GetAllLendingPairs: empty baseToken list")
 	}
 	if len(collaterals) == 0 {
-		return allPairs, fmt.Errorf("GetAllLendingPairs: empty collateral list")
+		return allPairs, fmt.Errorf("[LendingState] GetAllLendingPairs: empty collateral list")
 	}
 	for _, baseToken := range baseTokens {
 		for _, collateral := range collaterals {

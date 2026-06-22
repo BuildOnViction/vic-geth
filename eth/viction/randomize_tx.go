@@ -78,7 +78,7 @@ func BuildSecretTx(nonce uint64, randomizeContract common.Address, epoch uint64,
 
 	encrypted, err := EncryptAesCfb(key, fmt.Sprintf("%d", secretNumber))
 	if err != nil {
-		return nil, fmt.Errorf("encrypt secret: %w", err)
+		return nil, fmt.Errorf("[Viction] encrypt secret: %w", err)
 	}
 
 	// ABI encoding: setSecret(bytes32[])

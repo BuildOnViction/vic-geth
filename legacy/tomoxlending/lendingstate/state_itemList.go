@@ -80,7 +80,7 @@ func (c *itemListState) getTrie(db Database) Trie {
 		c.trie, err = db.OpenStorageTrie(c.key, c.data.Root)
 		if err != nil {
 			c.trie, _ = db.OpenStorageTrie(c.key, EmptyHash)
-			c.setError(fmt.Errorf("can't create storage trie: %v", err))
+			c.setError(fmt.Errorf("[LendingState] can't create storage trie: %v", err))
 		}
 	}
 	return c.trie

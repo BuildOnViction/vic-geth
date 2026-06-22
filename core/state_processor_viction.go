@@ -204,7 +204,7 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 			if p.tradingEngine != nil {
 				tradingState, err := p.tradingEngine.GetTradingState(parent, parentAuthor)
 				if err != nil {
-					return fmt.Errorf("TomoX: failed to open TradingStateDB at block %d: %w", header.Number, err)
+					return fmt.Errorf("[Core] TomoX: failed to open TradingStateDB at block %d: %w", header.Number, err)
 				}
 				p.victionState.tradingStateDB = tradingState
 
@@ -213,7 +213,7 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 						header.Number.Uint64()/p.config.Posv.Epoch,
 						tradingState, statedb,
 					); err != nil {
-						return fmt.Errorf("TomoX: UpdateMediumPriceBeforeEpoch failed at block %d: %w", header.Number, err)
+						return fmt.Errorf("[Core] TomoX: UpdateMediumPriceBeforeEpoch failed at block %d: %w", header.Number, err)
 					}
 				}
 			}
@@ -221,7 +221,7 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 			if p.lendingEngine != nil {
 				lendingState, err := p.lendingEngine.GetLendingState(parent, parentAuthor)
 				if err != nil {
-					return fmt.Errorf("TomoZ: failed to open LendingStateDB at block %d: %w", header.Number, err)
+					return fmt.Errorf("[Core] TomoZ: failed to open LendingStateDB at block %d: %w", header.Number, err)
 				}
 				p.victionState.lendingStateDB = lendingState
 			}
@@ -241,9 +241,9 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 			header, p.bc, statedb, p.victionState.tradingStateDB, p.victionState.lendingStateDB,
 		)
 		if err != nil {
-			return fmt.Errorf("TomoZ: ProcessLiquidationData failed at block %d: %w", header.Number, err)
+			return fmt.Errorf("[Core] TomoZ: ProcessLiquidationData failed at block %d: %w", header.Number, err)
 		}
-		log.Debug("TomoZ: epoch liquidation processed", "block", header.Number.Uint64())
+		log.Debug("[Core] TomoZ: epoch liquidation processed", "block", header.Number.Uint64())
 	}
 
 	InitSignerInTransactions(p.config, header, block.Transactions())
@@ -280,40 +280,40 @@ func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB
 	if p.victionState != nil && p.victionState.tradingStateDB != nil && p.tradingEngine != nil {
 		tradingRoot, err := p.victionState.tradingStateDB.Commit()
 		if err != nil {
-			return fmt.Errorf("TomoX: TradingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
+			return fmt.Errorf("[Core] TomoX: TradingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
 		}
 		p.victionState.committedTradingRoot = tradingRoot
 
 		blockAuthor, err := p.engine.Author(block.Header())
 		if err != nil {
-			return fmt.Errorf("TomoX: failed to resolve block author at block %d: %w", block.NumberU64(), err)
+			return fmt.Errorf("[Core] TomoX: failed to resolve block author at block %d: %w", block.NumberU64(), err)
 		}
 		expectRoot := GetTradingStateRoot(block, p.config.Viction.TradingStateContract, blockAuthor, p.config)
 		if tradingRoot != expectRoot {
-			return fmt.Errorf("TomoX: trading state root mismatch at block %d: got %s, expected %s",
+			return fmt.Errorf("[Core] TomoX: trading state root mismatch at block %d: got %s, expected %s",
 				block.NumberU64(), tradingRoot.Hex(), expectRoot.Hex())
 		}
-		log.Debug("TomoX: trading state root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
+		log.Debug("[Core] TomoX: trading state root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
 	}
 
 	// Commit and verify the TomoZ lending state root (same logic as above).
 	if p.victionState != nil && p.victionState.lendingStateDB != nil && p.victionState.tradingStateDB != nil {
 		lendingRoot, err := p.victionState.lendingStateDB.Commit()
 		if err != nil {
-			return fmt.Errorf("TomoZ: LendingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
+			return fmt.Errorf("[Core] TomoZ: LendingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
 		}
 		p.victionState.committedLendingRoot = lendingRoot
 
 		blockAuthor, err := p.engine.Author(block.Header())
 		if err != nil {
-			return fmt.Errorf("TomoZ: failed to resolve block author at block %d: %w", block.NumberU64(), err)
+			return fmt.Errorf("[Core] TomoZ: failed to resolve block author at block %d: %w", block.NumberU64(), err)
 		}
 		expectRoot := GetLendingStateRoot(block, p.config.Viction.TradingStateContract, blockAuthor, p.config)
 		if lendingRoot != expectRoot {
-			return fmt.Errorf("TomoZ: lending state root mismatch at block %d: got %s, expected %s",
+			return fmt.Errorf("[Core] TomoZ: lending state root mismatch at block %d: got %s, expected %s",
 				block.NumberU64(), lendingRoot.Hex(), expectRoot.Hex())
 		}
-		log.Debug("TomoZ: lending state root verified", "block", block.NumberU64(), "root", lendingRoot.Hex())
+		log.Debug("[Core] TomoZ: lending state root verified", "block", block.NumberU64(), "root", lendingRoot.Hex())
 	}
 
 	return nil
@@ -584,7 +584,7 @@ func (p *StateProcessor) applyTomoXTx(statedb *state.StateDB, tx *types.Transact
 		// masternode fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("TomoX: failed to recover block author, using zero address", "err", err)
+			log.Warn("[Core] TomoX: failed to recover block author, using zero address", "err", err)
 		}
 		tradingEngine := p.tradingEngine
 		tradingStateDB := p.victionState.tradingStateDB
@@ -592,7 +592,7 @@ func (p *StateProcessor) applyTomoXTx(statedb *state.StateDB, tx *types.Transact
 		for i, txDataMatch := range batch.Data {
 			order, err := txDataMatch.DecodeOrder()
 			if err != nil {
-				log.Warn("TomoX: failed to decode order, skipping", "index", i, "err", err)
+				log.Warn("[Core] TomoX: failed to decode order, skipping", "index", i, "err", err)
 				continue
 			}
 
@@ -600,11 +600,11 @@ func (p *StateProcessor) applyTomoXTx(statedb *state.StateDB, tx *types.Transact
 
 			_, rejects, err := tradingEngine.CommitOrder(header, coinbase, p.bc, statedb, tradingStateDB, orderBook, order)
 			if err != nil {
-				return true, nil, 0, fmt.Errorf("TomoX: CommitOrder failed index=%d order=%s: %w", i, order.Hash.Hex(), err), nil
+				return true, nil, 0, fmt.Errorf("[Core] TomoX: CommitOrder failed index=%d order=%s: %w", i, order.Hash.Hex(), err), nil
 			}
 
 			if len(rejects) > 0 {
-				log.Debug("TomoX: orders rejected", "count", len(rejects))
+				log.Debug("[Core] TomoX: orders rejected", "count", len(rejects))
 			}
 		}
 	}
@@ -652,7 +652,7 @@ func (p *StateProcessor) applyLendingTx(statedb *state.StateDB, tx *types.Transa
 		// masternode fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("TomoZ: failed to recover block author, using zero address", "err", err)
+			log.Warn("[Core] TomoZ: failed to recover block author, using zero address", "err", err)
 		}
 		lendingStateDB := p.victionState.lendingStateDB
 		tradingStateDB := p.victionState.tradingStateDB
@@ -667,10 +667,10 @@ func (p *StateProcessor) applyLendingTx(statedb *state.StateDB, tx *types.Transa
 				lendingStateDB, tradingStateDB, lendingOrderBook, order,
 			)
 			if err != nil {
-				return true, nil, 0, fmt.Errorf("TomoZ: CommitOrder failed index=%d: %w", i, err), nil
+				return true, nil, 0, fmt.Errorf("[Core] TomoZ: CommitOrder failed index=%d: %w", i, err), nil
 			}
 			if len(rejects) > 0 {
-				log.Debug("TomoZ: lending orders rejected", "count", len(rejects))
+				log.Debug("[Core] TomoZ: lending orders rejected", "count", len(rejects))
 			}
 		}
 	}

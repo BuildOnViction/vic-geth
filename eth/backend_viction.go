@@ -38,13 +38,13 @@ func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *p
 	chain consensus.ChainReader,
 ) ([]types.Transaction, error) {
 	if header == nil {
-		return nil, fmt.Errorf("PosvGetBlockSignData: header is nil")
+		return nil, fmt.Errorf("[ETH] PosvGetBlockSignData: header is nil")
 	}
 	blockHash := header.Hash()
 	blockNumber := header.Number
 	block := chain.GetBlock(blockHash, blockNumber.Uint64())
 	if block == nil {
-		return nil, fmt.Errorf("PosvGetBlockSignData: block body not found (number=%d hash=%s)", blockNumber, blockHash)
+		return nil, fmt.Errorf("[ETH] PosvGetBlockSignData: block body not found (number=%d hash=%s)", blockNumber, blockHash)
 	}
 	data := []types.Transaction{}
 
@@ -60,7 +60,7 @@ func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *p
 	txs := block.Transactions()
 	if receipts != nil && len(receipts) != len(txs) {
 		return nil, fmt.Errorf(
-			"PosvGetBlockSignData: receipts/tx count mismatch (number=%d hash=%s txs=%d receipts=%d)",
+			"[ETH] PosvGetBlockSignData: receipts/tx count mismatch (number=%d hash=%s txs=%d receipts=%d)",
 			blockNumber.Uint64(), blockHash, len(txs), len(receipts),
 		)
 	}
@@ -109,17 +109,17 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.Chai
 	}
 	stateAtCheckpoint, sErr := s.blockchain.StateAt(checkpointHeader.Root)
 	if sErr != nil {
-		log.Warn("PosvGetCreatorAttestorPairs: state fallback failed, cannot load checkpoint state",
+		log.Warn("[ETH] PosvGetCreatorAttestorPairs: state fallback failed, cannot load checkpoint state",
 			"checkpoint", checkpointHeader.Number, "err", sErr)
 		return nil, 0, err
 	}
 	attestorIdxs, aErr := viction.GetAttestors(config.Viction, validators, stateAtCheckpoint)
 	if aErr != nil {
-		log.Warn("PosvGetCreatorAttestorPairs: state fallback failed, cannot compute attestors",
+		log.Warn("[ETH] PosvGetCreatorAttestorPairs: state fallback failed, cannot compute attestors",
 			"checkpoint", checkpointHeader.Number, "err", aErr)
 		return nil, 0, err
 	}
-	log.Warn("PosvGetCreatorAttestorPairs: NewAttestors absent in checkpoint, using state-based fallback",
+	log.Warn("[ETH] PosvGetCreatorAttestorPairs: NewAttestors absent in checkpoint, using state-based fallback",
 		"checkpoint", checkpointHeader.Number, "number", header.Number)
 	return viction.BuildCreatorAttestorPairs(config, config.Posv, header.Number.Uint64(), validators, attestorIdxs)
 }
@@ -161,7 +161,7 @@ func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, 
 	if parentHeader != nil {
 		rewardState, err = s.BlockChain().StateAt(parentHeader.Root)
 		if err != nil {
-			logger.Warn("PosvGetEpochReward: failed to get parent state, falling back to current state", "block", blockNumber, "err", err)
+			logger.Warn("[ETH] PosvGetEpochReward: failed to get parent state, falling back to current state", "block", blockNumber, "err", err)
 			rewardState = statedb
 		}
 	} else {
@@ -184,7 +184,7 @@ func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state
 	blockNumber := header.Number.Uint64()
 
 	if epochReward == nil {
-		log.Debug("PosvAddBalanceRewards: no epoch rewards to apply", "block", blockNumber)
+		log.Debug("[ETH] PosvAddBalanceRewards: no epoch rewards to apply", "block", blockNumber)
 		return nil
 	}
 	if state == nil {
@@ -204,7 +204,7 @@ func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state
 		rewardCount++
 	}
 
-	log.Info("PosvAddBalanceRewards: applied epoch rewards", "block", blockNumber, "recipientCount", rewardCount, "totalReward", totalRewardDistributed.String())
+	log.Info("[ETH] PosvAddBalanceRewards: applied epoch rewards", "block", blockNumber, "recipientCount", rewardCount, "totalReward", totalRewardDistributed.String())
 	return nil
 }
 
@@ -224,18 +224,18 @@ func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, po
 func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
 ) ([]common.Address, error) {
 	if header == nil {
-		return []common.Address{}, fmt.Errorf("header is nil")
+		return []common.Address{}, fmt.Errorf("[ETH] header is nil")
 	}
 	// Guard against being called before eth.blockchain is assigned (e.g. during
 	// NewBlockChain's internal VerifyHeader when SetBackend was called too early).
 	bc := s.BlockChain()
 	if bc == nil {
-		return []common.Address{}, fmt.Errorf("blockchain not initialized (block %v)", header.Number)
+		return []common.Address{}, fmt.Errorf("[ETH] blockchain not initialized (block %v)", header.Number)
 	}
 
 	state, err := bc.StateAt(header.Root)
 	if err != nil {
-		return []common.Address{}, fmt.Errorf("failed to get state at header root (block %v): %v", header.Number, err)
+		return []common.Address{}, fmt.Errorf("[ETH] failed to get state at header root (block %v): %v", header.Number, err)
 	}
 	contracrAddress := vicConfig.ValidatorContract
 	if contracrAddress == (common.Address{}) {
@@ -280,7 +280,7 @@ func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *ty
 //   - Otherwise the database is created at {datadir}/{instance}/tomox.
 func openTomoXDatabase(cfg *Config, stack *node.Node) (ethdb.Database, error) {
 	if cfg.TomoXDataDir != "" {
-		log.Info("Opening TomoX database at custom path", "path", cfg.TomoXDataDir)
+		log.Info("[ETH] Opening TomoX database at custom path", "path", cfg.TomoXDataDir)
 		return rawdb.NewLevelDBDatabase(cfg.TomoXDataDir, 256, 256, "eth/db/tomox/")
 	}
 	return stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
@@ -293,15 +293,15 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 
 	posvEngine, ok := eth.engine.(*posv.Posv)
 	if !ok {
-		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", eth.engine)
+		return fmt.Errorf("[ETH] posv config present but engine is %T, expected *posv.Posv", eth.engine)
 	}
 
 	// Wire POSV backend
 	posvEngine.SetBackend(eth)
-	log.Info("PosvBackend set on Posv engine")
+	log.Info("[ETH] PosvBackend set on Posv engine")
 	if head := eth.blockchain.CurrentHeader(); head != nil {
 		if err := eth.engine.VerifyHeader(eth.blockchain, head, true); err != nil {
-			log.Warn("Head invalid after full POSV check", "number", head.Number, "hash", head.Hash(), "err", err,
+			log.Warn("[ETH] Head invalid after full POSV check", "number", head.Number, "hash", head.Hash(), "err", err,
 				"hint", "often missing M2 attestor on post-epoch head; rewind or re-sync if chain stuck")
 		}
 	}
@@ -311,7 +311,7 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 	// use independent trie roots and their key-spaces never collide.
 	tomoxDb, err := openTomoXDatabase(eth.config, stack)
 	if err != nil {
-		log.Error("Failed to open TomoX database", "err", err)
+		log.Error("[ETH] Failed to open TomoX database", "err", err)
 		return nil
 	}
 	tomoxEngine := tomox.NewWithDB(tomoxDb, eth.blockchain.Config())

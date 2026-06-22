@@ -130,7 +130,7 @@ func (self *lendingExchangeState) getLendingItemTrie(db Database) Trie {
 		self.lendingItemTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LendingItemRoot)
 		if err != nil {
 			self.lendingItemTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
-			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
+			self.setError(fmt.Errorf("[LendingState] can't create Lendings trie: %v", err))
 		}
 	}
 	return self.lendingItemTrie
@@ -142,7 +142,7 @@ func (self *lendingExchangeState) getLendingTradeTrie(db Database) Trie {
 		self.lendingTradeTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LendingTradeRoot)
 		if err != nil {
 			self.lendingTradeTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
-			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
+			self.setError(fmt.Errorf("[LendingState] can't create Lendings trie: %v", err))
 		}
 	}
 	return self.lendingTradeTrie
@@ -153,7 +153,7 @@ func (self *lendingExchangeState) getInvestingTrie(db Database) Trie {
 		self.investingTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.InvestingRoot)
 		if err != nil {
 			self.investingTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
-			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
+			self.setError(fmt.Errorf("[LendingState] can't create Lendings trie: %v", err))
 		}
 	}
 	return self.investingTrie
@@ -165,7 +165,7 @@ func (self *lendingExchangeState) getBorrowingTrie(db Database) Trie {
 		self.borrowingTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.BorrowingRoot)
 		if err != nil {
 			self.borrowingTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
-			self.setError(fmt.Errorf("can't create bids trie: %v", err))
+			self.setError(fmt.Errorf("[LendingState] can't create bids trie: %v", err))
 		}
 	}
 	return self.borrowingTrie
@@ -177,7 +177,7 @@ func (self *lendingExchangeState) getLiquidationTimeTrie(db Database) Trie {
 		self.liquidationTimeTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LiquidationTimeRoot)
 		if err != nil {
 			self.liquidationTimeTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
-			self.setError(fmt.Errorf("can't create bids trie: %v", err))
+			self.setError(fmt.Errorf("[LendingState] can't create bids trie: %v", err))
 		}
 	}
 	return self.liquidationTimeTrie
@@ -202,7 +202,7 @@ func (self *lendingExchangeState) getBorrowingOrderList(db Database, rate common
 	}
 	var data itemList
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state order list object", "rate", rate, "err", err)
+		log.Error("[LendingState] Failed to decode state order list object", "rate", rate, "err", err)
 		return nil
 	}
 	// Insert into the live set.
@@ -225,7 +225,7 @@ func (self *lendingExchangeState) getInvestingOrderList(db Database, rate common
 	}
 	var data itemList
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state order list object", "rate", rate, "err", err)
+		log.Error("[LendingState] Failed to decode state order list object", "rate", rate, "err", err)
 		return nil
 	}
 	// Insert into the live set.
@@ -248,7 +248,7 @@ func (self *lendingExchangeState) getLiquidationTimeOrderList(db Database, time 
 	}
 	var data itemList
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state liquidation time", "time", time, "err", err)
+		log.Error("[LendingState] Failed to decode state liquidation time", "time", time, "err", err)
 		return nil
 	}
 	// Insert into the live set.
@@ -271,7 +271,7 @@ func (self *lendingExchangeState) getLendingItem(db Database, lendingId common.H
 	}
 	var data LendingItem
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state lending item", "tradeId", lendingId, "err", err)
+		log.Error("[LendingState] Failed to decode state lending item", "tradeId", lendingId, "err", err)
 		return nil
 	}
 	// Insert into the live set.
@@ -294,7 +294,7 @@ func (self *lendingExchangeState) getLendingTrade(db Database, tradeId common.Ha
 	}
 	var data LendingTrade
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state lending trade", "tradeId", tradeId, "err", err)
+		log.Error("[LendingState] Failed to decode state lending trade", "tradeId", tradeId, "err", err)
 		return nil
 	}
 	// Insert into the live set.
@@ -527,11 +527,11 @@ func (self *lendingExchangeState) getBestInvestingInterest(db Database) common.H
 	trie := self.getInvestingTrie(db)
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
-		log.Error("Failed find best investing rate", "orderbook", self.lendingBook.Hex())
+		log.Error("[LendingState] Failed find best investing rate", "orderbook", self.lendingBook.Hex())
 		return EmptyHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
-		log.Debug("Not found get best investing rate", "encKey", encKey, "encValue", encValue)
+		log.Debug("[LendingState] Not found get best investing rate", "encKey", encKey, "encValue", encValue)
 		return EmptyHash
 	}
 	// Insert into the live set.
@@ -539,7 +539,7 @@ func (self *lendingExchangeState) getBestInvestingInterest(db Database) common.H
 	if _, exist := self.investingStates[interest]; !exist {
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
-			log.Error("Failed to decode state get best investing rate", "err", err)
+			log.Error("[LendingState] Failed to decode state get best investing rate", "err", err)
 			return EmptyHash
 		}
 		obj := newItemListState(self.lendingBook, interest, data, self.MarkInvestingDirty)
@@ -552,11 +552,11 @@ func (self *lendingExchangeState) getBestBorrowingInterest(db Database) common.H
 	trie := self.getBorrowingTrie(db)
 	encKey, encValue, err := trie.TryGetBestRightKeyAndValue()
 	if err != nil {
-		log.Error("Failed find best key bid trie ", "orderbook", self.lendingBook.Hex())
+		log.Error("[LendingState] Failed find best key bid trie ", "orderbook", self.lendingBook.Hex())
 		return EmptyHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
-		log.Debug("Not found get best bid trie", "encKey", encKey, "encValue", encValue)
+		log.Debug("[LendingState] Not found get best bid trie", "encKey", encKey, "encValue", encValue)
 		return EmptyHash
 	}
 	// Insert into the live set.
@@ -564,7 +564,7 @@ func (self *lendingExchangeState) getBestBorrowingInterest(db Database) common.H
 	if _, exist := self.borrowingStates[interest]; !exist {
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
-			log.Error("Failed to decode state get best bid trie", "err", err)
+			log.Error("[LendingState] Failed to decode state get best bid trie", "err", err)
 			return EmptyHash
 		}
 		obj := newItemListState(self.lendingBook, interest, data, self.MarkBorrowingDirty)
@@ -577,11 +577,11 @@ func (self *lendingExchangeState) getLowestLiquidationTime(db Database) (common.
 	trie := self.getLiquidationTimeTrie(db)
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
-		log.Error("Failed find best liquidation time trie ", "orderBook", self.lendingBook.Hex())
+		log.Error("[LendingState] Failed find best liquidation time trie ", "orderBook", self.lendingBook.Hex())
 		return EmptyHash, nil
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
-		log.Debug("Not found get liquidation time trie", "encKey", encKey, "encValue", encValue)
+		log.Debug("[LendingState] Not found get liquidation time trie", "encKey", encKey, "encValue", encValue)
 		return EmptyHash, nil
 	}
 	price := common.BytesToHash(encKey)
@@ -589,7 +589,7 @@ func (self *lendingExchangeState) getLowestLiquidationTime(db Database) (common.
 	if !exist {
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
-			log.Error("Failed to decode state get liquidation time trie", "err", err)
+			log.Error("[LendingState] Failed to decode state get liquidation time trie", "err", err)
 			return EmptyHash, nil
 		}
 		obj = newLiquidationTimeState(self.lendingBook, price, data, self.MarkLiquidationTimeDirty)
@@ -687,7 +687,7 @@ func (self *lendingExchangeState) createInvestingOrderList(db Database, price co
 	self.investingStatesDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
 	if err != nil {
-		panic(fmt.Errorf("can't encode order list object at %x: %v", price[:], err))
+		panic(fmt.Errorf("[LendingState] can't encode order list object at %x: %v", price[:], err))
 	}
 	self.setError(self.getInvestingTrie(db).TryUpdate(price[:], data))
 	if self.onDirty != nil {
@@ -743,7 +743,7 @@ func (self *lendingExchangeState) createBorrowingOrderList(db Database, price co
 	self.borrowingStatesDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
 	if err != nil {
-		panic(fmt.Errorf("can't encode order list object at %x: %v", price[:], err))
+		panic(fmt.Errorf("[LendingState] can't encode order list object at %x: %v", price[:], err))
 	}
 	self.setError(self.getBorrowingTrie(db).TryUpdate(price[:], data))
 	if self.onDirty != nil {
@@ -771,7 +771,7 @@ func (self *lendingExchangeState) createLiquidationTime(db Database, time common
 	self.liquidationTimestatesDirty[time] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
 	if err != nil {
-		panic(fmt.Errorf("can't encode liquidation time at %x: %v", time[:], err))
+		panic(fmt.Errorf("[LendingState] can't encode liquidation time at %x: %v", time[:], err))
 	}
 	self.setError(self.getLiquidationTimeTrie(db).TryUpdate(time[:], data))
 	if self.onDirty != nil {

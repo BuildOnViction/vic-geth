@@ -92,7 +92,7 @@ func (c *stateOrderList) getTrie(db Database) Trie {
 		c.trie, err = db.OpenStorageTrie(c.price, c.data.Root)
 		if err != nil {
 			c.trie, _ = db.OpenStorageTrie(c.price, EmptyHash)
-			c.setError(fmt.Errorf("can't create storage trie: %v", err))
+			c.setError(fmt.Errorf("[TradingState] can't create storage trie: %v", err))
 		}
 	}
 	return c.trie

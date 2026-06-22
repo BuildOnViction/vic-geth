@@ -30,7 +30,7 @@ func GetExRelayerFee(relayerSMC common.Address, relayer common.Address, statedb 
 func GetRelayerOwner(relayerSMC common.Address, relayer common.Address, statedb *state.StateDB) common.Address {
 	slot := RelayerMappingSlot["RELAYER_LIST"]
 	locBig := GetLocMappingAtKey(relayer.Hash(), slot)
-	log.Debug("GetRelayerOwner", "relayer", relayer.Hex(), "slot", slot, "locBig", locBig)
+	log.Debug("[TradingState] GetRelayerOwner", "relayer", relayer.Hex(), "slot", slot, "locBig", locBig)
 	locBig = new(big.Int).Add(locBig, RelayerStructMappingSlot["_owner"])
 	locHash := common.BigToHash(locBig)
 	return common.BytesToAddress(statedb.GetState(relayerSMC, locHash).Bytes())
@@ -109,7 +109,7 @@ func GetAllTradingPairs(relayerSMC common.Address, statedb *state.StateDB) (map[
 		toTokenSlot := new(big.Int).Add(locBig, RelayerStructMappingSlot["_toTokens"])
 		toTokenLength := statedb.GetState(relayerSMC, common.BigToHash(toTokenSlot)).Big().Uint64()
 		if toTokenLength != fromTokenLength {
-			return map[common.Hash]bool{}, fmt.Errorf("Invalid length from token & to toke : from :%d , to :%d ", fromTokenLength, toTokenLength)
+			return map[common.Hash]bool{}, fmt.Errorf("[TradingState] Invalid length from token & to toke : from :%d , to :%d ", fromTokenLength, toTokenLength)
 		}
 		fromTokens := []common.Address{}
 		fromTokenSlotHash := common.BytesToHash(fromTokenSlot.Bytes())
@@ -121,11 +121,11 @@ func GetAllTradingPairs(relayerSMC common.Address, statedb *state.StateDB) (map[
 		for i := uint64(0); i < toTokenLength; i++ {
 			toToken := common.BytesToAddress(statedb.GetState(relayerSMC, state.StorageLocationOfDynamicArrayElement(state.StorageLocationFromHash(toTokenSlotHash), i, uint64(1)).Hash()).Bytes())
 
-			log.Debug("GetAllTradingPairs all pair info", "from", fromTokens[i].Hex(), "toToken", toToken.Hex())
+			log.Debug("[TradingState] GetAllTradingPairs all pair info", "from", fromTokens[i].Hex(), "toToken", toToken.Hex())
 			allPairs[GetTradingOrderBookHash(fromTokens[i], toToken)] = true
 		}
 	}
-	log.Debug("GetAllTradingPairs", "coinbase", len(coinbases), "allPairs", len(allPairs))
+	log.Debug("[TradingState] GetAllTradingPairs", "coinbase", len(coinbases), "allPairs", len(allPairs))
 	return allPairs, nil
 }
 
@@ -136,14 +136,14 @@ func SubRelayerFee(relayerSMC common.Address, relayer common.Address, fee *big.I
 	locBigDeposit := new(big.Int).SetUint64(uint64(0)).Add(locBig, RelayerStructMappingSlot["_deposit"])
 	locHashDeposit := common.BigToHash(locBigDeposit)
 	balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
-	log.Debug("ApplyTomoXMatchedTransaction settle balance: SubRelayerFee BEFORE", "relayer", relayer.String(), "balance", balance)
+	log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SubRelayerFee BEFORE", "relayer", relayer.String(), "balance", balance)
 	if balance.Cmp(fee) < 0 {
-		return errors.Errorf("relayer %s isn't enough tomo fee", relayer.String())
+		return errors.Errorf("[TradingState] relayer %s isn't enough tomo fee", relayer.String())
 	} else {
 		balance = new(big.Int).Sub(balance, fee)
 		statedb.SetState(relayerSMC, locHashDeposit, common.BigToHash(balance))
 		statedb.SubBalance(relayerSMC, fee)
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: SubRelayerFee AFTER", "relayer", relayer.String(), "balance", balance)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SubRelayerFee AFTER", "relayer", relayer.String(), "balance", balance)
 		return nil
 	}
 }
@@ -156,7 +156,7 @@ func CheckRelayerFee(relayerSMC common.Address, relayer common.Address, fee *big
 	locHashDeposit := common.BigToHash(locBigDeposit)
 	balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
 	if new(big.Int).Sub(balance, fee).Cmp(new(big.Int).Mul(BasePrice, RelayerLockedFund)) < 0 {
-		return errors.Errorf("relayer %s isn't enough tomo fee : balance %d , fee : %d ", relayer.Hex(), balance.Uint64(), fee.Uint64())
+		return errors.Errorf("[TradingState] relayer %s isn't enough tomo fee : balance %d , fee : %d ", relayer.Hex(), balance.Uint64(), fee.Uint64())
 	}
 	return nil
 }
@@ -164,10 +164,10 @@ func AddTokenBalance(addr common.Address, value *big.Int, token common.Address, 
 	// TOMO native
 	if token.String() == TomoNativeAddress {
 		balance := statedb.GetBalance(addr)
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: ADD TOKEN TOMO NATIVE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: ADD TOKEN TOMO NATIVE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		statedb.AddBalance(addr, value)
 		balance = statedb.GetBalance(addr)
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: ADD TOMO NATIVE BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: ADD TOMO NATIVE BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 
 		return nil
 	}
@@ -177,13 +177,13 @@ func AddTokenBalance(addr common.Address, value *big.Int, token common.Address, 
 		slot := TokenMappingSlot["balances"]
 		locHash := common.BigToHash(GetLocMappingAtKey(addr.Hash(), slot))
 		balance := statedb.GetState(token, locHash).Big()
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: ADD TOKEN BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: ADD TOKEN BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		balance = new(big.Int).Add(balance, value)
 		statedb.SetState(token, locHash, common.BigToHash(balance))
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: ADD TOKEN BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: ADD TOKEN BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		return nil
 	} else {
-		return errors.Errorf("token %s isn't exist", token.String())
+		return errors.Errorf("[TradingState] token %s isn't exist", token.String())
 	}
 }
 
@@ -192,13 +192,13 @@ func SubTokenBalance(addr common.Address, value *big.Int, token common.Address, 
 	if token.String() == TomoNativeAddress {
 
 		balance := statedb.GetBalance(addr)
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: SUB TOMO NATIVE BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SUB TOMO NATIVE BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		if balance.Cmp(value) < 0 {
-			return errors.Errorf("value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
+			return errors.Errorf("[TradingState] value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
 		}
 		statedb.SubBalance(addr, value)
 		balance = statedb.GetBalance(addr)
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: SUB TOMO NATIVE BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SUB TOMO NATIVE BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		return nil
 	}
 
@@ -207,16 +207,16 @@ func SubTokenBalance(addr common.Address, value *big.Int, token common.Address, 
 		slot := TokenMappingSlot["balances"]
 		locHash := common.BigToHash(GetLocMappingAtKey(addr.Hash(), slot))
 		balance := statedb.GetState(token, locHash).Big()
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: SUB TOKEN BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SUB TOKEN BALANCE BEFORE", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		if balance.Cmp(value) < 0 {
-			return errors.Errorf("value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
+			return errors.Errorf("[TradingState] value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
 		}
 		balance = new(big.Int).Sub(balance, value)
 		statedb.SetState(token, locHash, common.BigToHash(balance))
-		log.Debug("ApplyTomoXMatchedTransaction settle balance: SUB TOKEN BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
+		log.Debug("[TradingState] ApplyTomoXMatchedTransaction settle balance: SUB TOKEN BALANCE AFTER", "token", token.String(), "address", addr.String(), "balance", balance, "orderValue", value)
 		return nil
 	} else {
-		return errors.Errorf("token %s isn't exist", token.String())
+		return errors.Errorf("[TradingState] token %s isn't exist", token.String())
 	}
 }
 
@@ -230,10 +230,10 @@ func CheckSubTokenBalance(addr common.Address, value *big.Int, token common.Addr
 			balance = statedb.GetBalance(addr)
 		}
 		if balance.Cmp(value) < 0 {
-			return nil, errors.Errorf("value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
+			return nil, errors.Errorf("[TradingState] value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
 		}
 		newBalance := new(big.Int).Sub(balance, value)
-		log.Debug("CheckSubTokenBalance settle balance: SUB TOMO NATIVE BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
+		log.Debug("[TradingState] CheckSubTokenBalance settle balance: SUB TOMO NATIVE BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
 		return newBalance, nil
 	}
 	// TRC tokens
@@ -247,13 +247,13 @@ func CheckSubTokenBalance(addr common.Address, value *big.Int, token common.Addr
 			balance = statedb.GetState(token, locHash).Big()
 		}
 		if balance.Cmp(value) < 0 {
-			return nil, errors.Errorf("value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
+			return nil, errors.Errorf("[TradingState] value %s in token %s not enough , have : %s , want : %s  ", addr.String(), token.String(), balance, value)
 		}
 		newBalance := new(big.Int).Sub(balance, value)
-		log.Debug("CheckSubTokenBalance settle balance: SUB TOKEN BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
+		log.Debug("[TradingState] CheckSubTokenBalance settle balance: SUB TOKEN BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
 		return newBalance, nil
 	} else {
-		return nil, errors.Errorf("token %s isn't exist", token.String())
+		return nil, errors.Errorf("[TradingState] token %s isn't exist", token.String())
 	}
 }
 
@@ -267,7 +267,7 @@ func CheckAddTokenBalance(addr common.Address, value *big.Int, token common.Addr
 			balance = statedb.GetBalance(addr)
 		}
 		newBalance := new(big.Int).Add(balance, value)
-		log.Debug("CheckAddTokenBalance settle balance: ADD TOMO NATIVE BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
+		log.Debug("[TradingState] CheckAddTokenBalance settle balance: ADD TOMO NATIVE BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
 		return newBalance, nil
 	}
 	// TRC tokens
@@ -281,14 +281,14 @@ func CheckAddTokenBalance(addr common.Address, value *big.Int, token common.Addr
 			balance = statedb.GetState(token, locHash).Big()
 		}
 		newBalance := new(big.Int).Add(balance, value)
-		log.Debug("CheckAddTokenBalance settle balance: ADD TOKEN BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
+		log.Debug("[TradingState] CheckAddTokenBalance settle balance: ADD TOKEN BALANCE ", "token", token.String(), "address", addr.String(), "balance", balance, "value", value, "newBalance", newBalance)
 		if common.BigToHash(newBalance).Big().Cmp(newBalance) != 0 {
-			return nil, fmt.Errorf("Overflow when try add token balance , max is 2^256 , balance : %v , value:%v ", balance, value)
+			return nil, fmt.Errorf("[TradingState] Overflow when try add token balance , max is 2^256 , balance : %v , value:%v ", balance, value)
 		} else {
 			return newBalance, nil
 		}
 	} else {
-		return nil, errors.Errorf("token %s isn't exist", token.String())
+		return nil, errors.Errorf("[TradingState] token %s isn't exist", token.String())
 	}
 }
 
@@ -301,9 +301,9 @@ func CheckSubRelayerFee(relayerSMC common.Address, relayer common.Address, fee *
 		locHashDeposit := common.BigToHash(locBigDeposit)
 		balance = statedb.GetState(relayerSMC, locHashDeposit).Big()
 	}
-	log.Debug("CheckSubRelayerFee settle balance: SubRelayerFee ", "relayer", relayer.String(), "balance", balance, "fee", fee)
+	log.Debug("[TradingState] CheckSubRelayerFee settle balance: SubRelayerFee ", "relayer", relayer.String(), "balance", balance, "fee", fee)
 	if balance.Cmp(fee) < 0 {
-		return nil, errors.Errorf("relayer %s isn't enough tomo fee", relayer.String())
+		return nil, errors.Errorf("[TradingState] relayer %s isn't enough tomo fee", relayer.String())
 	} else {
 		return new(big.Int).Sub(balance, fee), nil
 	}
@@ -338,7 +338,7 @@ func SetTokenBalance(addr common.Address, balance *big.Int, token common.Address
 		statedb.SetState(token, locHash, common.BigToHash(balance))
 		return nil
 	} else {
-		return errors.Errorf("token %s isn't exist", token.String())
+		return errors.Errorf("[TradingState] token %s isn't exist", token.String())
 	}
 }
 

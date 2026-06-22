@@ -94,14 +94,14 @@ func (pool *TxPool) posvTryPromoteSpecial(tx *types.Transaction, from common.Add
 	if !pool.isPosvSpecialTx(tx) {
 		return false, false, nil
 	}
-	log.Debug("[POSV TxPool] special tx detected", "hash", tx.Hash(), "from", from, "nonce", tx.Nonce(), "to", tx.To(), "isSignerNil", pool.IsSigner == nil)
+	log.Debug("[Core] [POSV TxPool] special tx detected", "hash", tx.Hash(), "from", from, "nonce", tx.Nonce(), "to", tx.To(), "isSignerNil", pool.IsSigner == nil)
 
 	if pool.IsSigner == nil {
 		return false, false, nil // fall through to normal path
 	}
 	isSigner := pool.IsSigner(from)
 	pendingNonce := pool.pendingNonces.get(from)
-	log.Debug("[POSV TxPool] special tx signer check", "hash", tx.Hash(), "from", from, "isSigner", isSigner, "pendingNonce", pendingNonce, "txNonce", tx.Nonce())
+	log.Debug("[Core] [POSV TxPool] special tx signer check", "hash", tx.Hash(), "from", from, "isSigner", isSigner, "pendingNonce", pendingNonce, "txNonce", tx.Nonce())
 
 	if !isSigner || pendingNonce != tx.Nonce() {
 		return false, false, nil // fall through to normal path
@@ -146,7 +146,7 @@ func (pool *TxPool) promoteSpecialTx(addr common.Address, tx *types.Transaction,
 
 	if local {
 		if !pool.locals.contains(addr) {
-			log.Info("Setting new local account", "address", addr)
+			log.Info("[Core] [POSV TxPool] Setting new local account", "address", addr)
 			pool.locals.add(addr)
 		}
 	}
@@ -155,7 +155,7 @@ func (pool *TxPool) promoteSpecialTx(addr common.Address, tx *types.Transaction,
 	}
 	pool.journalTx(addr, tx)
 
-	log.Debug("[POSV TxPool] promoted special tx to pending", "hash", tx.Hash(), "from", addr, "to", tx.To(), "nonce", tx.Nonce())
+	log.Debug("[Core] [POSV TxPool] promoted special tx to pending", "hash", tx.Hash(), "from", addr, "to", tx.To(), "nonce", tx.Nonce())
 	go pool.txFeed.Send(NewTxsEvent{Txs: []*types.Transaction{tx}})
 	return old != nil, nil
 }

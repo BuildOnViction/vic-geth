@@ -34,21 +34,21 @@ func (s *Ethereum) posvRandomizeHook(block *types.Block, eb common.Address, wall
 	cfg := s.blockchain.Config()
 	vicConfig := cfg.Viction
 	if vicConfig == nil {
-		log.Warn("[POSV randomize] skip: viction config is nil")
+		log.Warn("[ETH] [POSV randomize] skip: viction config is nil")
 		return
 	}
 	if vicConfig.RandomizerContract == (common.Address{}) {
-		log.Warn("[POSV randomize] skip: randomizer contract is zero address")
+		log.Warn("[ETH] [POSV randomize] skip: randomizer contract is zero address")
 		return
 	}
 	if !cfg.IsTIPRandomize(block.Number()) {
-		log.Warn("[POSV randomize] skip: not past TIPRandomize fork", "block", block.NumberU64(), "tipRandomizeBlock", cfg.TIPRandomizeBlock)
+		log.Warn("[ETH] [POSV randomize] skip: not past TIPRandomize fork", "block", block.NumberU64(), "tipRandomizeBlock", cfg.TIPRandomizeBlock)
 		return
 	}
 
 	blockNumber := block.NumberU64()
 	blockInEpoch := blockNumber % cfg.Posv.Epoch
-	log.Info("[POSV randomize] hook entered", "block", blockNumber, "epochPos", blockInEpoch,
+	log.Info("[ETH] [POSV randomize] hook entered", "block", blockNumber, "epochPos", blockInEpoch,
 		"commitAt", vicConfig.RandomizerCommitNthBlock, "revealAt", vicConfig.RandomizerRevealNthBlock,
 		"finaleAt", vicConfig.RandomizerFinaleNthBlock)
 
@@ -78,7 +78,7 @@ func (s *Ethereum) submitRandomizeIfNeeded(
 		key := viction.GenerateRandomizeKey()
 		tx, err := viction.BuildSecretTx(baseNonce, randomizeContract, cfg.Posv.Epoch, key)
 		if err != nil {
-			log.Error("[POSV randomize] failed to build secret tx", "block", blockNumber, "err", err)
+			log.Error("[ETH] [POSV randomize] failed to build secret tx", "block", blockNumber, "err", err)
 			return
 		}
 
@@ -89,10 +89,10 @@ func (s *Ethereum) submitRandomizeIfNeeded(
 
 		// Persist key for the reveal phase.
 		if err := chainDb.Put(viction.RandomizeKeyName, key); err != nil {
-			log.Error("[POSV randomize] failed to persist key", "block", blockNumber, "err", err)
+			log.Error("[ETH] [POSV randomize] failed to persist key", "block", blockNumber, "err", err)
 			return
 		}
-		log.Info("[POSV randomize] submitted secret tx",
+		log.Info("[ETH] [POSV randomize] submitted secret tx",
 			"block", blockNumber, "epochPos", blockInEpoch, "txHash", signedTx.Hash())
 		return
 	}
@@ -113,9 +113,9 @@ func (s *Ethereum) submitRandomizeIfNeeded(
 
 		// Clear the key — reveal is done for this epoch.
 		if err := chainDb.Delete(viction.RandomizeKeyName); err != nil {
-			log.Warn("[POSV randomize] failed to delete key from db", "block", blockNumber, "err", err)
+			log.Warn("[ETH] [POSV randomize] failed to delete key from db", "block", blockNumber, "err", err)
 		}
-		log.Info("[POSV randomize] submitted opening tx",
+		log.Info("[ETH] [POSV randomize] submitted opening tx",
 			"block", blockNumber, "epochPos", blockInEpoch, "txHash", signedTx.Hash())
 	}
 }
@@ -131,15 +131,15 @@ func (s *Ethereum) signAndSubmitRandomizeTx(
 ) (*types.Transaction, error) {
 	signed, err := wallet.SignTx(accounts.Account{Address: eb}, tx, cfg.ChainID)
 	if err != nil {
-		log.Error("[POSV randomize] failed to sign "+phase+" tx", "block", blockNumber, "err", err)
+		log.Error("[ETH] [POSV randomize] failed to sign "+phase+" tx", "block", blockNumber, "err", err)
 		return nil, err
 	}
 	if err := s.txPool.AddLocal(signed); err != nil {
 		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
-			log.Debug("[POSV randomize] "+phase+" tx already in pool", "block", blockNumber, "nonce", tx.Nonce())
+			log.Debug("[ETH] [POSV randomize] "+phase+" tx already in pool", "block", blockNumber, "nonce", tx.Nonce())
 			return signed, nil
 		}
-		log.Error("[POSV randomize] failed to add "+phase+" tx to pool",
+		log.Error("[ETH] [POSV randomize] failed to add "+phase+" tx to pool",
 			"block", blockNumber, "from", eb, "nonce", tx.Nonce(), "err", err)
 		return nil, err
 	}
