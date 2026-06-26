@@ -26,7 +26,11 @@ const SignMethodHex = "e341eaa4"
 // Get attestors from list of validators at checkpoint block.
 func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
-	state, err := s.BlockChain().State()
+	parentHeader := s.blockchain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
+	if parentHeader == nil {
+		return nil, fmt.Errorf("PosvGetAttestors: parent header not found (number=%d hash=%s)", header.Number, header.ParentHash)
+	}
+	state, err := s.BlockChain().StateAt(parentHeader.Root)
 	if err != nil {
 		return nil, err
 	}
