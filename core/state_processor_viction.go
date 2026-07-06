@@ -323,22 +323,30 @@ func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB
 // balance override for specific accounts in early blocks, and blacklist
 // enforcement after TIPBlacklist.
 func (p *StateProcessor) beforeApplyTransaction(block *types.Block, tx *types.Transaction, msg types.Message, statedb *state.StateDB) error {
-	if p.config.Viction == nil {
+	return BeforeApplyTransaction(p.config, block, tx, msg, statedb)
+}
+
+// BeforeApplyTransaction is the exported entry point to the per-transaction
+// Viction pre-checks, so callers outside block import (e.g. the tracing API in
+// package eth) can reproduce the exact same balance-override state mutations and
+// blacklist enforcement before re-executing a transaction.
+func BeforeApplyTransaction(config *params.ChainConfig, block *types.Block, tx *types.Transaction, msg types.Message, statedb *state.StateDB) error {
+	if config.Viction == nil {
 		return nil
 	}
 	header := block.Header()
 
 	if header.Number.BitLen() <= 64 && header.Number.Uint64() <= 9147459 {
-		if val := p.config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
+		if val := config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
 			statedb.SetBalance(msg.From(), val)
 		}
 	}
 
-	if p.config.IsTIPBlacklist(block.Number()) {
-		if p.config.Viction.IsBlacklisted(msg.From()) {
+	if config.IsTIPBlacklist(block.Number()) {
+		if config.Viction.IsBlacklisted(msg.From()) {
 			return ErrBlacklistedAddress
 		}
-		if tx.To() != nil && p.config.Viction.IsBlacklisted(*tx.To()) {
+		if tx.To() != nil && config.Viction.IsBlacklisted(*tx.To()) {
 			return ErrBlacklistedAddress
 		}
 	}

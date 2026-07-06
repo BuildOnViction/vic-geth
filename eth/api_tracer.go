@@ -488,11 +488,17 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	// Feed the transactions into the tracers and return
 	var failed error
 	for i, tx := range txs {
+		msg, _ := tx.AsMessage(signer)
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) on the
+		// shared state before snapshotting it for the tracer, mirroring block import.
+		if err := core.BeforeApplyTransaction(api.eth.blockchain.Config(), block, tx, msg, statedb); err != nil {
+			failed = err
+			break
+		}
 		// Send the trace task over for execution
 		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i}
 
 		// Generate the next state snapshot fast without tracing
-		msg, _ := tx.AsMessage(signer)
 		txContext := core.NewEVMTxContext(msg)
 
 		vmenv := vm.NewEVM(blockCtx, txContext, statedb, api.eth.blockchain.Config(), vm.Config{})
@@ -606,6 +612,11 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 				Tracer:                  vm.NewJSONLogger(&logConfig, writer),
 				EnablePreimageRecording: true,
 			}
+		}
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before
+		// execution, mirroring block import.
+		if err = core.BeforeApplyTransaction(chainConfig, block, tx, msg, statedb); err != nil {
+			return dumps, err
 		}
 		// Execute the transaction and flush any traces to disk
 		vmenv := vm.NewEVM(vmctx, txContext, statedb, chainConfig, vmConf)
@@ -860,6 +871,11 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer)
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before
+		// executing or returning, mirroring block import.
+		if err := core.BeforeApplyTransaction(api.eth.blockchain.Config(), block, tx, msg, statedb); err != nil {
+			return nil, vm.BlockContext{}, nil, err
+		}
 		txContext := core.NewEVMTxContext(msg)
 		context := core.NewEVMBlockContext(block.Header(), api.eth.blockchain, nil)
 		if idx == txIndex {
