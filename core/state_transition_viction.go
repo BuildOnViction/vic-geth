@@ -28,13 +28,28 @@ func (st *StateTransition) vrc25BuyGas() error {
 		activeFeeBalanceMu.RLock()
 		fb := activeFeeBalance
 		activeFeeBalanceMu.RUnlock()
-		if st.msg.To() == nil || fb == nil {
+		if st.msg.To() == nil {
 			return nil
 		}
-		feeCap, ok := fb[*st.msg.To()]
-		if !ok || feeCap == nil {
-			// Token not in the registered list — treat as regular VIC tx.
-			return nil
+
+		var feeCap *big.Int
+		if fb != nil {
+			// Block-import path: eligibility comes from the per-block running map,
+			// which beforeProcess loaded and afterApplyTransaction decrements.
+			var ok bool
+			feeCap, ok = fb[*st.msg.To()]
+			if !ok || feeCap == nil {
+				// Token not in the registered list — treat as regular VIC tx.
+				return nil
+			}
+		} else {
+			// Trace / off-chain re-execution path: beforeProcess never ran, so the
+			// running map is nil. Read capacity directly from state instead so the
+			// tracer reproduces sponsorship rather than charging VIC to the sender.
+			feeCap = vrc25.GetFeeCapacity(st.state, victionConfig.VRC25Contract, st.msg.To())
+			if feeCap == nil || feeCap.Sign() == 0 {
+				return nil
+			}
 		}
 
 		var effectiveGasPrice *big.Int
