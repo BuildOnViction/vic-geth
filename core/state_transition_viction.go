@@ -21,35 +21,19 @@ func (st *StateTransition) vrc25BuyGas() error {
 	blockNum := st.evm.Context.BlockNumber
 
 	if !st.evm.ChainConfig().IsAtlas(blockNum) {
-		// Pre-Atlas path: use the running activeFeeBalance map for eligibility.
-		// This map is loaded from state at block start (beforeProcess) and
-		// decremented after each VRC25 tx (afterApplyTransaction), ensuring
-		// correct capacity tracking across multiple txs to the same token.
-		activeFeeBalanceMu.RLock()
-		fb := activeFeeBalance
-		activeFeeBalanceMu.RUnlock()
-		if st.msg.To() == nil {
+		// Pre-Atlas path: eligibility comes from the running fee pool threaded into
+		// this StateTransition. Block import seeds it in beforeProcess and
+		// decrements it via afterApplyTransaction; the tracing API seeds and
+		// decrements its own instance. A nil pool means no sponsorship — treat as a
+		// regular VIC transaction.
+		fb := st.feePool
+		if st.msg.To() == nil || fb == nil {
 			return nil
 		}
-
-		var feeCap *big.Int
-		if fb != nil {
-			// Block-import path: eligibility comes from the per-block running map,
-			// which beforeProcess loaded and afterApplyTransaction decrements.
-			var ok bool
-			feeCap, ok = fb[*st.msg.To()]
-			if !ok || feeCap == nil {
-				// Token not in the registered list — treat as regular VIC tx.
-				return nil
-			}
-		} else {
-			// Trace / off-chain re-execution path: beforeProcess never ran, so the
-			// running map is nil. Read capacity directly from state instead so the
-			// tracer reproduces sponsorship rather than charging VIC to the sender.
-			feeCap = vrc25.GetFeeCapacity(st.state, victionConfig.VRC25Contract, st.msg.To())
-			if feeCap == nil || feeCap.Sign() == 0 {
-				return nil
-			}
+		feeCap, ok := fb[*st.msg.To()]
+		if !ok || feeCap == nil {
+			// Token not in the registered list — treat as regular VIC tx.
+			return nil
 		}
 
 		var effectiveGasPrice *big.Int

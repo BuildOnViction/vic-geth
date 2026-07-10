@@ -56,6 +56,7 @@ type StateTransition struct {
 	state      vm.StateDB
 	evm        *vm.EVM
 	payer      common.Address
+	feePool   map[common.Address]*big.Int
 }
 
 // Message represents a message sent to a contract.
@@ -145,7 +146,7 @@ func IntrinsicGas(data []byte, contractCreation, isHomestead bool, isEIP2028 boo
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, feePool map[common.Address]*big.Int) *StateTransition {
 	return &StateTransition{
 		gp:       gp,
 		evm:      evm,
@@ -154,6 +155,7 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition 
 		value:    msg.Value(),
 		data:     msg.Data(),
 		state:    evm.StateDB,
+		feePool:  feePool,
 	}
 }
 
@@ -164,8 +166,8 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition 
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool) (*ExecutionResult, error) {
-	return NewStateTransition(evm, msg, gp).TransitionDb()
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, feePool map[common.Address]*big.Int) (*ExecutionResult, error) {
+	return NewStateTransition(evm, msg, gp, feePool).TransitionDb()
 }
 
 // to returns the recipient of the message.

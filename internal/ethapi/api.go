@@ -878,7 +878,10 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 	// Setup the gas pool (also for unmetered requests)
 	// and apply the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	result, err := core.ApplyMessage(evm, msg, gp)
+	// Reproduce VRC25 sponsorship for this call: nil post-Atlas (capacity read
+	// from state) and for non-Viction chains; the pre-Atlas running map otherwise.
+	feePool := core.NewVictionProcessor(evm.ChainConfig(), state, header.Number).FeePool()
+	result, err := core.ApplyMessage(evm, msg, gp, feePool)
 	if err := vmError(); err != nil {
 		return nil, err
 	}

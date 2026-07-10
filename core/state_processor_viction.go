@@ -18,15 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// activeFeeBalance holds the per-block running VRC25 fee capacity map for
-// the block currently being processed.  It is set by beforeProcess (via
-// victionProcessorState) and read by vrc25BuyGas during each transaction.
-// Protected by activeFeeBalanceMu.
-var (
-	activeFeeBalance   map[common.Address]*big.Int
-	activeFeeBalanceMu sync.RWMutex
-)
-
 // TradingEngine is the interface the TomoX engine must satisfy.
 // Defined here to avoid an import cycle between core and legacy/tomox.
 type TradingEngine interface {
@@ -144,11 +135,10 @@ type victionProcessorState struct {
 	// committedLendingRoot is the root returned by lendingStateDB.Commit() in afterProcess.
 	committedLendingRoot common.Hash
 
-	// Pre-Atlas VRC25 fee tracking: running balances per token, updated each tx,
-	// flushed to state in afterProcess.
-	feeBalance map[common.Address]*big.Int // token -> remaining capacity
-	feeUpdated map[common.Address]*big.Int // tokens with fees charged -> final capacity
-	totalFee   *big.Int                    // total fees charged this block
+	// feeProc owns the pre-Atlas VRC25 fee accounting for this block: the running
+	// pool threaded into each transaction, the per-tx decrement, and the
+	// end-of-block flush. See VictionProcessor.
+	feeProc *VictionProcessor
 }
 
 // beforeProcess initialises Viction-specific per-block state and runs hardfork
@@ -160,8 +150,7 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 
 	p.victionState = &victionProcessorState{
 		currentBlockNumber: new(big.Int).Set(header.Number),
-		feeUpdated:         map[common.Address]*big.Int{},
-		totalFee:           new(big.Int),
+		feeProc:            NewVictionProcessor(p.config, statedb, header.Number),
 	}
 
 	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
@@ -176,19 +165,6 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 		if p.config.IsSaigon(block.Number()) {
 			misc.ApplySaigonHardFork(statedb, p.config.Viction, p.config.SaigonBlock, block.Number())
 		}
-	}
-
-	// Pre-Atlas: snapshot all VRC25 token fee capacities for per-tx eligibility checks.
-	if !p.config.IsAtlas(header.Number) &&
-		p.config.Viction != nil && p.config.Viction.VRC25Contract != (common.Address{}) {
-		p.victionState.feeBalance = vrc25.GetAllFeeCapacities(statedb, p.config.Viction.VRC25Contract)
-		activeFeeBalanceMu.Lock()
-		activeFeeBalance = p.victionState.feeBalance
-		activeFeeBalanceMu.Unlock()
-	} else {
-		activeFeeBalanceMu.Lock()
-		activeFeeBalance = nil
-		activeFeeBalanceMu.Unlock()
 	}
 
 	// Open TomoX and TomoZ tries from the parent block.
@@ -256,17 +232,9 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 // transaction embedded in the block. Called once after all transactions have
 // been applied.
 func (p *StateProcessor) afterProcess(block *types.Block, statedb *state.StateDB) error {
-	// Clear the package-level feeBalance pointer; it is only valid during
-	// block processing and must not leak to the next block.
-	activeFeeBalanceMu.Lock()
-	activeFeeBalance = nil
-	activeFeeBalanceMu.Unlock()
-
 	// Pre-Atlas: flush accumulated VRC25 fee updates to state.
-	if p.victionState != nil && !p.config.IsAtlas(block.Number()) &&
-		p.config.Viction != nil && p.config.Viction.VRC25Contract != (common.Address{}) &&
-		len(p.victionState.feeUpdated) > 0 {
-		vrc25.UpdateFeeCapacity(statedb, p.config.Viction.VRC25Contract, p.victionState.feeUpdated, p.victionState.totalFee)
+	if p.victionState != nil {
+		p.victionState.feeProc.Flush(statedb)
 	}
 
 	// Commit and verify the TomoX trading state root.
@@ -503,26 +471,11 @@ func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg types.
 		return nil
 	}
 
-	// Pre-Atlas: accumulate VRC25 fee deductions into feeUpdated; flushed in afterProcess.
-	if p.victionState.feeBalance != nil {
-		runningCap, ok := p.victionState.feeBalance[token]
-		if ok && runningCap != nil {
-			fee := new(big.Int).SetUint64(usedGas)
-			if p.config.TIPTRC21FeeBlock != nil && blockNum.Cmp(p.config.TIPTRC21FeeBlock) > 0 && vicCfg != nil && vicCfg.VRC25GasPrice != nil {
-				fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.VRC25GasPrice))
-			}
-			if runningCap.Cmp(fee) > 0 {
-				newCap := new(big.Int).Sub(runningCap, fee)
-				p.victionState.feeBalance[token] = newCap
-				p.victionState.feeUpdated[token] = newCap
-				p.victionState.totalFee.Add(p.victionState.totalFee, fee)
-
-				if receipt.Status == types.ReceiptStatusFailed {
-					vrc25.PayFeeWithVRC25(statedb, msg.From(), token)
-				}
-			}
-		}
-	}
+	// Pre-Atlas: decrement the running fee pool and record the update for the
+	// afterProcess flush. Shared with the tracing API via VictionProcessor, so the
+	// fee formula cannot drift.
+	failed := receipt.Status == types.ReceiptStatusFailed
+	p.victionState.feeProc.HandleFee(statedb, blockNum, tx, msg.From(), usedGas, failed)
 
 	return nil
 }
