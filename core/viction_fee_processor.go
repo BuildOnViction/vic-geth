@@ -34,25 +34,25 @@ func CopyVictionFeePool(src VictionFeePool) VictionFeePool {
 	return dst
 }
 
-// VictionProcessor owns the pre-Atlas VRC25 fee accounting for a single
+// VictionFeeProcessor owns the pre-Atlas VRC25 fee accounting for a single
 // execution over one block. It is a plain value type deliberately decoupled from
 // StateProcessor (which needs the blockchain and consensus engine), so that the
 // tracing API — which re-executes transactions with only a StateDB — can create
 // and drive its own instance with the exact same seed/decrement/flush logic as
 // block import. This is the single source of truth for the fee formula; block
 // import and tracing share it and therefore cannot diverge.
-type VictionProcessor struct {
+type VictionFeeProcessor struct {
 	config     *params.ChainConfig
 	feePool    VictionFeePool // running per-token capacity; nil = no sponsorship
 	feeUpdated VictionFeePool // tokens charged this block -> final capacity (flush)
 	totalFee   *big.Int       // total fee charged this block (flush)
 }
 
-// NewVictionProcessor builds the fee processor for a block. On pre-Atlas Viction
+// NewVictionFeeProcessor builds the fee processor for a block. On pre-Atlas Viction
 // blocks with a VRC25 issuer configured it snapshots all token fee capacities;
 // otherwise feePool stays nil and every transaction is a regular VIC tx.
-func NewVictionProcessor(config *params.ChainConfig, statedb vm.StateDB, blockNum *big.Int) *VictionProcessor {
-	vp := &VictionProcessor{
+func NewVictionFeeProcessor(config *params.ChainConfig, statedb vm.StateDB, blockNum *big.Int) *VictionFeeProcessor {
+	vp := &VictionFeeProcessor{
 		config:     config,
 		feeUpdated: make(VictionFeePool),
 		totalFee:   new(big.Int),
@@ -66,7 +66,7 @@ func NewVictionProcessor(config *params.ChainConfig, statedb vm.StateDB, blockNu
 
 // FeePool returns the running fee-capacity map to thread into ApplyMessage.
 // Safe on a nil receiver (returns nil).
-func (vp *VictionProcessor) FeePool() VictionFeePool {
+func (vp *VictionFeeProcessor) FeePool() VictionFeePool {
 	if vp == nil {
 		return nil
 	}
@@ -80,7 +80,7 @@ func (vp *VictionProcessor) FeePool() VictionFeePool {
 //
 // No-op on a nil receiver, post-Atlas blocks, non-VRC25 transactions, contract
 // creations, or when the pool has no entry for the token.
-func (vp *VictionProcessor) HandleFee(statedb vm.StateDB, blockNum *big.Int, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
+func (vp *VictionFeeProcessor) HandleFee(statedb vm.StateDB, blockNum *big.Int, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
 	if vp == nil || vp.feePool == nil || tx.To() == nil || vp.config.IsAtlas(blockNum) {
 		return
 	}
@@ -109,7 +109,7 @@ func (vp *VictionProcessor) HandleFee(statedb vm.StateDB, blockNum *big.Int, tx 
 // Flush writes the accumulated pre-Atlas fee updates back to state. Called once
 // per block after all transactions (block import only; tracing never flushes).
 // No-op when nothing was charged.
-func (vp *VictionProcessor) Flush(statedb vm.StateDB) {
+func (vp *VictionFeeProcessor) Flush(statedb vm.StateDB) {
 	if vp == nil || vp.feePool == nil || len(vp.feeUpdated) == 0 || vp.config.Viction == nil {
 		return
 	}

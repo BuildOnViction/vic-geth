@@ -137,8 +137,8 @@ type victionProcessorState struct {
 
 	// feeProc owns the pre-Atlas VRC25 fee accounting for this block: the running
 	// pool threaded into each transaction, the per-tx decrement, and the
-	// end-of-block flush. See VictionProcessor.
-	feeProc *VictionProcessor
+	// end-of-block flush. See VictionFeeProcessor.
+	feeProc *VictionFeeProcessor
 }
 
 // beforeProcess initialises Viction-specific per-block state and runs hardfork
@@ -150,7 +150,7 @@ func (p *StateProcessor) beforeProcess(block *types.Block, statedb *state.StateD
 
 	p.victionState = &victionProcessorState{
 		currentBlockNumber: new(big.Int).Set(header.Number),
-		feeProc:            NewVictionProcessor(p.config, statedb, header.Number),
+		feeProc:            NewVictionFeeProcessor(p.config, statedb, header.Number),
 	}
 
 	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
@@ -472,7 +472,7 @@ func (p *StateProcessor) afterApplyTransaction(tx *types.Transaction, msg types.
 	}
 
 	// Pre-Atlas: decrement the running fee pool and record the update for the
-	// afterProcess flush. Shared with the tracing API via VictionProcessor, so the
+	// afterProcess flush. Shared with the tracing API via VictionFeeProcessor, so the
 	// fee formula cannot drift.
 	failed := receipt.Status == types.ReceiptStatusFailed
 	p.victionState.feeProc.HandleFee(statedb, blockNum, tx, msg.From(), usedGas, failed)
