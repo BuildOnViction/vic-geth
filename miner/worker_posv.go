@@ -140,6 +140,13 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 			}
 		}
 		from, _ := types.Sender(w.current.signer, tx)
+		// Never seal a special transaction touching a blacklisted address
+		// after the TIPBlacklist hardfork: importing nodes reject such a
+		// block.
+		if skip, _ := w.blacklistTxAction(tx, from); skip {
+			log.Debug("Skipping special transaction with blacklisted party", "hash", tx.Hash(), "sender", from, "to", tx.To())
+			continue
+		}
 		nonce := w.current.state.GetNonce(from)
 		if nonce != tx.Nonce() {
 			continue
@@ -166,4 +173,28 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
 	return false
+}
+
+// blacklistTxAction reports whether tx must be excluded from the sealing
+// block because its sender or receiver is blacklisted after the TIPBlacklist
+// hardfork. When skip is true, pop tells the caller to drop the whole sending
+// account — a blacklisted sender taints every queued transaction from that
+// account — while pop=false means only this transaction is bad (blacklisted
+// receiver) and the sender's next transaction may still be minable.
+//
+// It uses the same params API as the block-import check in
+// VictionProcessor.BeforeApplyTransaction, so the miner can never seal a
+// transaction the importing nodes would reject as blacklisted.
+func (w *worker) blacklistTxAction(tx *types.Transaction, from common.Address) (skip, pop bool) {
+	if !w.chainConfig.IsTIPBlacklist(w.current.header.Number) {
+		return false, false
+	}
+	sender, receiver := core.BlacklistedTxParty(w.chainConfig, from, tx.To())
+	if sender {
+		return true, true
+	}
+	if receiver {
+		return true, false
+	}
+	return false, false
 }
