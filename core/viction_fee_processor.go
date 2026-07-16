@@ -18,20 +18,28 @@ import (
 // means "no sponsorship" — every transaction is treated as a regular VIC tx.
 type VictionFeePool = map[common.Address]*big.Int
 
-// CopyVictionFeePool returns an independent deep copy of src (keys and *big.Int
-// values cloned), or nil if src is nil. The parallel block tracer gives each task
-// its own copy so worker goroutines never mutate a shared map.
-func CopyVictionFeePool(src VictionFeePool) VictionFeePool {
-	if src == nil {
+// Copy returns an independent copy of vp with the running fee pool deep-copied
+// (keys and *big.Int values cloned) and fresh flush accumulators, or nil on a
+// nil receiver. The parallel block tracer gives each task its own copy so worker
+// goroutines never mutate a shared map; copies are never flushed.
+func (vp *VictionFeeProcessor) Copy() *VictionFeeProcessor {
+	if vp == nil {
 		return nil
 	}
-	dst := make(VictionFeePool, len(src))
-	for k, v := range src {
-		if v != nil {
-			dst[k] = new(big.Int).Set(v)
+	cp := &VictionFeeProcessor{
+		config:     vp.config,
+		feeUpdated: make(VictionFeePool),
+		totalFee:   new(big.Int),
+	}
+	if vp.feePool != nil {
+		cp.feePool = make(VictionFeePool, len(vp.feePool))
+		for k, v := range vp.feePool {
+			if v != nil {
+				cp.feePool[k] = new(big.Int).Set(v)
+			}
 		}
 	}
-	return dst
+	return cp
 }
 
 // VictionFeeProcessor owns the pre-Atlas VRC25 fee accounting for a single

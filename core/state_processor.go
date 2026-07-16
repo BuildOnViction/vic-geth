@@ -33,19 +33,13 @@ import (
 //
 // StateProcessor implements Processor.
 type StateProcessor struct {
-	config       *params.ChainConfig // Chain configuration options
-	bc           *BlockChain         // Canonical block chain
-	engine       consensus.Engine    // Consensus engine used for block rewards
-	victionState *victionProcessorState
+	config *params.ChainConfig // Chain configuration options
+	bc     *BlockChain         // Canonical block chain
+	engine consensus.Engine    // Consensus engine used for block rewards
 
-	// tradingEngine holds the legacy TomoX blackbox for replaying historical
-	// orders during sync. Set via SetTradingEngine(). Nil when TomoX is not needed.
-	tradingEngine TradingEngine
-
-	// lendingEngine holds the legacy TomoZ lending engine for replaying historical
-	// lending orders and liquidations during sync. Set via SetLendingEngine(). Nil when
-	// TomoZ lending is not needed.
-	lendingEngine LendingEngine
+	// viction owns all Viction-specific processing hooks (hardfork activation,
+	// system transactions, VRC25 fees, TomoX/TomoZ replay). See VictionProcessor.
+	viction *VictionProcessor
 
 	// Deferred trie GC fields for TomoX/TomoZ (full-node path).
 	// These are managed entirely by blockchain_viction.go / commitVictionState.
@@ -59,6 +53,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 		config:        config,
 		bc:            bc,
 		engine:        engine,
+		viction:       NewVictionProcessor(config, bc, engine),
 		tradingTriegc: prque.New(nil),
 		lendingTriegc: prque.New(nil),
 	}
@@ -73,7 +68,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 	// Viction hooks
-	if err := p.beforeProcess(block, statedb); err != nil {
+	if err := p.viction.BeforeProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 	var (
@@ -95,26 +90,26 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		if err := p.beforeApplyTransaction(block, tx, msg, statedb); err != nil {
+		if err := p.viction.BeforeApplyTransaction(block, tx, msg, statedb); err != nil {
 			return nil, nil, 0, err
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
 		// Apply Viction-specific system transactions (BlockSigner, TomoX).
-		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
+		handled, receipt, _, err, _ := p.viction.ApplyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
 			return nil, nil, 0, err
 		}
 
 		if !handled {
-			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, p.victionState.feeProc.FeePool())
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, p.viction.FeePool())
 			if err != nil {
 				return nil, nil, 0, err
 			}
 		}
 
 		// Execute Viction-specific post-transaction logic.
-		if err := p.afterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
+		if err := p.viction.AfterApplyTransaction(tx, msg, statedb, receipt, receipt.GasUsed, err); err != nil {
 			return nil, nil, 0, err
 		}
 		receipts = append(receipts, receipt)
@@ -124,7 +119,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
 	// Execute Viction-specific post-processing logic.
-	if err := p.afterProcess(block, statedb); err != nil {
+	if err := p.viction.AfterProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 

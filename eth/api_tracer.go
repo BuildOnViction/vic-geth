@@ -207,7 +207,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 				blockCtx := core.NewEVMBlockContext(task.block.Header(), api.eth.blockchain, nil)
 				// Seed the running VRC25 fee pool from the block's opening state so
 				// sponsored transactions are reproduced during the chain trace.
-				feePool := core.NewVictionFeeProcessor(api.eth.blockchain.Config(), task.statedb, task.block.Number()).FeePool()
+				feePool := core.NewVictionTxProcessor(api.eth.blockchain.Config(), task.statedb, task.block.Number()).FeePool()
 				// Trace all the transactions contained within
 				for i, tx := range task.block.Transactions() {
 					msg, _ := tx.AsMessage(signer)
@@ -494,19 +494,19 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	// Running VRC25 fee pool for the block; each task gets a copy of its current
 	// state, and the driver decrements it as it advances the shared state — so a
 	// task sees the capacities as they stood just before its own transaction.
-	feeProc := core.NewVictionFeeProcessor(cfg, statedb, block.Number())
-	feePool := feeProc.FeePool()
+	vp := core.NewVictionTxProcessor(cfg, statedb, block.Number())
+	feePool := vp.FeePool()
 	var failed error
 	for i, tx := range txs {
 		msg, _ := tx.AsMessage(signer)
 		// Reproduce Viction per-tx pre-checks (balance override + blacklist) on the
 		// shared state before snapshotting it for the tracer, mirroring block import.
-		if err := core.BeforeApplyTransaction(cfg, block, tx, msg, statedb); err != nil {
+		if err := vp.BeforeApplyTransaction(block, tx, msg, statedb); err != nil {
 			failed = err
 			break
 		}
 		// Send the trace task over for execution
-		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, feePool: core.CopyVictionFeePool(feePool)}
+		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, feePool: vp.Copy().FeePool()}
 
 		// Generate the next state snapshot fast without tracing
 		txContext := core.NewEVMTxContext(msg)
@@ -519,7 +519,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		}
 		// Decrement the running fee pool exactly as block import does, so the next
 		// task's copy starts from post-drain capacities.
-		feeProc.HandleFee(statedb, block.Number(), tx, msg.From(), res.UsedGas, res.Failed())
+		vp.HandleFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		// Finalize the state so any modifications are written to the trie
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
@@ -598,8 +598,8 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 	}
 	// Running VRC25 fee pool for the block, decremented per tx as execution
 	// advances, so sponsored transactions are reproduced with correct capacities.
-	feeProc := core.NewVictionFeeProcessor(chainConfig, statedb, block.Number())
-	feePool := feeProc.FeePool()
+	vp := core.NewVictionTxProcessor(chainConfig, statedb, block.Number())
+	feePool := vp.FeePool()
 	for i, tx := range block.Transactions() {
 		// Prepare the trasaction for un-traced execution
 		var (
@@ -633,7 +633,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		}
 		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before
 		// execution, mirroring block import.
-		if err = core.BeforeApplyTransaction(chainConfig, block, tx, msg, statedb); err != nil {
+		if err = vp.BeforeApplyTransaction(block, tx, msg, statedb); err != nil {
 			return dumps, err
 		}
 		// Execute the transaction and flush any traces to disk
@@ -648,7 +648,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		}
 		if err == nil {
 			// Decrement the running fee pool exactly as block import does.
-			feeProc.HandleFee(statedb, block.Number(), tx, msg.From(), res.UsedGas, res.Failed())
+			vp.HandleFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		}
 		if err != nil {
 			return dumps, err
@@ -898,15 +898,15 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 	signer := types.MakeSigner(cfg, block.Number())
 	// Running fee pool, decremented per replayed tx so the target tx sees the
 	// capacities as they stood just before it.
-	feeProc := core.NewVictionFeeProcessor(cfg, statedb, block.Number())
-	feePool := feeProc.FeePool()
+	vp := core.NewVictionTxProcessor(cfg, statedb, block.Number())
+	feePool := vp.FeePool()
 
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer)
 		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before
 		// executing or returning, mirroring block import.
-		if err := core.BeforeApplyTransaction(cfg, block, tx, msg, statedb); err != nil {
+		if err := vp.BeforeApplyTransaction(block, tx, msg, statedb); err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
 		txContext := core.NewEVMTxContext(msg)
@@ -921,7 +921,7 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Decrement the running fee pool exactly as block import does.
-		feeProc.HandleFee(statedb, block.Number(), tx, msg.From(), res.UsedGas, res.Failed())
+		vp.HandleFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		// Ensure any modifications are committed to the state
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
