@@ -64,8 +64,3 @@ var (
 	// than required to start the invocation.
 	ErrIntrinsicGas = errors.New("intrinsic gas too low")
 )
-
-var (
-	// ErrBlacklistedAddress is returned when a transaction sender/receiver is blacklisted.
-	ErrBlacklistedAddress = errors.New("blacklisted address")
-)

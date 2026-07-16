@@ -17,12 +17,15 @@
 package core
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -38,8 +41,8 @@ type StateProcessor struct {
 	engine consensus.Engine    // Consensus engine used for block rewards
 
 	// viction owns all Viction-specific processing hooks (hardfork activation,
-	// system transactions, VRC25 fees, TomoX/TomoZ replay). See VictionProcessor.
-	viction *VictionProcessor
+	// system transactions, VRC25 fees, TomoX/TomoZ replay). See viction.Processor.
+	viction *viction.Processor
 
 	// Deferred trie GC fields for TomoX/TomoZ (full-node path).
 	// These are managed entirely by blockchain_viction.go / commitVictionState.
@@ -53,7 +56,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 		config:        config,
 		bc:            bc,
 		engine:        engine,
-		viction:       NewVictionProcessor(config, bc, engine),
+		viction:       viction.NewProcessor(config, bc, engine),
 		tradingTriegc: prque.New(nil),
 		lendingTriegc: prque.New(nil),
 	}
@@ -96,7 +99,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
 		// Apply Viction-specific system transactions (BlockSigner, TomoX).
-		handled, receipt, _, err, _ := p.viction.ApplyVictionTransaction(statedb, tx, header, usedGas)
+		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -126,7 +129,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool VictionFeePool) (*types.Receipt, error) {
+func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool viction.FeePool) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment
 	txContext := NewEVMTxContext(msg)
 	// Add addresses to access list if applicable
@@ -207,4 +210,60 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// so sponsored VRC25 accounting is not applied here. Live blocks are all
 	// post-Atlas, where capacity is read directly from state in vrc25BuyGas.
 	return applyTransaction(msg, config, bc, author, gp, statedb, header, tx, usedGas, vmenv, nil)
+}
+
+// applyVictionTransaction dispatches Viction system transactions during block
+// import: the 0x89 BlockSigner tx is handled here in core so that
+// ApplySignTransaction returns the core-native nonce errors; all other system
+// transactions (0x91–0x94) delegate to the viction.Processor hook.
+func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	if tx.To() != nil && p.config.Viction != nil &&
+		tx.IsSigningTransaction(p.config.Viction.ValidatorBlockSignContract) &&
+		p.config.IsTIPSigning(header.Number) {
+		return ApplySignTransaction(p.config, statedb, tx, header, usedGas)
+	}
+	return p.viction.ApplyVictionTransaction(statedb, tx, header, usedGas)
+}
+
+// ApplySignTransaction processes a BlockSigner special transaction (0x89)
+// without the EVM: increments the sender nonce, adds a log entry, and returns a
+// zero-gas receipt. Used during block import (applyVictionTransaction), the
+// standalone ApplyTransaction path, and the miner (block creation).
+func ApplySignTransaction(config *params.ChainConfig, statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	// Validate nonce BEFORE Finalise to avoid invalidating the snapshot
+	// on error (the caller may need to RevertToSnapshot).
+	from, err := types.Sender(types.MakeSigner(config, header.Number), tx)
+	if err != nil {
+		return true, nil, 0, err, nil
+	}
+	nonce := statedb.GetNonce(from)
+	if nonce < tx.Nonce() {
+		return true, nil, 0, ErrNonceTooHigh, nil
+	} else if nonce > tx.Nonce() {
+		return true, nil, 0, ErrNonceTooLow, nil
+	}
+
+	// Update the state with pending changes
+	var root []byte
+	if config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
+	}
+
+	statedb.SetNonce(from, nonce+1)
+
+	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+	// Set the receipt logs and create a bloom for filtering
+	logEntry := &types.Log{}
+	logEntry.Address = config.Viction.ValidatorBlockSignContract
+	logEntry.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(logEntry)
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
 }

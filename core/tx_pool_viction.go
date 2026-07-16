@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/core/vrc25"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -36,8 +37,8 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 // on the TIPBlacklist fork block: pool admission is local policy, and the
 // legacy pool rejected these unconditionally.
 func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
-	if sender, receiver := BlacklistedTxParty(pool.chainconfig, from, tx.To()); sender || receiver {
-		return ErrBlacklistedAddress
+	if sender, receiver := viction.BlacklistedTxParty(pool.chainconfig, from, tx.To()); sender || receiver {
+		return viction.ErrBlacklistedAddress
 	}
 	return nil
 }

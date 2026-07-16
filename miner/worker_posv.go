@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -183,13 +184,13 @@ func (w *worker) commitSpecialTransactions(txs types.Transactions, coinbase comm
 // receiver) and the sender's next transaction may still be minable.
 //
 // It uses the same params API as the block-import check in
-// VictionProcessor.BeforeApplyTransaction, so the miner can never seal a
+// viction.Processor.BeforeApplyTransaction, so the miner can never seal a
 // transaction the importing nodes would reject as blacklisted.
 func (w *worker) blacklistTxAction(tx *types.Transaction, from common.Address) (skip, pop bool) {
 	if !w.chainConfig.IsTIPBlacklist(w.current.header.Number) {
 		return false, false
 	}
-	sender, receiver := core.BlacklistedTxParty(w.chainConfig, from, tx.To())
+	sender, receiver := viction.BlacklistedTxParty(w.chainConfig, from, tx.To())
 	if sender {
 		return true, true
 	}
