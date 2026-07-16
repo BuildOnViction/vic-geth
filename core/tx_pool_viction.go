@@ -31,6 +31,17 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 
 // --- Validation helpers ---
 
+// validateBlacklistTx rejects transactions whose sender or receiver is
+// blacklisted. Unlike the block-import and worker checks this is not gated
+// on the TIPBlacklist fork block: pool admission is local policy, and the
+// legacy pool rejected these unconditionally.
+func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
+	if sender, receiver := BlacklistedTxParty(pool.chainconfig, from, tx.To()); sender || receiver {
+		return ErrBlacklistedAddress
+	}
+	return nil
+}
+
 // validateSufficientTransaction checks that the sender has enough native balance
 // to cover the transaction cost (value + gas*gasPrice).
 // VRC25 fee sponsorship is NOT handled at txpool level for now.
