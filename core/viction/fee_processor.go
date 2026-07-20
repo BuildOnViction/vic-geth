@@ -18,30 +18,6 @@ import (
 // means "no sponsorship" — every transaction is treated as a regular VIC tx.
 type FeePool = map[common.Address]*big.Int
 
-// Copy returns an independent copy of vp with the running fee pool deep-copied
-// (keys and *big.Int values cloned) and fresh flush accumulators, or nil on a
-// nil receiver. The parallel block tracer gives each task its own copy so worker
-// goroutines never mutate a shared map; copies are never flushed.
-func (vp *FeeProcessor) Copy() *FeeProcessor {
-	if vp == nil {
-		return nil
-	}
-	cp := &FeeProcessor{
-		config:     vp.config,
-		feeUpdated: make(FeePool),
-		totalFee:   new(big.Int),
-	}
-	if vp.feePool != nil {
-		cp.feePool = make(FeePool, len(vp.feePool))
-		for k, v := range vp.feePool {
-			if v != nil {
-				cp.feePool[k] = new(big.Int).Set(v)
-			}
-		}
-	}
-	return cp
-}
-
 // FeeProcessor owns the pre-Atlas VRC25 fee accounting for a single
 // execution over one block. It is a plain value type deliberately decoupled from
 // StateProcessor (which needs the blockchain and consensus engine), so that the
@@ -70,6 +46,30 @@ func NewFeeProcessor(config *params.ChainConfig, statedb vm.StateDB, blockNum *b
 		vp.feePool = vrc25.GetAllFeeCapacities(statedb, config.Viction.VRC25Contract)
 	}
 	return vp
+}
+
+// Copy returns an independent copy of vp with the running fee pool deep-copied
+// (keys and *big.Int values cloned) and fresh flush accumulators, or nil on a
+// nil receiver. The parallel block tracer gives each task its own copy so worker
+// goroutines never mutate a shared map; copies are never flushed.
+func (vp *FeeProcessor) Copy() *FeeProcessor {
+	if vp == nil {
+		return nil
+	}
+	cp := &FeeProcessor{
+		config:     vp.config,
+		feeUpdated: make(FeePool),
+		totalFee:   new(big.Int),
+	}
+	if vp.feePool != nil {
+		cp.feePool = make(FeePool, len(vp.feePool))
+		for k, v := range vp.feePool {
+			if v != nil {
+				cp.feePool[k] = new(big.Int).Set(v)
+			}
+		}
+	}
+	return cp
 }
 
 // FeePool returns the running fee-capacity map to thread into ApplyMessage.
