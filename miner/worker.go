@@ -880,6 +880,19 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		//
 		// We use the eip155 signer regardless of the current hf.
 		from, _ := types.Sender(w.current.signer, tx)
+		// [POSV] Never seal a transaction whose sender or receiver is
+		// blacklisted after the TIPBlacklist hardfork: importing nodes reject
+		// such a block, forking this miner off the network.
+		if skip, pop := w.blacklistTxAction(tx, from); skip {
+			if pop {
+				log.Debug("[POSV commitTxs]Skipping transaction with blacklisted sender", "sender", from, "hash", tx.Hash())
+				txs.Pop()
+			} else {
+				log.Debug("[POSV commitTxs]Skipping transaction with blacklisted receiver", "receiver", tx.To(), "hash", tx.Hash())
+				txs.Shift()
+			}
+			continue
+		}
 		// Check whether the tx is replay protected. If we're not in the EIP155 hf
 		// phase, start ignoring the sender until we do.
 		if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {

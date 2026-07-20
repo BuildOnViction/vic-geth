@@ -21,13 +21,12 @@ func (st *StateTransition) vrc25BuyGas() error {
 	blockNum := st.evm.Context.BlockNumber
 
 	if !st.evm.ChainConfig().IsAtlas(blockNum) {
-		// Pre-Atlas path: use the running activeFeeBalance map for eligibility.
-		// This map is loaded from state at block start (beforeProcess) and
-		// decremented after each VRC25 tx (afterApplyTransaction), ensuring
-		// correct capacity tracking across multiple txs to the same token.
-		activeFeeBalanceMu.RLock()
-		fb := activeFeeBalance
-		activeFeeBalanceMu.RUnlock()
+		// Pre-Atlas path: eligibility comes from the running fee pool threaded into
+		// this StateTransition. Block import seeds it in beforeProcess and
+		// decrements it via afterApplyTransaction; the tracing API seeds and
+		// decrements its own instance. A nil pool means no sponsorship — treat as a
+		// regular VIC transaction.
+		fb := st.feePool
 		if st.msg.To() == nil || fb == nil {
 			return nil
 		}
