@@ -102,10 +102,14 @@ func NewProcessor(config *params.ChainConfig, chain ChainReader, engine consensu
 }
 
 // NewTxProcessor creates a transaction-only processor for consumers that
-// re-execute transactions without importing a block (tracing API, eth_call).
+// execute transactions outside block import: replaying canonical transactions
+// (tracing API) or simulating hypothetical ones (eth_call, estimateGas).
 // It seeds the VRC25 fee pool immediately from the given state; the chain,
 // consensus engine and TomoX/TomoZ paths stay inert, so only
-// BeforeApplyTransaction, HandleFee and FeePool are meaningful on the result.
+// BeforeApplyTransaction, HandleFee, FeePool and Copy are meaningful on the
+// result. Do not use it for block import — it never runs BeforeProcess or
+// AfterProcess, so system transactions, fee distribution and order-book
+// settlement are all skipped. Block import must use NewProcessor.
 func NewTxProcessor(config *params.ChainConfig, statedb vm.StateDB, blockNum *big.Int) *Processor {
 	return &Processor{
 		config:             config,
