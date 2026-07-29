@@ -198,6 +198,14 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		eth.blockchain.SetHead(compat.RewindTo)
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
+
+	// Set PosvBackend now that eth.blockchain is fully initialised.
+	// Must be done AFTER NewBlockChain returns so that eth.blockchain is non-nil
+	// when NewBlockChain's internal VerifyHeader call triggers verifyValidators.
+	if err := eth.setupPosvBackend(chainConfig); err != nil {
+		return nil, err
+	}
+
 	eth.bloomIndexer.Start(eth.blockchain)
 
 	if config.TxPool.Journal != "" {
