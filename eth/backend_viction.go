@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/viction"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -43,7 +44,7 @@ func (s *Ethereum) PosvGetBlockSignData(
 	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader,
 ) ([]types.Transaction, error) {
-	panic("not implemented")
+	return viction.GetBlockSignData(config, vicConfig, header, chain, s.blockchain)
 }
 
 // Get creator-attestor pairs from the state.
@@ -56,7 +57,7 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 // Calculate and distribute reward at the end of each epoch.
 func (s *Ethereum) PosvGetEpochReward(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
+	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	panic("not implemented")
 }

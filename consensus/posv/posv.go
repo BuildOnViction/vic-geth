@@ -182,6 +182,8 @@ type Posv struct {
 	attestSignatures *lru.ARCCache // Signatures of recent blocks to speed up mining
 	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up synching
 
+	BlockSigners *lru.Cache // Cache of block signers for recent blocks to speed up calculation
+
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
 	signer common.Address // Ethereum address of the signing key
