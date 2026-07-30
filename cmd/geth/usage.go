@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of go-ethereum.
 //
 // go-ethereum is free software: you can redistribute it and/or modify
@@ -42,10 +45,12 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.SmartCardDaemonPathFlag,
 			utils.NetworkIdFlag,
 			utils.MainnetFlag,
+			utils.VictionFlag,
 			utils.GoerliFlag,
 			utils.RinkebyFlag,
 			utils.CalaverasFlag,
 			utils.RopstenFlag,
+			utils.VictestFlag,
 			utils.SyncModeFlag,
 			utils.ExitWhenSyncedFlag,
 			utils.GCModeFlag,

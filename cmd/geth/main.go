@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of go-ethereum.
 //
 // go-ethereum is free software: you can redistribute it and/or modify
@@ -133,12 +136,14 @@ var (
 		utils.NodeKeyHexFlag,
 		utils.DNSDiscoveryFlag,
 		utils.MainnetFlag,
+		utils.VictionFlag,
 		utils.DeveloperFlag,
 		utils.DeveloperPeriodFlag,
 		utils.RopstenFlag,
 		utils.RinkebyFlag,
 		utils.GoerliFlag,
 		utils.CalaverasFlag,
+		utils.VictestFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,
