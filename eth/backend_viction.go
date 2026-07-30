@@ -36,7 +36,11 @@ import (
 func (s *Ethereum) PosvGetAttestors(
 	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
-	panic("not implemented")
+	state, err := s.BlockChain().State()
+	if err != nil {
+		return nil, err
+	}
+	return viction.GetAttestors(vicConfig, validators, state)
 }
 
 // Get block signers from the state.
