@@ -20,6 +20,7 @@
 package posv
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -90,4 +91,38 @@ type PosvBackend interface {
 		vicConfig *params.VictionConfig, header *types.Header,
 		chain consensus.ChainReader,
 	) ([]common.Address, error)
+}
+
+// Process block header Extra field of a checkpoint block to return the list of new validators.
+func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Address {
+	if header == nil {
+		return []common.Address{}
+	}
+
+	validators := make([]common.Address, (len(header.Extra)-extraVanity-extraSeal)/int(common.AddressLength))
+	for i := 0; i < len(validators); i++ {
+		copy(validators[i][:], header.Extra[extraVanity+i*int(common.AddressLength):])
+	}
+
+	return validators
+}
+
+// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
+func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader) ([]types.Transaction, error) {
+	if header == nil {
+		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
+	}
+	blockHash := header.Hash()
+	if signers, ok := c.BlockSigners.Get(blockHash); ok {
+		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
+			return signers, nil
+		}
+	}
+	signers, err := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
+	if err != nil {
+		return nil, err
+	}
+	c.BlockSigners.Add(blockHash, signers)
+	return signers, nil
 }

@@ -489,6 +489,11 @@ func (c *PosvConfig) String() string {
 	return "posv"
 }
 
+// Number of blocks producer in a year (365 days) based on configured period.
+func (c *PosvConfig) BlocksPerYear() uint64 {
+	return 31536000 / c.Period
+}
+
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
 	var engine interface{}

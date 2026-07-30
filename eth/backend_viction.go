@@ -54,12 +54,12 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	panic("not implemented")
 }
 
-// Calculate and distribute reward at the end of each epoch.
+// Calculate reward at the end of each epoch.
 func (s *Ethereum) PosvGetEpochReward(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
-	panic("not implemented")
+	return viction.CalcRewardPerEpoch(c, config, posvConfig, vicConfig, header, chain, statedb, s.blockchain, logger)
 }
 
 // Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
