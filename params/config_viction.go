@@ -29,11 +29,14 @@ type VictionConfig struct {
 
 	ConsensusLimitTimeFinality uint64 `json:"consensusLimitTimeFinality,omitempty"`
 
-	LendingContract            common.Address   `json:"lendingContract,omitempty"`
-	LendingFinalizedContract   common.Address   `json:"lendingFinalizedContract,omitempty"`
-	LendingInterestAmount      *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
-	LendingLiquidateTradeBlock uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
-	LendingRegistrationSMC     common.Address   `json:"lendingRegistrationSMC,omitempty"`
+	LendingBaseRecall           *math.Decimal256 `json:"lendingBaseRecall,omitempty"`
+	LendingContract             common.Address   `json:"lendingContract,omitempty"`
+	LendingFinalizedContract    common.Address   `json:"lendingFinalizedContract,omitempty"`
+	LendingInterestAmount       *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
+	LendingLiquidateTradeBlock  uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
+	LendingRegistrationContract common.Address   `json:"lendingRegistrationContract,omitempty"`
+	LendingTopupDenom           uint64           `json:"lendingTopupDenom,omitempty"`
+	LendingTopupNumer           uint64           `json:"lendingTopupNumer,omitempty"`
 
 	PenaltyComebackBlockCount uint64 `json:"penaltyComebackBlockCount,omitempty"`
 	PenaltyEpochCount         uint64 `json:"penaltyEpochCount,omitempty"`
@@ -43,19 +46,19 @@ type VictionConfig struct {
 	RandomizerFinaleNthBlock uint64         `json:"randomizerFinaleNthBlock,omitempty"`
 	RandomizerRevealNthBlock uint64         `json:"randomizerRevealNthBlock,omitempty"`
 
+	RelayerCancelFee            *math.Decimal256 `json:"relayerCancelFee,omitempty"`
+	RelayerFee                  *math.Decimal256 `json:"relayerFee,omitempty"`
+	RelayerRegistrationContract common.Address   `json:"relayerRegistrationContract,omitempty"`
+	RelayerLendingFee           *math.Decimal256 `json:"relayerLendingFee,omitempty"`
+	RelayerLendingCancelFee     *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
+	RelayerLockedAddress        common.Address   `json:"relayerLockedAddress,omitempty"`
+	RelayerLockedFund           *math.Decimal256 `json:"relayerLockedFund,omitempty"`
+
 	RewardFoundationAddress common.Address   `json:"rewardFoundationAddress,omitempty"`
 	RewardFoundationPercent uint64           `json:"rewardFoundationPercent,omitempty"`
 	RewardPerEpoch          *math.Decimal256 `json:"rewardPerEpoch,omitempty"`
 	RewardValidatorPercent  uint64           `json:"rewardValidatorPercent,omitempty"`
 	RewardVoterPercent      uint64           `json:"rewardVoterPercent,omitempty"`
-
-	RelayerCancelFee        *math.Decimal256 `json:"relayerCancelFee,omitempty"`
-	RelayerContract         common.Address   `json:"relayerContract,omitempty"`
-	RelayerFee              *math.Decimal256 `json:"relayerFee,omitempty"`
-	RelayerRegistrationSMC  common.Address   `json:"relayerRegistrationSMC,omitempty"`
-	RelayerLendingFee       *math.Decimal256 `json:"relayerLendingFee,omitempty"`
-	RelayerLendingCancelFee *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
-	RelayerLockedFund       *math.Decimal256 `json:"relayerLockedFund,omitempty"`
 
 	TRC21GasPrice *math.Decimal256 `json:"trc21GasPrice,omitempty"`
 
@@ -65,20 +68,17 @@ type VictionConfig struct {
 	SaigonFundRepeat     uint64           `json:"saigonFundRepeat,omitempty"`
 	SaigonRewardPerEpoch *math.Decimal256 `json:"saigonRewardPerEpoch,omitempty"`
 
-	TomoXBaseCancelFee   *math.Decimal256 `json:"tomoxBaseCancelFee,omitempty"`
-	TomoXBaseFee         *math.Decimal256 `json:"tomoxBaseFee,omitempty"`
-	TomoXBasePrice       *math.Decimal256 `json:"tomoxBasePrice,omitempty"`
-	TomoXBaseRecall      *math.Decimal256 `json:"tomoxBaseRecall,omitempty"`
-	TomoXContract        common.Address   `json:"tomoxContract,omitempty"`
-	TomoXListingSMC      common.Address   `json:"tomoxListingSMC,omitempty"`
-	TomoXTopupDenom      uint64           `json:"tomoxTopupDenom,omitempty"`
-	TomoXTopupNumer      uint64           `json:"tomoxTopupNumer,omitempty"`
-	TomoXTradingContract common.Address   `json:"tomoXTradingContract,omitempty"`
+	TradingBaseCancelFee   *math.Decimal256 `json:"tradingBaseCancelFee,omitempty"`
+	TradingBaseFee         *math.Decimal256 `json:"tradingBaseFee,omitempty"`
+	TradingBasePrice       *math.Decimal256 `json:"tradingBasePrice,omitempty"`
+	TradingContract        common.Address   `json:"tradingContract,omitempty"`
+	TradingListingContract common.Address   `json:"tradingListingContract,omitempty"`
+	TradingStateContract   common.Address   `json:"tradingStateContract,omitempty"`
 
 	ValidatorBlockSignContract     common.Address `json:"validatorBlockSignContract,omitempty"`
 	ValidatorContract              common.Address `json:"validatorContract,omitempty"`
-	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorMaxCount              uint64         `json:"validatorMaxCount,omitempty"`
+	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorSignInterval          uint64         `json:"validatorSignInterval,omitempty"`
 
 	VRC25GasPrice *math.Decimal256 `json:"vrc25GasPrice,omitempty"`
@@ -146,4 +146,27 @@ var blacklists = map[common.Address]bool{
 	common.HexToAddress("0xfe685f43acc62f92ab01a8da80d76455d39d3cb3"): true,
 	common.HexToAddress("0x3538a544021c07869c16b764424c5987409cba48"): true,
 	common.HexToAddress("0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f"): true,
+}
+
+var victionHardforks = map[string]bool{
+	"tip2019Block":           true,
+	"tipSigningBlock":        true,
+	"tipRandomizeBlock":      true,
+	"tipBlacklistBlock":      true,
+	"tipTRC21FeeBlock":       true,
+	"tipFixSignerCheckBlock": true,
+	"tipTomoXBlock":          true,
+	"tipTomoXLendingBlock":   true,
+	"tipTomoXCancelFeeBlock": true,
+
+	"saigonBlock":        true,
+	"atlasBlock":         true,
+	"prePrometheusBlock": true,
+}
+
+func isVictionHardfork(name string) bool {
+	if _, ok := victionHardforks[name]; ok {
+		return true
+	}
+	return false
 }
