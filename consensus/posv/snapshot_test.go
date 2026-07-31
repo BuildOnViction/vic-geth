@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -148,7 +147,7 @@ func TestSnapshotCopy(t *testing.T) {
 	snap := newSnapshot(config, sigcache, 100, common.Hash{}, signers)
 	snap.Recents[95] = signers[0]
 	snap.Recents[98] = signers[1]
-	snap.Votes = append(snap.Votes, &clique.Vote{
+	snap.Votes = append(snap.Votes, &Vote{
 		Signer:    signers[0],
 		Block:     90,
 		Address:   common.HexToAddress("0x4444444444444444444444444444444444444444"),
@@ -413,13 +412,13 @@ func TestSnapshotApplyCheckpoint(t *testing.T) {
 	snap := newSnapshot(config, sigcache, 5, common.Hash{}, []common.Address{signer1})
 
 	// Add some votes
-	snap.Votes = append(snap.Votes, &clique.Vote{
+	snap.Votes = append(snap.Votes, &Vote{
 		Signer:    signer1,
 		Block:     5,
 		Address:   common.HexToAddress("0x4444444444444444444444444444444444444444"),
 		Authorize: true,
 	})
-	snap.Tally[common.HexToAddress("0x4444444444444444444444444444444444444444")] = clique.Tally{
+	snap.Tally[common.HexToAddress("0x4444444444444444444444444444444444444444")] = Tally{
 		Authorize: true,
 		Votes:     1,
 	}

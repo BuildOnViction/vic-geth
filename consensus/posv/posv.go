@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -129,6 +128,9 @@ var (
 	errNilHeader = errors.New("nil header")
 )
 
+// SignerFn hashes and signs the data to be signed by a backing account.
+type SignerFn func(signer accounts.Account, mimeType string, message []byte) ([]byte, error)
+
 // ecrecover extracts the Ethereum account address from a signed header.
 func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	if header == nil {
@@ -190,9 +192,9 @@ type Posv struct {
 	verifiedBlocks   *lru.ARCCache           // Status of recent blocks to speed up syncing
 	proposals        map[common.Address]bool // Current list of proposals we are pushing
 
-	signer common.Address  // Ethereum address of the signing key
-	signFn clique.SignerFn // Signer function to authorize hashes with
-	lock   sync.RWMutex    // Protects the signer fields
+	signer common.Address // Ethereum address of the signing key
+	signFn SignerFn       // Signer function to authorize hashes with
+	lock   sync.RWMutex   // Protects the signer fields
 
 	BlockSigners *lru.Cache
 
@@ -767,7 +769,7 @@ func (c *Posv) UpdateMasternodes(chain consensus.ChainReader, header *types.Head
 	return nil
 }
 
-func (c *Posv) Authorize(signer common.Address, signFn clique.SignerFn) {
+func (c *Posv) Authorize(signer common.Address, signFn SignerFn) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 

@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
@@ -30,17 +29,33 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
+// Vote represents a single vote that an authorized signer made to modify the
+// list of authorizations.
+type Vote struct {
+	Signer    common.Address `json:"signer"`    // Authorized signer that cast this vote
+	Block     uint64         `json:"block"`     // Block number the vote was cast in (expire old votes)
+	Address   common.Address `json:"address"`   // Account being voted on to change its authorization
+	Authorize bool           `json:"authorize"` // Whether to authorize or deauthorize the voted account
+}
+
+// Tally is a simple vote tally to keep the current score of votes. Votes that
+// go against the proposal aren't counted since it's equivalent to not voting.
+type Tally struct {
+	Authorize bool `json:"authorize"` // Whether the vote is about authorizing or kicking someone
+	Votes     int  `json:"votes"`     // Number of votes until now wanting to pass the proposal
+}
+
 // Snapshot is the state of the authorization voting at a given point in time.
 type Snapshot struct {
 	config   *params.PosvConfig // Consensus engine parameters to fine tune behavior
 	sigcache *lru.ARCCache      // Cache of recent block signatures to speed up ecrecover
 
-	Number  uint64                          `json:"number"`  // Block number where the snapshot was created
-	Hash    common.Hash                     `json:"hash"`    // Block hash where the snapshot was created
-	Signers map[common.Address]struct{}     `json:"signers"` // Set of authorized signers at this moment
-	Recents map[uint64]common.Address       `json:"recents"` // Set of recent signers for spam protections
-	Votes   []*clique.Vote                  `json:"votes"`   // List of votes cast in chronological order
-	Tally   map[common.Address]clique.Tally `json:"tally"`   // Current vote tally to avoid recalculating
+	Number  uint64                      `json:"number"`  // Block number where the snapshot was created
+	Hash    common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
+	Signers map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
+	Recents map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
+	Votes   []*Vote                     `json:"votes"`   // List of votes cast in chronological order
+	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
 }
 
 // signersAscending implements the sort interface to allow sorting a list of addresses
@@ -61,7 +76,7 @@ func newSnapshot(config *params.PosvConfig, sigcache *lru.ARCCache, number uint6
 		Hash:     hash,
 		Signers:  make(map[common.Address]struct{}),
 		Recents:  make(map[uint64]common.Address),
-		Tally:    make(map[common.Address]clique.Tally),
+		Tally:    make(map[common.Address]Tally),
 	}
 	for _, signer := range signers {
 		snap.Signers[signer] = struct{}{}
@@ -103,8 +118,8 @@ func (s *Snapshot) copy() *Snapshot {
 		Hash:     s.Hash,
 		Signers:  make(map[common.Address]struct{}),
 		Recents:  make(map[uint64]common.Address),
-		Votes:    make([]*clique.Vote, len(s.Votes)),
-		Tally:    make(map[common.Address]clique.Tally),
+		Votes:    make([]*Vote, len(s.Votes)),
+		Tally:    make(map[common.Address]Tally),
 	}
 	for signer := range s.Signers {
 		cpy.Signers[signer] = struct{}{}
@@ -138,7 +153,7 @@ func (s *Snapshot) cast(address common.Address, authorize bool) bool {
 		old.Votes++
 		s.Tally[address] = old
 	} else {
-		s.Tally[address] = clique.Tally{Authorize: authorize, Votes: 1}
+		s.Tally[address] = Tally{Authorize: authorize, Votes: 1}
 	}
 	return true
 }
@@ -192,7 +207,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		number := header.Number.Uint64()
 		if number%s.config.Epoch == 0 {
 			snap.Votes = nil
-			snap.Tally = make(map[common.Address]clique.Tally)
+			snap.Tally = make(map[common.Address]Tally)
 		}
 		// Delete the oldest signer from the recent list to allow it signing again
 		if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
@@ -236,7 +251,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			return nil, errInvalidVote
 		}
 		if snap.cast(header.Coinbase, authorize) {
-			snap.Votes = append(snap.Votes, &clique.Vote{
+			snap.Votes = append(snap.Votes, &Vote{
 				Signer:    signer,
 				Block:     number,
 				Address:   header.Coinbase,
