@@ -227,13 +227,13 @@ func (bc *BlockChain) UpdateM1() error {
 	}
 	candidates = stateDB.VicGetCandidates(contractAddress)
 
-	var ms []posv.Masternode
+	var ms []posv.Validator
 	for _, candidate := range candidates {
 		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
 
 		//TODO: smart contract shouldn't return "0x0000000000000000000000000000000000000000"
 		if candidate.String() != "0x0000000000000000000000000000000000000000" {
-			ms = append(ms, posv.Masternode{Address: candidate, Stake: cap})
+			ms = append(ms, posv.Validator{Address: candidate, Stake: cap})
 		}
 	}
 	if len(ms) == 0 {

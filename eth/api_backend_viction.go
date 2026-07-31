@@ -531,7 +531,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 
 	// First, Sort candidates by capacity
-	sortedCandidates := append([]posv.Masternode(nil), candidates...)
+	sortedCandidates := append([]posv.Validator(nil), candidates...)
 	forkBlockNum := big.NewInt(int64(stateBlockNr))
 	if stateBlockNr == rpc.LatestBlockNumber || stateBlockNr == rpc.PendingBlockNumber {
 		forkBlockNum = s.eth.blockchain.CurrentBlock().Number()
@@ -566,11 +566,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	penalties = posv.DecodePenaltiesFromHeader(header.Penalties)
 
 	// check last 5 epochs to find penalize masternodes
-	for i:= uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
-		if header.Number.Uint64() < epochConfig * i {
+	for i := uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
+		if header.Number.Uint64() < epochConfig*i {
 			break
 		}
-		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig * i
+		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig*i
 		prevCheckpointHeader, err := s.HeaderByNumber(ctx, rpc.BlockNumber(prevCheckpointBlockNumber))
 		if prevCheckpointHeader == nil || err != nil {
 			log.Error("Failed to get previous checkpoint header", "error", err)
@@ -588,7 +588,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 		return result, nil
 	}
 
-	var topCandidates []posv.Masternode
+	var topCandidates []posv.Validator
 	if len(sortedCandidates) > int(vicConfig.ValidatorMaxCount) {
 		topCandidates = sortedCandidates[:vicConfig.ValidatorMaxCount]
 	} else {
@@ -608,20 +608,20 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	return result, nil
 }
 
-func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.Masternode, error) {
+func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.Validator, error) {
 	statedb, _, err := s.StateAndHeaderByNumber(ctx, blockNr)
 	if err != nil {
 		return nil, err
 	}
 
 	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
-	candidates := make([]posv.Masternode, 0, len(addresses))
+	candidates := make([]posv.Validator, 0, len(addresses))
 	for _, addr := range addresses {
 		if addr == (common.Address{}) {
 			continue
 		}
 		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
-		candidates = append(candidates, posv.Masternode{Address: addr, Stake: cap})
+		candidates = append(candidates, posv.Validator{Address: addr, Stake: cap})
 	}
 	if len(candidates) == 0 {
 		log.Debug("Candidates list cannot be found", "len(candidates)", len(candidates))
