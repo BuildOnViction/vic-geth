@@ -30,6 +30,10 @@ import (
 )
 
 var (
+
+	// ErrNilHeader is when header is nil.
+	ErrNilHeader = errors.New("nil header")
+
 	// ErrNoContractAddress is when the contract address is not set in the config.
 	ErrNoContractAddress = errors.New("contract address is not set")
 

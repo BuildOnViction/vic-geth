@@ -36,7 +36,7 @@ import (
 func (s *Ethereum) PosvGetAttestors(
 	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
-	state, err := s.BlockChain().State()
+	state, err := s.blockchain.State()
 	if err != nil {
 		return nil, err
 	}
@@ -83,10 +83,17 @@ func (s *Ethereum) PosvGetPenalties(
 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(
-	vicConfig *params.VictionConfig, header *types.Header,
+	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader,
 ) ([]common.Address, error) {
-	panic("not implemented")
+	if header == nil {
+		return []common.Address{}, viction.ErrNilHeader
+	}
+	state, err := s.blockchain.StateAt(header.Root)
+	if err != nil {
+		return nil, err
+	}
+	return viction.GetValidators(config, vicConfig, header, chain, state)
 }
 
 func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig) error {

@@ -88,7 +88,7 @@ type PosvBackend interface {
 
 	// Get eligble validators from the state.
 	PosvGetValidators(
-		vicConfig *params.VictionConfig, header *types.Header,
+		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 		chain consensus.ChainReader,
 	) ([]common.Address, error)
 }
