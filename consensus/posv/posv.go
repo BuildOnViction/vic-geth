@@ -426,9 +426,31 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given.
-func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	// No block rewards in PoA, so the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
+	config := chainH.Config()
+	if config != nil && config.Posv != nil && config.Viction != nil {
+		number := header.Number.Uint64()
+		epoch := config.Posv.Epoch
+
+		// Apply epoch rewards only at checkpoint blocks, skipping the first checkpoint (e.g. 900).
+		if epoch > 0 && number%epoch == 0 && number > epoch {
+			chain, ok := chainH.(consensus.ChainReader)
+			if !ok {
+				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
+			}
+			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
+			if err != nil {
+				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
+			}
+			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			if err != nil {
+				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
+			}
+		}
+	}
+
+	// Always update header fields after any state modifications.
+	header.Root = state.IntermediateRoot(config != nil && config.IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 
