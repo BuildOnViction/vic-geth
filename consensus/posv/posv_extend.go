@@ -29,8 +29,10 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 const (
@@ -99,6 +101,11 @@ type PosvBackend interface {
 	) ([]common.Address, error)
 }
 
+// Return Ethereum address recovered from the signature in header's Attestor field.
+func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
+	return ecrecover2(header, c.attestSignatures)
+}
+
 // Decode bytes with format of Block.Attestors into list of attestor numbers.
 func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
 	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
@@ -143,9 +150,9 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 		return []common.Address{}
 	}
 
-	validators := make([]common.Address, (len(header.Extra)-extraVanity-extraSeal)/int(common.AddressLength))
+	validators := make([]common.Address, (len(header.Extra)-ExtraVanity-ExtraSeal)/int(common.AddressLength))
 	for i := 0; i < len(validators); i++ {
-		copy(validators[i][:], header.Extra[extraVanity+i*int(common.AddressLength):])
+		copy(validators[i][:], header.Extra[ExtraVanity+i*int(common.AddressLength):])
 	}
 
 	return validators
@@ -169,4 +176,33 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	}
 	c.BlockSigners.Add(blockHash, signers)
 	return signers, nil
+}
+
+// ecrecover2 extracts the Ethereum account address from a Attestor header.
+func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+	// If the signature's already cached, return that
+	hash := header.Hash()
+
+	// hitrate while straight-forward sync is from 0.5 to 0.65
+	if address, known := sigcache.Get(hash); known {
+		return address.(common.Address), nil
+	}
+
+	// Retrieve the signature from the header extra-data
+	if len(header.Attestor) != ExtraSeal {
+		return common.Address{}, errMissingSignature
+	}
+	signature := header.Attestor
+
+	// Recover the public key and the Ethereum address
+	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
+
+	sigcache.Add(hash, signer)
+	return signer, nil
 }
