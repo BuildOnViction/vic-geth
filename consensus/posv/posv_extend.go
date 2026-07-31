@@ -41,7 +41,17 @@ const (
 )
 
 var (
+	errCannotGetCheckpointHeader = errors.New("cannot get checkpoint header")
+
 	errEmptyValidators = errors.New("validators is empty")
+
+	errInvalidAttestor = errors.New("invalid attestor")
+
+	errInvalidCheckpointPenalties = errors.New("invalid penalty list on checkpoint block")
+
+	errInvalidCheckpointValidators = errors.New("invalid validator list on checkpoint block")
+
+	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
 	errNoChainReader = errors.New("chain reader is not available")
 )
@@ -133,6 +143,7 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	return signers, nil
 }
 
+// Check if the give signer is assigned to create new block.
 func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators []common.Address) (bool, int, int, int, error) {
 	validatorsCount := len(validators)
 	if validatorsCount == 0 {

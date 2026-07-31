@@ -379,7 +379,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 		// Remove penalized validators in current epoch
 		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
 		if err != nil {
-			log.Debug("[POSV][Prepare] Failed to get penalties", "number", number, "err", err)
+			log.Error("[POSV] prepare: Failed to get penalties", "number", number, "err", err)
 			return err
 		}
 		if len(penalties) > 0 {
