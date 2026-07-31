@@ -20,8 +20,10 @@
 package posv
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -29,6 +31,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+const (
+	attestorHeaderItemLength = 4
 )
 
 // EpochReward stores number of sign made by each validator and rewards for
@@ -66,7 +72,7 @@ type PosvBackend interface {
 
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(
-		c *Posv, config *params.ChainConfig, header, checkpointHeader *types.Header,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
 	) (map[common.Address]common.Address, uint64, error)
 
 	// Calculate and distribute reward at the end of each epoch.
@@ -91,6 +97,32 @@ type PosvBackend interface {
 		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 		chain consensus.ChainReader,
 	) ([]common.Address, error)
+}
+
+// Decode bytes with format of Block.Attestors into list of attestor numbers.
+func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
+	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
+	attestors := make([]int64, attestorCount)
+	for i := 0; i < attestorCount; i++ {
+		attestorBuff := bytes.Trim(attestorsBuff[i*attestorHeaderItemLength:(i+1)*attestorHeaderItemLength], "\x00")
+		attestorNumber, err := strconv.ParseInt(string(attestorBuff), 10, 64)
+		if err != nil {
+			return []int64{}
+		}
+		attestors[i] = attestorNumber
+	}
+
+	return attestors
+}
+
+// Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
+func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
+	if header == nil {
+		return []int64{}
+	}
+
+	attestors := DecodeAttestorsFromHeader(header.NewAttestors)
+	return attestors
 }
 
 // Process block header Extra field of a checkpoint block to return the list of new validators.

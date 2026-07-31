@@ -30,6 +30,8 @@ import (
 )
 
 var (
+	// ErrInvalidAttestorList is when the attestors list are not conformed to the consensus rules.
+	ErrInvalidAttestorList = errors.New("invalid attestor list")
 
 	// ErrNilHeader is when header is nil.
 	ErrNilHeader = errors.New("nil header")
