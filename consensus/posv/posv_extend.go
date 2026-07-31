@@ -42,6 +42,8 @@ const (
 
 var (
 	errEmptyValidators = errors.New("validators is empty")
+
+	errNoChainReader = errors.New("chain reader is not available")
 )
 
 // EpochReward stores number of sign made by each validator and rewards for
@@ -188,6 +190,25 @@ func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
 		penalties[i] = common.BytesToAddress(penaltyBuff)
 	}
 	return penalties
+}
+
+// Encode list of attestor numbers into bytes following format of Block.Attestors.
+func EncodeAttestorsForHeader(attestors []int64) []byte {
+	var attestorsBuff []byte
+	for _, attestor := range attestors {
+		attestorBuff := common.LeftPadBytes([]byte(fmt.Sprintf("%d", attestor)), attestorHeaderItemLength)
+		attestorsBuff = append(attestorsBuff, attestorBuff...)
+	}
+	return attestorsBuff
+}
+
+// Encode list of penalized addresses into bytes following format of Block.Penalties.
+func EncodePenaltiesForHeader(penalties []common.Address) []byte {
+	var penaltiesBuff []byte
+	for _, attestor := range penalties {
+		penaltiesBuff = append(penaltiesBuff, attestor.Bytes()...)
+	}
+	return penaltiesBuff
 }
 
 // Process block header NewAttestors field of a checkpoint block to return the list of new attestors.

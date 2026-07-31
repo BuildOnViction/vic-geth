@@ -320,7 +320,12 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
-func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
+func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header) error {
+	chain, ok := chainH.(consensus.ChainReader)
+	if !ok {
+		return errNoChainReader
+	}
+
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}
@@ -369,20 +374,53 @@ func (c *Posv) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	header.Extra = header.Extra[:ExtraVanity]
 
 	if number%c.config.Epoch == 0 {
-		for _, signer := range snap.signers() {
-			header.Extra = append(header.Extra, signer[:]...)
+		log.Info("[PoSV] Preparing checkpoint block", "number", number)
+		validators := snap.signers()
+		// Remove penalized validators in current epoch
+		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
+		if err != nil {
+			log.Debug("[POSV][Prepare] Failed to get penalties", "number", number, "err", err)
+			return err
 		}
+		if len(penalties) > 0 {
+			validators = common.SetSubstract(validators, penalties)
+			header.Penalties = EncodePenaltiesForHeader(penalties)
+		}
+		// Remove penalized validators in recent epochs
+		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
+			if number > i*c.config.Epoch {
+				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
+				prevCehckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+				penalties := DecodePenaltiesFromHeader(prevCehckpointHeader.Penalties)
+				if len(penalties) > 0 {
+					validators = common.SetSubstract(validators, penalties)
+				}
+			}
+		}
+		// Write the final list of validators to Extra field
+		for _, validator := range validators {
+			header.Extra = append(header.Extra, validator[:]...)
+		}
+		// Write list of attestors to NewAttestors field
+		attestors, err := c.backend.PosvGetAttestors(chain.Config().Viction, header, validators)
+		if err != nil {
+			return err
+		}
+		header.NewAttestors = EncodeAttestorsForHeader(attestors)
 	}
 	header.Extra = append(header.Extra, make([]byte, ExtraSeal)...)
 
 	// Mix digest is reserved for now, set to empty
 	header.MixDigest = common.Hash{}
 
-	// Ensure the timestamp has the correct delay
+	// Ensure the timestamp has the correct delay using the parent header fetched earlier
 	header.Time = parent.Time + c.config.Period
-	if header.Time < uint64(time.Now().Unix()) {
-		header.Time = uint64(time.Now().Unix())
+
+	now := uint64(time.Now().Unix())
+	if header.Time < now {
+		header.Time = now
 	}
+
 	return nil
 }
 
