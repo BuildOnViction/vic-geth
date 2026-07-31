@@ -19,6 +19,7 @@ package posv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -35,6 +36,22 @@ import (
 
 const (
 	attestorHeaderItemLength = 4
+)
+
+var (
+	errCannotGetCheckpointHeader = errors.New("cannot get checkpoint header")
+
+	errEmptyValidators = errors.New("validators is empty")
+
+	errInvalidAttestor = errors.New("invalid attestor")
+
+	errInvalidCheckpointPenalties = errors.New("invalid penalty list on checkpoint block")
+
+	errInvalidCheckpointValidators = errors.New("invalid validator list on checkpoint block")
+
+	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
+
+	errNoChainReader = errors.New("chain reader is not available")
 )
 
 // EpochReward stores number of sign made by each validator and rewards for
@@ -228,6 +245,17 @@ func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
 	}
 
 	return attestors
+}
+
+// Return difficulty of newly created block based on the validator creates the block.
+func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, validators []common.Address) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, validators)
+	if err == nil {
+		distance := distance(currentIndex, parentIndex, validatorCount)
+		return big.NewInt(int64(validatorCount - distance + 1))
+	}
+	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
+
 }
 
 // Return the distance between current index and parent index in the circular list of validators.

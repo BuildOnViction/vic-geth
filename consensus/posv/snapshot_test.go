@@ -288,7 +288,7 @@ func TestGetSigners(t *testing.T) {
 
 	snap := newSnapshot(config, sigcache, 0, common.Hash{}, signers)
 
-	result := snap.GetSigners()
+	result := snap.signers()
 
 	// Should return sorted addresses
 	if len(result) != len(signers) {
@@ -320,7 +320,7 @@ func TestInturn(t *testing.T) {
 	snap := newSnapshot(config, sigcache, 0, common.Hash{}, signers)
 
 	// Get sorted signers
-	sortedSigners := snap.GetSigners()
+	sortedSigners := snap.signers()
 
 	// Test inturn for different block numbers
 	for i := uint64(0); i < 10; i++ {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 func TestExactValidators(t *testing.T) {
@@ -119,7 +120,13 @@ func TestRecoverSignerFromExtraData(t *testing.T) {
 
 	header := headerForRecoverSignerFixture(t, extra)
 
-	signer, err := RecoverSignerFromHeader(header)
+	signature := header.Extra[len(header.Extra)-ExtraSeal:]
+	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	var signer common.Address
+	if err == nil {
+		copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
+	}
+
 	fmt.Println("[POSV-miner]", signer.Hex())
 
 	if err != nil {

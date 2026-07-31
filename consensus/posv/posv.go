@@ -88,8 +88,6 @@ var (
 	// ones).
 	errInvalidCheckpointSigners = errors.New("invalid signer list on checkpoint block")
 
-	errInvalidCheckpointPenalties = errors.New("invalid penalty list on checkpoint block")
-
 	// errInvalidMixDigest is returned if a block's mix digest is non-zero.
 	errInvalidMixDigest = errors.New("non-zero mix digest")
 
@@ -107,14 +105,10 @@ var (
 	// of 1 or 2, or if the value does not match the turn of the signer.
 	errInvalidDifficulty = errors.New("invalid difficulty")
 
-	errInvalidCheckpointValidators = errors.New("invalid validator list on checkpoint block")
-
 	// ErrUnauthorizedSigner is returned if a header is signed by a non-authorized entity.
 	errUnauthorizedSigner = errors.New("unauthorized signer")
 
 	errInvalidBlockAttestor = errors.New("invalid block attestor")
-
-	errInvalidNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
 	// errInvalidVotingChain is returned if an authorization list is attempted to
 	// be modified via out-of-range or non-contiguous headers.
@@ -123,13 +117,8 @@ var (
 	// that already signed a header recently, thus is temporarily not allowed to.
 	errRecentlySigned = errors.New("recently signed")
 
-	errEmptyValidators = errors.New("validators is empty")
-
 	// errBackendNotSet is returned when consensus engine's backend is not set.
 	errBackendNotSet = errors.New("consensus engine backend not set")
-
-	// errNilHeader is returned when Author/ecrecover is called with a nil header.
-	errNilHeader = errors.New("nil header")
 )
 
 type Validator struct {
@@ -142,9 +131,6 @@ type SignerFn func(signer accounts.Account, mimeType string, message []byte) ([]
 
 // ecrecover extracts the Ethereum account address from a signed header.
 func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
-	if header == nil {
-		return common.Address{}, errNilHeader
-	}
 	// If the signature's already cached, return that
 	hash := header.Hash()
 	if address, known := sigcache.Get(hash); known {
@@ -165,27 +151,6 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
 
 	sigcache.Add(hash, signer)
-	return signer, nil
-}
-
-// RecoverSignerFromHeader returns the sealer address encoded in the last ExtraSeal bytes of header.Extra.
-// The signature verifies against SealHash(header) (parent hash, state root, number, gas, time, extra without
-// the signature suffix, etc.). Extra alone is not sufficient—you need the same header fields as when the
-// block was sealed.
-func RecoverSignerFromHeader(header *types.Header) (common.Address, error) {
-	if header == nil {
-		return common.Address{}, errNilHeader
-	}
-	if len(header.Extra) < ExtraSeal {
-		return common.Address{}, errMissingSignature
-	}
-	signature := header.Extra[len(header.Extra)-ExtraSeal:]
-	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
-	if err != nil {
-		return common.Address{}, err
-	}
-	var signer common.Address
-	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
 	return signer, nil
 }
 
@@ -221,9 +186,9 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	}
 	// Allocate the snapshot caches and create the engine
 	recents, _ := lru.NewARC(inmemorySnapshots)
-	signatures, _ := lru.NewARC(inmemorySnapshots)
-	attestSignatures, _ := lru.NewARC(inmemorySnapshots)
-	verifiedBlocks, _ := lru.NewARC(inmemorySnapshots)
+	signatures, _ := lru.NewARC(inmemorySignatures)
+	attestSignatures, _ := lru.NewARC(inmemorySignatures)
+	verifiedBlocks, _ := lru.NewARC(recentVerifiedBlocks)
 	BlockSigners, _ := lru.NewARC(recentBlockSigners)
 	return &Posv{
 		config:           &conf,
@@ -252,14 +217,6 @@ func (c *Posv) GetValidators(vicConfig *params.VictionConfig, header *types.Head
 	return c.backend.PosvGetValidators(vicConfig, header, chain)
 }
 
-// GetEpoch returns the epoch length from the Posv config.
-func (c *Posv) GetEpoch() uint64 {
-	if c.config != nil && c.config.Epoch > 0 {
-		return c.config.Epoch
-	}
-	return epochLength // Default epoch length
-}
-
 // SealHash returns the hash of a block prior to it being sealed.
 func (c *Posv) SealHash(header *types.Header) common.Hash {
 	return SealHash(header)
@@ -284,21 +241,6 @@ func PosvRLP(header *types.Header) []byte {
 	b := new(bytes.Buffer)
 	encodeSigHeader(b, header)
 	return b.Bytes()
-}
-
-// VerifyHeader checks whether a header conforms to the consensus rules.
-func (c *Posv) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, seal bool) error {
-	return c.verifyHeaderWithCache(chain, header, nil, seal)
-}
-
-func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, validators []common.Address) *big.Int {
-	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, validators)
-	if err == nil {
-		distance := distance(currentIndex, parentIndex, validatorCount)
-		return big.NewInt(int64(validatorCount - distance + 1))
-	}
-	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
-
 }
 
 // GetSnapshot returns the snapshot for the given block, exposing the full set
@@ -449,7 +391,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 
 	if number%c.config.Epoch == 0 {
 		log.Info("[POSV] Prepare: assembling checkpoint block", "number", number)
-		validators := snap.GetSigners()
+		validators := snap.signers()
 		// remove penalized validators in current epoch
 		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
 		if err != nil {
@@ -697,68 +639,6 @@ func encodeSigHeader(w io.Writer, header *types.Header) {
 	if err := rlp.Encode(w, enc); err != nil {
 		panic("can't encode: " + err.Error())
 	}
-}
-
-// VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers. The
-// method returns a quit channel to abort the operations and a results channel to
-// retrieve the async verifications (the order is that of the input slice).
-func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
-	abort := make(chan struct{})
-	results := make(chan error, len(headers))
-
-	// chainWithCurrentBlock is satisfied by *core.BlockChain, whose CurrentBlock()
-	// only advances after the full block (with state trie) has been committed.
-	// *core.HeaderChain also satisfies the shape but returns nil, meaning no
-	// full block / state is available in that path (downloader header pre-validation).
-	type chainWithCurrentBlock interface {
-		CurrentBlock() *types.Block
-	}
-
-	go func() {
-		for i, header := range headers {
-			number := header.Number.Uint64()
-			// For checkpoint blocks, PosvGetPenalties / PosvGetValidators need to read
-			// the chain state at the gap block (i.e. checkpointNumber - 1). We must wait
-			// until that block and its state are fully committed to the DB before verifying
-			// the checkpoint header.
-			if c.config != nil && number > 0 && number%c.config.Epoch == 0 {
-				requiredBlock := number - 1
-				if cbc, ok := chain.(chainWithCurrentBlock); ok {
-					lastLog := time.Now()
-					for {
-						select {
-						case <-abort:
-							return
-						default:
-						}
-						cb := cbc.CurrentBlock()
-						if cb == nil {
-							// Header-only chain: state never committed here.
-							// Skip the wait; verifyValidators handles missing state.
-							break
-						}
-						if cb.NumberU64() >= requiredBlock {
-							break
-						}
-						if time.Since(lastLog) >= 5*time.Second {
-							log.Info("VerifyHeaders: waiting for gap block state before verifying checkpoint",
-								"checkpoint", number, "requiredBlock", requiredBlock,
-								"currentBlock", cb.NumberU64())
-							lastLog = time.Now()
-						}
-					}
-				}
-			}
-
-			err := c.verifyHeaderWithCache(chain, header, headers[:i], seals[i])
-			select {
-			case <-abort:
-				return
-			case results <- err:
-			}
-		}
-	}()
-	return abort, results
 }
 
 // Author implements consensus.Engine, returning the Ethereum address recovered
