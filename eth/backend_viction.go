@@ -21,6 +21,7 @@ package eth
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -95,7 +96,24 @@ func (s *Ethereum) PosvGetEpochReward(
 func (s *Ethereum) PosvDistributeEpochRewards(
 	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
 ) error {
-	panic("not implemented")
+	if state == nil || epochReward == nil {
+		return nil
+	}
+
+	number := header.Number.Uint64()
+	rewardAmount := big.NewInt(0)
+	stakeholderCount := 0
+	for addr, amount := range epochReward.StakeholderRewards {
+		if amount == nil || amount.Sign() <= 0 {
+			continue
+		}
+		state.AddBalance(addr, amount)
+		rewardAmount.Add(rewardAmount, amount)
+		stakeholderCount++
+	}
+
+	log.Info("[Backend] Distributed epoch rewards", "block", number, "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
+	return nil
 }
 
 // Penalize validators for creating bad block or not creating block at all.
