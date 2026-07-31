@@ -115,6 +115,18 @@ func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
 	return attestors
 }
 
+// Decode bytes with format of Block.Penalties into list of addresses.
+func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
+	addressLengthInt := int(common.AddressLength)
+	penaltyCount := len(penaltiesBuff) / addressLengthInt
+	penalties := make([]common.Address, penaltyCount)
+	for i := 0; i < penaltyCount; i++ {
+		penaltyBuff := penaltiesBuff[i*addressLengthInt : (i+1)*addressLengthInt]
+		penalties[i] = common.BytesToAddress(penaltyBuff)
+	}
+	return penalties
+}
+
 // Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
 func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
 	if header == nil {

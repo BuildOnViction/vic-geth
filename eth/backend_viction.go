@@ -103,7 +103,10 @@ func (s *Ethereum) PosvGetPenalties(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, validators []common.Address,
 ) ([]common.Address, error) {
-	panic("not implemented")
+	if config.IsTIPSigning(header.Number) {
+		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, validators)
+	}
+	return viction.PenalizeValidatorsDefault(s.BlockChain(), c, config, posvConfig, vicConfig, header, chain)
 }
 
 // Get eligble validators from the state.
