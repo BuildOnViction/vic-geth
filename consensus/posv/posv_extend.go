@@ -21,6 +21,7 @@ package posv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -37,6 +38,10 @@ import (
 
 const (
 	attestorHeaderItemLength = 4
+)
+
+var (
+	errEmptyValidators = errors.New("validators is empty")
 )
 
 // EpochReward stores number of sign made by each validator and rewards for
@@ -106,6 +111,57 @@ func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
 	return ecrecover2(header, c.attestSignatures)
 }
 
+// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
+func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader) ([]types.Transaction, error) {
+	if header == nil {
+		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
+	}
+	blockHash := header.Hash()
+	if signers, ok := c.BlockSigners.Get(blockHash); ok {
+		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
+			return signers, nil
+		}
+	}
+	signers, err := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
+	if err != nil {
+		return nil, err
+	}
+	c.BlockSigners.Add(blockHash, signers)
+	return signers, nil
+}
+
+func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators []common.Address) (bool, int, int, int, error) {
+	validatorsCount := len(validators)
+	if validatorsCount == 0 {
+		return false, -1, -1, 0, errEmptyValidators
+	}
+
+	parentIndex := -1
+	if parent.Number.Uint64() > 0 {
+		parentCreator, err := c.Author(parent)
+		if err != nil {
+			return false, 0, 0, 0, err
+		}
+		parentIndex = common.IndexOf(validators, parentCreator)
+	}
+	currentIndex := common.IndexOf(validators, signer)
+
+	inturn := (parentIndex+1)%validatorsCount == currentIndex
+	return inturn, currentIndex, parentIndex, validatorsCount, nil
+}
+
+// Return difficulty of newly created block based on the validator creates the block.
+func (c *Posv) calcDifficulty(validator common.Address, parent *types.Header, validators []common.Address) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(validator, parent, validators)
+	if err == nil {
+		distance := distance(currentIndex, parentIndex, validatorCount)
+		return big.NewInt(int64(validatorCount - distance + 1))
+	}
+	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
+
+}
+
 // Decode bytes with format of Block.Attestors into list of attestor numbers.
 func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
 	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
@@ -158,24 +214,33 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	return validators
 }
 
-// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
-func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader) ([]types.Transaction, error) {
-	if header == nil {
-		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
+// Return header of neareast checkpoint block before the give header. If the header is also a checkpoint block, return the header itself.
+func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
+	blockNumber := header.Number.Uint64()
+	if blockNumber%posvConfig.Epoch == 0 {
+		return header
 	}
-	blockHash := header.Hash()
-	if signers, ok := c.BlockSigners.Get(blockHash); ok {
-		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
-			return signers, nil
+	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
+
+	// Try canonical DB first (covers prior epochs already committed).
+	if h := chain.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
+		return h
+	}
+	for _, parent := range parents {
+		if parent.Number.Uint64() == prevCheckpointBlockNumber {
+			return parent
 		}
 	}
-	signers, err := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
-	if err != nil {
-		return nil, err
+
+	return nil
+}
+
+// Return the distance between current index and parent index in the circular list of validators.
+func distance(currentIndex, parentIndex, validatorCount int) int {
+	if currentIndex > parentIndex {
+		return currentIndex - parentIndex
 	}
-	c.BlockSigners.Add(blockHash, signers)
-	return signers, nil
+	return validatorCount + currentIndex - parentIndex
 }
 
 // ecrecover2 extracts the Ethereum account address from a Attestor header.
