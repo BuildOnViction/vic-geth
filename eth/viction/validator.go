@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-func GetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig,
+func GetCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
 	header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
 	number := header.Number.Uint64()

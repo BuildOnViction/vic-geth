@@ -76,26 +76,43 @@ type ValidatorInfo struct {
 
 type PosvBackend interface {
 	// Get attestors from list of validators.
-	PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address) ([]int64, error)
+	PosvGetAttestors(
+		vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+	) ([]int64, error)
 
 	// Get block signers from the state.
-	PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]types.Transaction, error)
+	PosvGetBlockSignData(
+		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+		chain consensus.ChainReader,
+	) ([]types.Transaction, error)
 
 	// Get creator-attestor pairs from the state.
-	PosvGetCreatorAttestorPairs(c *Posv, config *params.ChainConfig, header, checkpointHeader *types.Header) (map[common.Address]common.Address, uint64, error)
+	PosvGetCreatorAttestorPairs(
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
+	) (map[common.Address]common.Address, uint64, error)
 
 	// Calculate and distribute reward at the end of each epoch.
-	PosvGetEpochReward(c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-		header *types.Header, chain consensus.ChainReader, state *state.StateDB, logger log.Logger) (*EpochReward, error)
+	PosvGetEpochReward(
+		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
+		chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
+	) (*EpochReward, error)
 
 	// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
-	PosvDistributeEpochRewards(header *types.Header, state *state.StateDB, epochReward *EpochReward) error
+	PosvDistributeEpochRewards(
+		header *types.Header, state *state.StateDB, epochReward *EpochReward,
+	) error
 
 	// Penalize validators for creating bad block or not creating block at all.
-	PosvGetPenalties(c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader, validators []common.Address) ([]common.Address, error)
+	PosvGetPenalties(
+		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
+		chain consensus.ChainReader, validators []common.Address,
+	) ([]common.Address, error)
 
 	// Get eligble validators from the state.
-	PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error)
+	PosvGetValidators(
+		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+		chain consensus.ChainReader,
+	) ([]common.Address, error)
 }
 
 // Return Ethereum address recovered from the signature in header's Attestor field.
@@ -121,6 +138,15 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	}
 	c.BlockSigners.Add(blockHash, signers)
 	return signers, nil
+}
+
+// GetValidators returns the list of validators for the given header.
+// This is a public method to access validators from the backend.
+func (c *Posv) GetValidators(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
+	if c.backend == nil {
+		return nil, errBackendNotSet
+	}
+	return c.backend.PosvGetValidators(config, vicConfig, header, chain)
 }
 
 // Check if the signer is inturn to mint current block. Also return context of the check including:

@@ -208,15 +208,6 @@ func (c *Posv) SetBackend(backend PosvBackend) {
 	c.backend = backend
 }
 
-// GetValidators returns the list of validators for the given header.
-// This is a public method to access validators from the backend.
-func (c *Posv) GetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
-	if c.backend == nil {
-		return nil, errBackendNotSet
-	}
-	return c.backend.PosvGetValidators(vicConfig, header, chain)
-}
-
 // SealHash returns the hash of a block prior to it being sealed.
 func (c *Posv) SealHash(header *types.Header) common.Hash {
 	return SealHash(header)

@@ -125,11 +125,8 @@ func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
-	if !ok {
-		return nil, errors.New("engine is not a posv engine")
-	}
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	config := s.eth.blockchain.Config()
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
 	return pairs, err
 }
 
@@ -147,11 +144,8 @@ func (s *EthAPIBackend) GetAttestorsPairsByNumber(ctx context.Context, number rp
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
-	if !ok {
-		return nil, errors.New("engine is not a posv engine")
-	}
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	config := s.eth.blockchain.Config()
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
 	return pairs, err
 }
 
