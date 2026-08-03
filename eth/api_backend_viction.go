@@ -526,7 +526,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	for _, candidate := range candidates {
 		statusMap[candidate.Address.String()] = map[string]interface{}{
 			fieldStatus:   statusProposed,
-			fieldCapacity: candidate.Stake,
+			fieldCapacity: candidate.Stake.String(),
 		}
 	}
 
@@ -562,15 +562,17 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 
 	// Third, Get penalties list
-	var penalties []common.Address
-	penalties = posv.DecodePenaltiesFromHeader(header.Penalties)
+	penalized := make(map[common.Address]struct{})
+	for _, addr := range posv.DecodePenaltiesFromHeader(header.Penalties) {
+		penalized[addr] = struct{}{}
+	}
 
 	// check last 5 epochs to find penalize masternodes
-	for i:= uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
-		if header.Number.Uint64() < epochConfig * i {
+	for i := uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
+		if header.Number.Uint64() < epochConfig*i {
 			break
 		}
-		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig * i
+		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig*i
 		prevCheckpointHeader, err := s.HeaderByNumber(ctx, rpc.BlockNumber(prevCheckpointBlockNumber))
 		if prevCheckpointHeader == nil || err != nil {
 			log.Error("Failed to get previous checkpoint header", "error", err)
@@ -578,12 +580,14 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 		}
 		prevPenalties := posv.DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
 		if len(prevPenalties) > 0 {
-			penalties = append(penalties, prevPenalties...)
+			for _, addr := range prevPenalties {
+				penalized[addr] = struct{}{}
+			}
 		}
 	}
 
 	// map slashing status
-	if len(penalties) == 0 {
+	if len(penalized) == 0 {
 		result[fieldCandidates] = statusMap
 		return result, nil
 	}
@@ -596,11 +600,13 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	}
 	// check penalties from checkpoint headers and modify status of a node to SLASHED if it's in top 150 candidates
 	// if it's SLASHED but it's out of top 150, the status should be still PROPOSED
-	for _, pen := range penalties {
-		for _, candidate := range topCandidates {
-			if candidate.Address == pen && statusMap[pen.String()] != nil {
-				statusMap[pen.String()][fieldStatus] = statusSlashed
-			}
+	for _, candidate := range topCandidates {
+		addr := candidate.Address
+		if statusMap[addr.String()] == nil {
+			continue
+		}
+		if _, ok := penalized[addr]; ok {
+			statusMap[addr.String()][fieldStatus] = statusSlashed
 		}
 	}
 	// update result
