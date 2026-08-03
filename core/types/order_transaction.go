@@ -32,7 +32,6 @@ import (
 var (
 	// ErrInvalidOrderSig invalidate signer
 	ErrInvalidOrderSig = errors.New("invalid transaction v, r, s values")
-	errNoSignerOrder   = errors.New("missing signing methods")
 )
 
 const (
