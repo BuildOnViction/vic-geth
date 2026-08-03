@@ -508,9 +508,12 @@ func (vp *Processor) applyTomoXTx(statedb *state.StateDB, tx *types.Transaction,
 		// not header.Coinbase which is zeroed in PoSV blocks. The author is
 		// the address passed to ValidateTradingOrder -> DoSettleBalance for
 		// masternode fee accounting.
+		//
+		// A recovery failure is fatal: settling to the zero address would burn
+		// the matching fees and produce a root no other node reproduces.
 		coinbase, err := vp.engine.Author(header)
 		if err != nil {
-			log.Warn("TomoX: failed to recover block author, using zero address", "err", err)
+			return true, nil, 0, fmt.Errorf("TomoX: failed to resolve block author at block %d: %w", header.Number.Uint64(), err), nil
 		}
 		tradingEngine := vp.tradingEngine
 		tradingStateDB := vp.tradingStateDB
@@ -575,9 +578,11 @@ func (vp *Processor) applyLendingTx(statedb *state.StateDB, tx *types.Transactio
 		// not header.Coinbase which is zeroed in PoSV blocks. The author is
 		// the address passed to ValidateLendingOrder -> DoSettleBalance for
 		// masternode fee accounting.
+		//
+		// Fatal on failure, for the same reason as applyTomoXTx.
 		coinbase, err := vp.engine.Author(header)
 		if err != nil {
-			log.Warn("TomoZ: failed to recover block author, using zero address", "err", err)
+			return true, nil, 0, fmt.Errorf("TomoZ: failed to resolve block author at block %d: %w", header.Number.Uint64(), err), nil
 		}
 		lendingStateDB := vp.lendingStateDB
 		tradingStateDB := vp.tradingStateDB
