@@ -23,6 +23,7 @@ package posv
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"math/rand"
@@ -52,8 +53,6 @@ const (
 	inmemorySignatures   = 4096  // Number of recent block signatures to keep in memory
 	recentBlockSigners   = 10500 // Number of recent block sign transactions to keep in memory
 	recentVerifiedBlocks = 256   // Number of recent blocks to cache verfication results
-
-	wiggleTime = 500 * time.Millisecond // Random delay (per signer) to allow concurrent signers
 )
 
 // PoSV proof-of-stake protocol constants.
@@ -487,6 +486,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
 	if c.config.Period == 0 && len(block.Transactions()) == 0 {
 		log.Info("Sealing paused, waiting for transactions")
+		results <- nil
 		return nil
 	}
 	// Don't hold the signer fields for the entire sealing procedure
@@ -500,27 +500,38 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		return err
 	}
 	if _, authorized := snap.Signers[signer]; !authorized {
-		return errUnauthorizedSigner
+		// Retry to check if signer eligibility using previous checkpoint header.
+		parent := chain.GetHeader(header.ParentHash, number-1)
+		if parent == nil {
+			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
+		}
+		checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+		validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+		index := common.IndexOf(validators, signer)
+		if index == -1 {
+			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
+		}
 	}
-	// If we're amongst the recent signers, wait for the next block
-	for seen, recent := range snap.Recents {
-		if recent == signer {
-			// Signer is among recents, only wait if the current block doesn't shift it out
-			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
-				log.Info("Signed recently, must wait for others")
-				return nil
+	// Recency check
+	if len(snap.Signers) > 1 {
+		for seen, recent := range snap.Recents {
+			if recent == signer {
+				limit := uint64(2)
+				if number < limit || seen > number-limit {
+					// Allow epoch blocks through even if recently signed
+					if number%c.config.Epoch != 0 {
+						log.Info(
+							"[PoSV][Seal] Signed recently, must wait for others",
+							"signer", signer, "number", number, "sealhash", SealHash(header),
+							"recentBlock", seen, "recentsLimit", limit, "signers", len(snap.Signers),
+						)
+						return nil
+					}
+				}
 			}
 		}
 	}
-	// Sweet, the protocol permits us to sign the block, wait for our time
-	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
-	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		// It's not our turn explicitly to sign, delay it a bit
-		wiggle := time.Duration(len(snap.Signers)/2+1) * wiggleTime
-		delay += time.Duration(rand.Int63n(int64(wiggle)))
-
-		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
-	}
+	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
 	// Sign all the things!
 	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypePosv, PosvRLP(header))
 	if err != nil {
@@ -528,7 +539,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	}
 	copy(header.Extra[len(header.Extra)-ExtraSeal:], sighash)
 	// Wait until sealing is terminated or delay timeout.
-	log.Trace("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	log.Trace("[PoSV][Seal] Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
 	go func() {
 		select {
 		case <-stop:
@@ -539,7 +550,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+			log.Warn("[PoSV][Seal] Sealing result is not read by miner", "sealhash", SealHash(header))
 		}
 	}()
 
@@ -578,7 +589,7 @@ func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 func SealHash(header *types.Header) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
 	encodeSigHeader(hasher, header)
-	hasher.(crypto.KeccakState).Read(hash[:])
+	hasher.Sum(hash[:0])
 	return hash
 }
 
