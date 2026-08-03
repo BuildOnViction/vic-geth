@@ -1,4 +1,7 @@
-// Copyright 2016 The go-ethereum Authors
+// Copyright 2017 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -14,7 +17,6 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package posv implements the proof-of-stake-voting consensus engine.
 package posv
 
 import (
@@ -143,9 +145,6 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 // GetValidators returns the list of validators for the given header.
 // This is a public method to access validators from the backend.
 func (c *Posv) GetValidators(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
-	if c.backend == nil {
-		return nil, errBackendNotSet
-	}
 	return c.backend.PosvGetValidators(config, vicConfig, header, chain)
 }
 
