@@ -309,10 +309,14 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 	// Initialize legacy TomoX/TomoZ engines for historical block replay.
 	// Both share a single LevelDB ("tomox") since TradingStateDB and LendingStateDB
 	// use independent trie roots and their key-spaces never collide.
+	// A PoSV node that cannot open the TomoX database must refuse to start:
+	// running on with nil trading/lending engines means BeforeProcess never opens
+	// the order-book tries and AfterProcess skips 0x92 state-root verification,
+	// so blocks in the TomoX window import without settlement and without
+	// validation — silent divergence rather than a visible failure.
 	tomoxDb, err := openTomoXDatabase(eth.config, stack)
 	if err != nil {
-		log.Error("Failed to open TomoX database", "err", err)
-		return nil
+		return fmt.Errorf("failed to open TomoX database: %w", err)
 	}
 	tomoxEngine := tomox.NewWithDB(tomoxDb, eth.blockchain.Config())
 	eth.blockchain.SetTradingEngine(tomoxEngine)

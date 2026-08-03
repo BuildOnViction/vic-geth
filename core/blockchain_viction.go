@@ -50,18 +50,18 @@ func (bc *BlockChain) commitVictionStateDirect(block *types.Block) error {
 		tradingRoot := sp.viction.CommittedTradingRoot()
 		if tradingRoot != (common.Hash{}) {
 			if err := sp.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoX: trading trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+				return fmt.Errorf("[TomoX]: trading trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoX: trading trie flushed to disk (archive)", "block", block.NumberU64(), "root", tradingRoot.Hex())
+			log.Trace("[TomoX]: trading trie flushed to disk (archive)", "block", block.NumberU64(), "root", tradingRoot.Hex())
 		}
 	}
 	if sp.viction.HasLendingState() && sp.viction.LendingEngine() != nil {
 		lendingRoot := sp.viction.CommittedLendingRoot()
 		if lendingRoot != (common.Hash{}) {
 			if err := sp.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoZ: lending trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+				return fmt.Errorf("[TomoZ]: lending trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoZ: lending trie flushed to disk (archive)", "block", block.NumberU64(), "root", lendingRoot.Hex())
+			log.Trace("[TomoZ]: lending trie flushed to disk (archive)", "block", block.NumberU64(), "root", lendingRoot.Hex())
 		}
 	}
 	return nil
@@ -94,10 +94,13 @@ func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
 			tradingTrieDB.Reference(tradingRoot, common.Hash{})
 			sp.tradingTriegc.Push(tradingRoot, -int64(current))
 
-			if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit failed", "block", current, "err", err)
+			// report=false: this runs on every block, so an Info-level flush
+			// summary here would spam the log (upstream reserves report=true for
+			// the once-per-TriesInMemory EVM flush).
+			if err := tradingTrieDB.Commit(tradingRoot, false, nil); err != nil {
+				log.Error("[TomoX]: trading trieDB.Commit failed", "block", current, "err", err)
 			} else {
-				log.Trace("TomoX: trading trie flushed to disk", "block", current, "root", tradingRoot)
+				log.Trace("[TomoX]: trading trie flushed to disk", "block", current, "root", tradingRoot)
 			}
 
 			// Dereference roots old enough to no longer need keeping in memory.
@@ -123,10 +126,11 @@ func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
 			lendingTrieDB.Reference(lendingRoot, common.Hash{})
 			sp.lendingTriegc.Push(lendingRoot, -int64(current))
 
-			if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit failed", "block", current, "err", err)
+			// report=false, same reasoning as the trading trie above.
+			if err := lendingTrieDB.Commit(lendingRoot, false, nil); err != nil {
+				log.Error("[TomoZ]: lending trieDB.Commit failed", "block", current, "err", err)
 			} else {
-				log.Trace("TomoZ: lending trie flushed to disk", "block", current, "root", lendingRoot)
+				log.Trace("[TomoZ]: lending trie flushed to disk", "block", current, "root", lendingRoot)
 			}
 
 			if current > TriesInMemory {
@@ -154,17 +158,18 @@ func (bc *BlockChain) stopViction() {
 		return // archive mode commits every block; nothing to flush here
 	}
 	sp, ok := bc.processor.(*StateProcessor)
-	if !ok || sp == nil {
+	if !ok || sp == nil || sp.viction == nil {
 		return
 	}
 
 	// Flush all remaining trading trie roots to LevelDB.
 	if sp.viction.TradingEngine() != nil {
 		tradingTrieDB := sp.viction.TradingEngine().GetStateCache().TrieDB()
+		log.Info("[TomoX]: Flushing remaining trading trie roots to LevelDB", "count", sp.tradingTriegc.Size())
 		for !sp.tradingTriegc.Empty() {
 			root := sp.tradingTriegc.PopItem().(common.Hash)
-			if err := tradingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit(shutdown) failed", "root", root, "err", err)
+			if err := tradingTrieDB.Commit(root, false, nil); err != nil {
+				log.Error("[TomoX]: trading trieDB.Commit(shutdown) failed", "root", root, "err", err)
 			}
 			tradingTrieDB.Dereference(root)
 		}
@@ -173,10 +178,11 @@ func (bc *BlockChain) stopViction() {
 	// Flush all remaining lending trie roots to LevelDB.
 	if sp.viction.LendingEngine() != nil {
 		lendingTrieDB := sp.viction.LendingEngine().GetStateCache().TrieDB()
+		log.Info("[TomoZ]: Flushing remaining lending trie roots to LevelDB", "count", sp.lendingTriegc.Size())
 		for !sp.lendingTriegc.Empty() {
 			root := sp.lendingTriegc.PopItem().(common.Hash)
-			if err := lendingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit(shutdown) failed", "root", root, "err", err)
+			if err := lendingTrieDB.Commit(root, false, nil); err != nil {
+				log.Error("[TomoZ]: lending trieDB.Commit(shutdown) failed", "root", root, "err", err)
 			}
 			lendingTrieDB.Dereference(root)
 		}
