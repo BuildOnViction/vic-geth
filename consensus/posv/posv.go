@@ -140,11 +140,6 @@ var (
 	errRecentlySigned = errors.New("recently signed")
 )
 
-type Validator struct {
-	Address common.Address
-	Stake   *big.Int
-}
-
 // SignerFn hashes and signs the data to be signed by a backing account.
 type SignerFn func(signer accounts.Account, mimeType string, message []byte) ([]byte, error)
 
@@ -173,29 +168,29 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	return signer, nil
 }
 
-// Posv is the proof-of-stake-voting consensus engine proposed to support the
+// Posv is the proof-of-stake consensus engine proposed to support the
 // Ethereum testnet following the Ropsten attacks.
 type Posv struct {
 	config *params.PosvConfig // Consensus engine configuration parameters
 	db     ethdb.Database     // Database to store and retrieve snapshot checkpoints
 
-	recents          *lru.ARCCache           // Snapshots for recent block to speed up reorgs
-	signatures       *lru.ARCCache           // Signatures of recent blocks to speed up mining
-	attestSignatures *lru.ARCCache           // Signatures of recent blocks to speed up mining
-	verifiedBlocks   *lru.ARCCache           // Status of recent blocks to speed up syncing
-	proposals        map[common.Address]bool // Current list of proposals we are pushing
+	recents          *lru.ARCCache // Snapshots for recent block to speed up reorgs
+	signatures       *lru.ARCCache // Signatures of recent blocks to speed up mining
+	attestSignatures *lru.ARCCache // Signatures of recent blocks to speed up mining
+	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up syncing
+	blockSigners     *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
 
-	BlockSigners *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
+	proposals map[common.Address]bool // Current list of proposals we are pushing
 
 	signer common.Address // Ethereum address of the signing key
 	signFn SignerFn       // Signer function to authorize hashes with
 	lock   sync.RWMutex   // Protects the signer fields
 
-	// Hook for posv
+	// Reference to the backend for accessing chain state.
 	backend PosvBackend
 }
 
-// New creates a PoSV proof-of-stake-voting consensus engine with the initial
+// New creates a PoSV proof-of-stake consensus engine with the initial
 // signers set to the ones provided by the user.
 func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	// Set any missing consensus parameters to their defaults
@@ -208,16 +203,18 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	signatures, _ := lru.NewARC(inmemorySignatures)
 	attestSignatures, _ := lru.NewARC(inmemorySignatures)
 	verifiedBlocks, _ := lru.NewARC(recentVerifiedBlocks)
-	BlockSigners, _ := lru.NewARC(recentBlockSigners)
+	blockSigners, _ := lru.NewARC(recentBlockSigners)
 	return &Posv{
-		config:           &conf,
-		db:               db,
+		config: &conf,
+		db:     db,
+
 		recents:          recents,
 		signatures:       signatures,
 		attestSignatures: attestSignatures,
 		verifiedBlocks:   verifiedBlocks,
-		BlockSigners:     BlockSigners,
-		proposals:        make(map[common.Address]bool),
+		blockSigners:     blockSigners,
+
+		proposals: make(map[common.Address]bool),
 	}
 }
 
@@ -227,38 +224,13 @@ func (c *Posv) SetBackend(backend PosvBackend) {
 	c.backend = backend
 }
 
-// SealHash returns the hash of a block prior to it being sealed.
-func (c *Posv) SealHash(header *types.Header) common.Hash {
-	return SealHash(header)
+// Author implements consensus.Engine, returning the Ethereum address recovered
+// from the signature in the header's extra-data section.
+func (c *Posv) Author(header *types.Header) (common.Address, error) {
+	return ecrecover(header, c.signatures)
 }
 
-// SealHash returns the hash of a block prior to it being sealed.
-func SealHash(header *types.Header) (hash common.Hash) {
-	hasher := sha3.NewLegacyKeccak256()
-	encodeSigHeader(hasher, header)
-	hasher.Sum(hash[:0])
-	return hash
-}
-
-// PosvRLP returns the rlp bytes which needs to be signed for the proof-of-authority
-// sealing. The RLP to sign consists of the entire header apart from the 65 byte signature
-// contained at the end of the extra data.
-//
-// Note, the method requires the extra data to be at least 65 bytes, otherwise it
-// panics. This is done to avoid accidentally using both forms (signature present
-// or not), which could be abused to produce different hashes for the same header.
-func PosvRLP(header *types.Header) []byte {
-	b := new(bytes.Buffer)
-	encodeSigHeader(b, header)
-	return b.Bytes()
-}
-
-// GetSnapshot returns the snapshot for the given block, exposing the full set
-// of authorized signers (staked masternodes) regardless of penalty status.
-func (c *Posv) GetSnapshot(chain consensus.ChainHeaderReader, header *types.Header) (*Snapshot, error) {
-	return c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
-}
-
+// snapshot retrieves the authorization snapshot at a given point in time.
 func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (
@@ -266,7 +238,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		snap    *Snapshot
 	)
 
-	for snap == nil { //nolint:govet
+	for snap == nil {
 		// If an in-memory snapshot was found, use that
 		if s, ok := c.recents.Get(hash); ok {
 			snap = s.(*Snapshot)
@@ -275,6 +247,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		// If an on-disk checkpoint snapshot can be found, use that
 		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
+				log.Trace("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
 				snap = s
 				break
 			}
@@ -296,7 +269,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 				if err := snap.store(c.db); err != nil {
 					return nil, err
 				}
-				log.Info("[PoSV] Stored checkpoint snapshot to disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", number, "hash", hash)
 				break
 			}
 		}
@@ -334,6 +307,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
+		log.Trace("[PoSV][Snapshot] Stored gap snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
 	return snap, err
 }
@@ -399,12 +373,12 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	header.Extra = header.Extra[:ExtraVanity]
 
 	if number%c.config.Epoch == 0 {
-		log.Info("[POSV] Prepare: assembling checkpoint block", "number", number)
+		log.Info("[PoSV] Preparing checkpoint block", "number", number)
 		validators := snap.signers()
 		// remove penalized validators in current epoch
 		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
 		if err != nil {
-			log.Error("[POSV] Prepare: failed to get penalties", "number", number, "err", err)
+			log.Error("[POSV] prepare: Failed to get penalties", "number", number, "err", err)
 			return err
 		}
 		if len(penalties) > 0 {
@@ -449,41 +423,27 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	return nil
 }
 
-// FinalizeAndAssemble implements consensus.Engine, applying finalization and returning the block.
-func (c *Posv) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	c.Finalize(chain, header, state, txs, uncles)
-	return types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil)), nil
-}
-
-// Close implements consensus.Engine. It's a noop for clique as there are no background threads.
-func (c *Posv) Close() error {
-	return nil
-}
-
-// Finalize implements consensus.Engine, applying post-transaction state modifications
-// (epoch rewards at checkpoint blocks) and updating header. First reward at block 2*epoch (e.g. 1800).
-// Skips block 900 (1*epoch); only calculates and applies at blocks 1800, 2700, ... (2*epoch, 3*epoch, ...).
-func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	config := chain.Config()
+// Finalize implements consensus.Engine, ensuring no uncles are set, nor block
+// rewards given.
+func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
+	config := chainH.Config()
 	if config != nil && config.Posv != nil && config.Viction != nil {
 		number := header.Number.Uint64()
 		epoch := config.Posv.Epoch
 
 		// Apply epoch rewards only at checkpoint blocks, skipping the first checkpoint (e.g. 900).
 		if epoch > 0 && number%epoch == 0 && number > epoch {
-			chainReader, ok := chain.(consensus.ChainReader)
+			chain, ok := chainH.(consensus.ChainReader)
 			if !ok {
-				log.Error("No chain reader provided for epoch reward distribution")
+				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
 			}
-
-			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chainReader, state, log.Root())
+			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
 			if err != nil {
-				log.Warn("Finalize: epoch reward failed", "block", number, "err", err)
+				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
 			}
 			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
 			if err != nil {
-				log.Warn("Finalize: add balance rewards failed", "block", number, "err", err)
+				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
 			}
 		}
 	}
@@ -493,15 +453,24 @@ func (c *Posv) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	header.UncleHash = types.CalcUncleHash(nil)
 }
 
-// APIs implements consensus.Engine, returning the user facing RPC API to allow
-// controlling the signer voting.
-func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
-	return []rpc.API{{
-		Namespace: "posv",
-		Version:   "1.0",
-		Service:   &API{chain: chain, posv: c},
-		Public:    false,
-	}}
+// FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
+// nor block rewards given, and returns the final block.
+func (c *Posv) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+	// Finalize block
+	c.Finalize(chain, header, state, txs, uncles)
+
+	// Assemble and return the final block for sealing
+	return types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil)), nil
+}
+
+// Authorize injects a private key into the consensus engine to mint new blocks
+// with.
+func (c *Posv) Authorize(signer common.Address, signFn SignerFn) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.signer = signer
+	c.signFn = signFn
 }
 
 // Seal implements consensus.Engine, attempting to create a sealed block using
@@ -532,28 +501,19 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		return err
 	}
 	if _, authorized := snap.Signers[signer]; !authorized {
-		// Fallback: check checkpoint validators list (newly elected validators
-		// may not yet be in the snapshot at epoch boundaries).
+		// Retry to check if signer eligibility using previous checkpoint header.
 		parent := chain.GetHeader(header.ParentHash, number-1)
 		if parent == nil {
-			return fmt.Errorf("Posv.Seal: %w", errUnauthorizedSigner)
+			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
 		}
 		checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
 		validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
-		found := false
-		for _, v := range validators {
-			if v == signer {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("Posv.Seal: %w", errUnauthorizedSigner)
+		index := common.IndexOf(validators, signer)
+		if index == -1 {
+			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
 		}
 	}
-	// If we're amongst the recent signers, wait for the next block.
-	// Matches victionchain: limit = 2 (only prevents consecutive blocks),
-	// skip check for single-validator chains and epoch blocks.
+	// Recency check
 	if len(snap.Signers) > 1 {
 		for seen, recent := range snap.Recents {
 			if recent == signer {
@@ -561,22 +521,18 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 				if number < limit || seen > number-limit {
 					// Allow epoch blocks through even if recently signed
 					if number%c.config.Epoch != 0 {
-						log.Info("Signed recently, must wait for others", "signer", signer, "number", number,
-							"sealhash", SealHash(header), "recentBlock", seen, "recentsLimit", limit,
-							"signers", len(snap.Signers))
+						log.Info(
+							"[PoSV][Seal] Signed recently, must wait for others",
+							"signer", signer, "number", number, "sealhash", SealHash(header),
+							"recentBlock", seen, "recentsLimit", limit, "signers", len(snap.Signers),
+						)
 						return nil
 					}
 				}
 			}
 		}
 	}
-	// Sweet, the protocol permits us to sign the block, wait for our time.
-	// Only apply header.Time delay (prevents future blocks). No additional
-	// wiggle — out-of-turn ordering is handled by the worker's hop-based wait.
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
-	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		log.Trace("Out-of-turn signing requested")
-	}
 	// Sign all the things!
 	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypePosv, PosvRLP(header))
 	if err != nil {
@@ -584,7 +540,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	}
 	copy(header.Extra[len(header.Extra)-ExtraSeal:], sighash)
 	// Wait until sealing is terminated or delay timeout.
-	log.Info("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	log.Trace("[PoSV][Seal] Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
 	go func() {
 		select {
 		case <-stop:
@@ -595,7 +551,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+			log.Warn("[PoSV][Seal] Sealing result is not read by miner", "sealhash", SealHash(header))
 		}
 	}()
 
@@ -611,10 +567,46 @@ func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, pa
 	return c.calcDifficulty(c.signer, parent, validators)
 }
 
-// VerifySeal implements consensus.Engine, checking whether the signature contained
-// in the header satisfies the consensus protocol requirements.
-func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
-	return c.verifySeal(chain, header, nil, true)
+// SealHash returns the hash of a block prior to it being sealed.
+func (c *Posv) SealHash(header *types.Header) common.Hash {
+	return SealHash(header)
+}
+
+// Close implements consensus.Engine. It's a noop for posv as there are no background threads.
+func (c *Posv) Close() error {
+	return nil
+}
+
+// APIs implements consensus.Engine, returning the user facing RPC API to allow
+// controlling the signer voting.
+func (c *Posv) APIs(chain consensus.ChainHeaderReader) []rpc.API {
+	return []rpc.API{{
+		Namespace: "posv",
+		Version:   "1.0",
+		Service:   &API{chain: chain, posv: c},
+		Public:    false,
+	}}
+}
+
+// SealHash returns the hash of a block prior to it being sealed.
+func SealHash(header *types.Header) (hash common.Hash) {
+	hasher := sha3.NewLegacyKeccak256()
+	encodeSigHeader(hasher, header)
+	hasher.Sum(hash[:0])
+	return hash
+}
+
+// PosvRLP returns the rlp bytes which needs to be signed for the proof-of-stake
+// sealing. The RLP to sign consists of the entire header apart from the 65 byte signature
+// contained at the end of the extra data.
+//
+// Note, the method requires the extra data to be at least 65 bytes, otherwise it
+// panics. This is done to avoid accidentally using both forms (signature present
+// or not), which could be abused to produce different hashes for the same header.
+func PosvRLP(header *types.Header) []byte {
+	b := new(bytes.Buffer)
+	encodeSigHeader(b, header)
+	return b.Bytes()
 }
 
 // encodeSigHeader encodes the header fields relevant for signing.
@@ -639,42 +631,4 @@ func encodeSigHeader(w io.Writer, header *types.Header) {
 	if err := rlp.Encode(w, enc); err != nil {
 		panic("can't encode: " + err.Error())
 	}
-}
-
-// Author implements consensus.Engine, returning the Ethereum address recovered
-// from the signature in the header's extra-data section.
-// This is thread-safe (only access the header, as well as signatures, which
-// are lru.ARCCache, which is thread-safe)
-func (c *Posv) Author(header *types.Header) (common.Address, error) {
-	return ecrecover(header, c.signatures)
-}
-
-func (c *Posv) UpdateMasternodes(chain consensus.ChainReader, header *types.Header, ms []Validator) error {
-	number := header.Number.Uint64()
-	log.Trace("take snapshot", "number", number, "hash", header.Hash())
-	// get snapshot
-	snap, err := c.snapshot(chain, number, header.Hash(), nil)
-	if err != nil {
-		return err
-	}
-	newMasternodes := make(map[common.Address]struct{})
-	for _, m := range ms {
-		newMasternodes[m.Address] = struct{}{}
-	}
-	snap.Signers = newMasternodes
-	nm := []string{}
-	for _, n := range ms {
-		nm = append(nm, n.Address.String())
-	}
-	c.recents.Add(snap.Hash, snap)
-	log.Info("New set of masternodes has been updated to snapshot", "number", snap.Number, "hash", snap.Hash, "new masternodes", nm)
-	return nil
-}
-
-func (c *Posv) Authorize(signer common.Address, signFn SignerFn) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	c.signer = signer
-	c.signFn = signFn
 }

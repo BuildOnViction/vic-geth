@@ -520,23 +520,23 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	for _, candidate := range candidates {
 		statusMap[candidate.Address.String()] = map[string]interface{}{
 			fieldStatus:   statusProposed,
-			fieldCapacity: candidate.Stake,
+			fieldCapacity: candidate.Capacity,
 		}
 	}
 
 	// First, Sort candidates by capacity
-	sortedCandidates := append([]posv.Validator(nil), candidates...)
+	sortedCandidates := append([]posv.ValidatorInfo(nil), candidates...)
 	forkBlockNum := big.NewInt(int64(stateBlockNr))
 	if stateBlockNr == rpc.LatestBlockNumber || stateBlockNr == rpc.PendingBlockNumber {
 		forkBlockNum = s.eth.blockchain.CurrentBlock().Number()
 	}
 	if s.eth.blockchain.Config().IsAtlas(forkBlockNum) {
 		sort.SliceStable(sortedCandidates, func(i, j int) bool {
-			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+			return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
 		})
 	} else {
 		sortlgc.Slice(sortedCandidates, func(i, j int) bool {
-			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+			return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
 		})
 	}
 
@@ -582,7 +582,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 		return result, nil
 	}
 
-	var topCandidates []posv.Validator
+	var topCandidates []posv.ValidatorInfo
 	if len(sortedCandidates) > int(vicConfig.ValidatorMaxCount) {
 		topCandidates = sortedCandidates[:vicConfig.ValidatorMaxCount]
 	} else {
@@ -602,20 +602,20 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	return result, nil
 }
 
-func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.Validator, error) {
+func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.ValidatorInfo, error) {
 	statedb, _, err := s.StateAndHeaderByNumber(ctx, blockNr)
 	if err != nil {
 		return nil, err
 	}
 
 	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
-	candidates := make([]posv.Validator, 0, len(addresses))
+	candidates := make([]posv.ValidatorInfo, 0, len(addresses))
 	for _, addr := range addresses {
 		if addr == (common.Address{}) {
 			continue
 		}
 		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
-		candidates = append(candidates, posv.Validator{Address: addr, Stake: cap})
+		candidates = append(candidates, posv.ValidatorInfo{Address: addr, Capacity: cap})
 	}
 	if len(candidates) == 0 {
 		log.Debug("Candidates list cannot be found", "len(candidates)", len(candidates))

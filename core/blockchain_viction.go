@@ -227,13 +227,13 @@ func (bc *BlockChain) UpdateM1() error {
 	}
 	candidates = stateDB.VicGetCandidates(contractAddress)
 
-	var ms []posv.Validator
+	var ms []posv.ValidatorInfo
 	for _, candidate := range candidates {
 		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
 
 		//TODO: smart contract shouldn't return "0x0000000000000000000000000000000000000000"
 		if candidate.String() != "0x0000000000000000000000000000000000000000" {
-			ms = append(ms, posv.Validator{Address: candidate, Stake: cap})
+			ms = append(ms, posv.ValidatorInfo{Address: candidate, Capacity: cap})
 		}
 	}
 	if len(ms) == 0 {
@@ -243,26 +243,32 @@ func (bc *BlockChain) UpdateM1() error {
 		header := bc.CurrentHeader()
 		if bc.Config().IsAtlas(header.Number) {
 			sort.SliceStable(ms, func(i, j int) bool {
-				return ms[i].Stake.Cmp(ms[j].Stake) >= 0
+				return ms[i].Capacity.Cmp(ms[j].Capacity) >= 0
 			})
 		} else {
 			// Must sort `ms`, not `candidates`: indices i,j are in [0, len(slice));
 			// len(candidates) can exceed len(ms) when zero-address entries are skipped.
 			sortlgc.Slice(ms, func(i, j int) bool {
-				return ms[i].Stake.Cmp(ms[j].Stake) >= 0
+				return ms[i].Capacity.Cmp(ms[j].Capacity) >= 0
 			})
 		}
 		log.Info("Ordered list of masternode candidates")
 		for _, m := range ms {
-			log.Info("", "address", m.Address.String(), "stake", m.Stake)
+			log.Info("", "address", m.Address.String(), "stake", m.Capacity)
 		}
 		// update masternodes
 		log.Info("Updating new set of masternodes")
+		hv := make([]common.Address, 0)
 		if len(ms) > int(bc.chainConfig.Viction.ValidatorMaxCount) {
-			err = engine.UpdateMasternodes(bc, header, ms[:bc.chainConfig.Viction.ValidatorMaxCount])
+			for _, v := range ms[:bc.chainConfig.Viction.ValidatorMaxCount] {
+				hv = append(hv, v.Address)
+			}
 		} else {
-			err = engine.UpdateMasternodes(bc, header, ms)
+			for _, v := range ms {
+				hv = append(hv, v.Address)
+			}
 		}
+		err = engine.SetCheckpointSigners(bc, header, hv)
 		if err != nil {
 			return err
 		}

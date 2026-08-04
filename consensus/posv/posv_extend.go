@@ -129,7 +129,7 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
 	}
 	blockHash := header.Hash()
-	if signers, ok := c.BlockSigners.Get(blockHash); ok {
+	if signers, ok := c.blockSigners.Get(blockHash); ok {
 		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
 			return signers, nil
 		}
@@ -138,23 +138,16 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	if err != nil {
 		return nil, err
 	}
-	c.BlockSigners.Add(blockHash, signers)
+	c.blockSigners.Add(blockHash, signers)
 	return signers, nil
 }
 
-// GetValidators returns the list of validators for the given header.
-// This is a public method to access validators from the backend.
-func (c *Posv) GetValidators(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader) ([]common.Address, error) {
-	return c.backend.PosvGetValidators(config, vicConfig, header, chain)
+// GetSnapshot returns the snapshot for the given block, exposing the full set validators regardless of penalty status.
+func (c *Posv) GetSnapshot(chain consensus.ChainHeaderReader, header *types.Header) (*Snapshot, error) {
+	return c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
 }
 
-// Check if the signer is inturn to mint current block. Also return context of the check including:
-// currentIndex, parentIndex, validatorCount.
-//
-// If the parent's sealer (Author(parent)) is not present in validators (checkpoint extra order),
-// parentIndex stays -1 and in-turn is only the signer at validators[0] because (-1+1)%n == 0.
-// If your etherbase is not validators[0], IsMyTurn is false for every other validator until the
-// checkpoint list matches the chain. Align genesis/checkpoint extra with actual signers.
+// Check if the give signer is assigned to create new block.
 func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators []common.Address) (bool, int, int, int, error) {
 	validatorsCount := len(validators)
 	if validatorsCount == 0 {
@@ -175,30 +168,60 @@ func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators 
 	return inturn, currentIndex, parentIndex, validatorsCount, nil
 }
 
-// GetCheckpointHeader returns the checkpoint header for the epoch containing
-// the given header. If the header itself is a checkpoint (number % epoch == 0)
-// it is returned directly. Otherwise it tries the canonical DB first (prior
-// epochs already committed), then falls back to the in-memory recentHeaders
-// cache which is populated by verifyHeaderWithCache as each checkpoint in the
-// current batch is successfully verified.
-func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
-	blockNumber := header.Number.Uint64()
-	if blockNumber%posvConfig.Epoch == 0 {
-		return header
+// Update validators list in snapshot. hv is list of extraced from block header.
+func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.Header, hv []common.Address) error {
+	number := header.Number.Uint64()
+	snap, err := c.snapshot(chain, number, header.Hash(), nil)
+	if err != nil {
+		return err
 	}
-	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
-
-	// Try canonical DB first (covers prior epochs already committed).
-	if h := chain.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
-		return h
+	validators := make(map[common.Address]struct{})
+	for _, a := range hv {
+		validators[a] = struct{}{}
 	}
-	for _, parent := range parents {
-		if parent.Number.Uint64() == prevCheckpointBlockNumber {
-			return parent
-		}
-	}
-
+	snap.Signers = validators
+	c.recents.Add(snap.Hash, snap)
+	log.Info("[PoSV][Snapshot] Signers list updated.", "number", snap.Number, "hash", snap.Hash, "new signers", common.AddressesToStrings(hv))
 	return nil
+}
+
+// Return difficulty of newly created block based on the validator creates the block.
+func (c *Posv) calcDifficulty(validator common.Address, parent *types.Header, validators []common.Address) *big.Int {
+	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(validator, parent, validators)
+	if err == nil {
+		distance := distance(currentIndex, parentIndex, validatorCount)
+		return big.NewInt(int64(validatorCount - distance + 1))
+	}
+	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
+
+}
+
+// Decode bytes with format of Block.Attestors into list of attestor numbers.
+func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
+	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
+	attestors := make([]int64, attestorCount)
+	for i := 0; i < attestorCount; i++ {
+		attestorBuff := bytes.Trim(attestorsBuff[i*attestorHeaderItemLength:(i+1)*attestorHeaderItemLength], "\x00")
+		attestorNumber, err := strconv.ParseInt(string(attestorBuff), 10, 64)
+		if err != nil {
+			return []int64{}
+		}
+		attestors[i] = attestorNumber
+	}
+
+	return attestors
+}
+
+// Decode bytes with format of Block.Penalties into list of addresses.
+func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
+	addressLengthInt := int(common.AddressLength)
+	penaltyCount := len(penaltiesBuff) / addressLengthInt
+	penalties := make([]common.Address, penaltyCount)
+	for i := 0; i < penaltyCount; i++ {
+		penaltyBuff := penaltiesBuff[i*addressLengthInt : (i+1)*addressLengthInt]
+		penalties[i] = common.BytesToAddress(penaltyBuff)
+	}
+	return penalties
 }
 
 // Encode list of attestor numbers into bytes following format of Block.Attestors.
@@ -220,16 +243,14 @@ func EncodePenaltiesForHeader(penalties []common.Address) []byte {
 	return penaltiesBuff
 }
 
-// Decode bytes with format of Block.Penalties into list of addresses.
-func DecodePenaltiesFromHeader(penaltiesBuff []byte) []common.Address {
-	addressLengthInt := int(common.AddressLength)
-	penaltyCount := len(penaltiesBuff) / addressLengthInt
-	penalties := make([]common.Address, penaltyCount)
-	for i := 0; i < penaltyCount; i++ {
-		penaltyBuff := penaltiesBuff[i*addressLengthInt : (i+1)*addressLengthInt]
-		penalties[i] = common.BytesToAddress(penaltyBuff)
+// Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
+func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
+	if header == nil {
+		return []int64{}
 	}
-	return penalties
+
+	attestors := DecodeAttestorsFromHeader(header.NewAttestors)
+	return attestors
 }
 
 // Process block header Extra field of a checkpoint block to return the list of new validators.
@@ -246,41 +267,25 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	return validators
 }
 
-// Process block header NewAttestors field of a checkpoint block to return the list of new attestors.
-func ExtractAttestorsFromCheckpointHeader(header *types.Header) []int64 {
-	if header == nil {
-		return []int64{}
+// Return header of neareast checkpoint block before the give header. If the header is also a checkpoint block, return the header itself.
+func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
+	blockNumber := header.Number.Uint64()
+	if blockNumber%posvConfig.Epoch == 0 {
+		return header
 	}
+	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
 
-	attestors := DecodeAttestorsFromHeader(header.NewAttestors)
-	return attestors
-}
-
-// Decode bytes with format of Block.Attestors into list of attestor numbers.
-func DecodeAttestorsFromHeader(attestorsBuff []byte) []int64 {
-	attestorCount := len(attestorsBuff) / attestorHeaderItemLength
-	attestors := make([]int64, attestorCount)
-	for i := 0; i < attestorCount; i++ {
-		attestorBuff := bytes.Trim(attestorsBuff[i*attestorHeaderItemLength:(i+1)*attestorHeaderItemLength], "\x00")
-		attestorNumber, err := strconv.ParseInt(string(attestorBuff), 10, 64)
-		if err != nil {
-			return []int64{}
+	// Try canonical DB first (covers prior epochs already committed).
+	if h := chain.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
+		return h
+	}
+	for _, parent := range parents {
+		if parent.Number.Uint64() == prevCheckpointBlockNumber {
+			return parent
 		}
-		attestors[i] = attestorNumber
 	}
 
-	return attestors
-}
-
-// Return difficulty of newly created block based on the validator creates the block.
-func (c *Posv) calcDifficulty(signer common.Address, parent *types.Header, validators []common.Address) *big.Int {
-	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(signer, parent, validators)
-	if err == nil {
-		distance := distance(currentIndex, parentIndex, validatorCount)
-		return big.NewInt(int64(validatorCount - distance + 1))
-	}
-	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
-
+	return nil
 }
 
 // Return the distance between current index and parent index in the circular list of validators.

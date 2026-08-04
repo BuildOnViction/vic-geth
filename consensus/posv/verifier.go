@@ -44,10 +44,9 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	abort := make(chan struct{})
 	results := make(chan error, len(headers))
 
-	// chainWithCurrentBlock is satisfied by *core.BlockChain, whose CurrentBlock()
-	// only advances after the full block (with state trie) has been committed.
-	// *core.HeaderChain also satisfies the shape but returns nil, meaning no
-	// full block / state is available in that path (downloader header pre-validation).
+	// There are two types statisfy this interface
+	// - *core.BlockChain: CurrentBlock() return latest block, only advances after the full block (with state trie) has been committed.
+	// - *core.HeaderChain: CurrentBlock() return nil, meaning no full block is available.
 	type chainWithCurrentBlock interface {
 		CurrentBlock() *types.Block
 	}
@@ -55,35 +54,37 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	go func() {
 		for i, header := range headers {
 			number := header.Number.Uint64()
-			// For checkpoint blocks, PosvGetPenalties / PosvGetValidators need to read
-			// the chain state at the gap block (i.e. checkpointNumber - 1). We must wait
-			// until that block and its state are fully committed to the DB before verifying
-			// the checkpoint header.
+			// PoSV need state data from the gap block for checkpoint computation.
+			// We must wait until that block and its state are fully committed to the DB before verifying checkpoint header.
 			if c.config != nil && number > 0 && number%c.config.Epoch == 0 {
 				requiredBlock := number - 1
 				if cbc, ok := chain.(chainWithCurrentBlock); ok {
-					lastLog := time.Now()
+					retryCount := 0
+					lastcheck := time.Now()
 					for {
 						select {
 						case <-abort:
 							return
 						default:
 						}
+						if retryCount > 120 {
+							break
+						}
 						cb := cbc.CurrentBlock()
 						if cb == nil {
-							// Header-only chain: state never committed here.
-							// Skip the wait; verifyValidators handles missing state.
 							break
 						}
 						if cb.NumberU64() >= requiredBlock {
 							break
 						}
-						if time.Since(lastLog) >= 5*time.Second {
-							log.Info("VerifyHeaders: waiting for gap block state before verifying checkpoint",
-								"checkpoint", number, "requiredBlock", requiredBlock,
-								"currentBlock", cb.NumberU64())
-							lastLog = time.Now()
+						if time.Since(lastcheck) >= time.Duration(c.config.Period)*time.Second {
+							log.Info("[PoSV][VerifyHeader] Waiting for gap block to be available",
+								"checkpoint", number, "requiredBlock", requiredBlock, "currentBlock", cb.NumberU64(),
+							)
+							retryCount++
+							lastcheck = time.Now()
 						}
+						time.Sleep(250 * time.Millisecond)
 					}
 				}
 			}
@@ -106,6 +107,12 @@ func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) err
 		return errors.New("uncles not allowed")
 	}
 	return nil
+}
+
+// VerifySeal implements consensus.Engine, checking whether the signature contained
+// in the header satisfies the consensus protocol requirements.
+func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
+	return c.verifySeal(chain, header, nil, true)
 }
 
 // verifyHeaderWithCache checks the cache for previously verified headers and
@@ -183,7 +190,11 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	if header.UncleHash != uncleHash {
 		return errInvalidUncleHash
 	}
-
+	// Verify that the gas limit is <= 2^63-1
+	cap := uint64(0x7fffffffffffffff)
+	if header.GasLimit > cap {
+		return fmt.Errorf("invalid gasLimit: have %v, max %v", header.GasLimit, cap)
+	}
 	// If all checks passed, validate any special fields for hard forks
 	if err := misc.VerifyForkHashes(chain.Config(), header, false); err != nil {
 		return err
