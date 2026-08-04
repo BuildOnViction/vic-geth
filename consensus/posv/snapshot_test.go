@@ -33,35 +33,6 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
-// Test helper to create a header for testing
-func makeHeader(number uint64, parentHash common.Hash, coinbase common.Address, nonce []byte) *types.Header {
-	header := &types.Header{
-		ParentHash: parentHash,
-		Number:     big.NewInt(int64(number)),
-		Time:       number * 15,
-		GasLimit:   8000000,
-		GasUsed:    0,
-		Coinbase:   coinbase,
-		Difficulty: big.NewInt(1),
-		Extra:      make([]byte, ExtraVanity+ExtraSeal),
-		MixDigest:  common.Hash{},
-		UncleHash:  types.CalcUncleHash(nil),
-	}
-	copy(header.Nonce[:], nonce)
-	return header
-}
-
-// Sign a header with the given private key
-func signHeader(header *types.Header, key *ecdsa.PrivateKey) error {
-	sig, err := crypto.Sign(SealHash(header).Bytes(), key)
-	if err != nil {
-		return err
-	}
-	copy(header.Extra[len(header.Extra)-ExtraSeal:], sig)
-	return nil
-}
-
-// TestNewSnapshot tests the creation of a new snapshot
 func TestNewSnapshot(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -100,7 +71,6 @@ func TestNewSnapshot(t *testing.T) {
 	}
 }
 
-// TestSnapshotStore tests storing and loading a snapshot from the database
 func TestSnapshotStore(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -150,7 +120,6 @@ func TestSnapshotStore(t *testing.T) {
 	}
 }
 
-// TestSnapshotCopy tests the snapshot copy method
 func TestSnapshotCopy(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -200,7 +169,6 @@ func TestSnapshotCopy(t *testing.T) {
 	}
 }
 
-// TestValidVote tests the validVote method
 func TestValidVote(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -233,7 +201,6 @@ func TestValidVote(t *testing.T) {
 	}
 }
 
-// TestCastAndUncast tests the cast and uncast methods
 func TestCastAndUncast(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -291,7 +258,6 @@ func TestCastAndUncast(t *testing.T) {
 	}
 }
 
-// TestGetSigners tests the GetSigners method
 func TestGetSigners(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -322,7 +288,6 @@ func TestGetSigners(t *testing.T) {
 	}
 }
 
-// TestInturn tests the inturn method
 func TestInturn(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -357,7 +322,6 @@ func TestInturn(t *testing.T) {
 	}
 }
 
-// TestSnapshotApply tests applying headers to a snapshot
 func TestSnapshotApply(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -385,7 +349,7 @@ func TestSnapshotApply(t *testing.T) {
 			key = key2
 		}
 
-		header := makeHeader(i, parentHash, common.Address{}, nonceDropVote)
+		header := makeSnapshotTestHeader(i, parentHash, common.Address{}, nonceDropVote)
 		if err := signHeader(header, key); err != nil {
 			t.Fatalf("Failed to sign header: %v", err)
 		}
@@ -415,7 +379,6 @@ func TestSnapshotApply(t *testing.T) {
 	}
 }
 
-// TestSnapshotApplyCheckpoint tests behavior at checkpoint blocks
 func TestSnapshotApplyCheckpoint(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -447,7 +410,7 @@ func TestSnapshotApplyCheckpoint(t *testing.T) {
 	parentHash := common.Hash{}
 
 	for i := uint64(6); i <= 10; i++ {
-		header := makeHeader(i, parentHash, common.Address{}, nonceDropVote)
+		header := makeSnapshotTestHeader(i, parentHash, common.Address{}, nonceDropVote)
 		if err := signHeader(header, key1); err != nil {
 			t.Fatalf("Failed to sign header: %v", err)
 		}
@@ -472,7 +435,6 @@ func TestSnapshotApplyCheckpoint(t *testing.T) {
 	}
 }
 
-// TestSnapshotApplyInvalidChain tests error handling for invalid header chains
 func TestSnapshotApplyInvalidChain(t *testing.T) {
 	config := &params.PosvConfig{
 		Period: 2,
@@ -487,8 +449,8 @@ func TestSnapshotApplyInvalidChain(t *testing.T) {
 
 	// Test 1: Non-contiguous headers
 	headers := []*types.Header{
-		makeHeader(11, common.Hash{}, common.Address{}, nonceDropVote),
-		makeHeader(13, common.Hash{}, common.Address{}, nonceDropVote), // Skip block 12
+		makeSnapshotTestHeader(11, common.Hash{}, common.Address{}, nonceDropVote),
+		makeSnapshotTestHeader(13, common.Hash{}, common.Address{}, nonceDropVote), // Skip block 12
 	}
 
 	_, err := snap.apply(headers)
@@ -498,11 +460,37 @@ func TestSnapshotApplyInvalidChain(t *testing.T) {
 
 	// Test 2: Headers starting from wrong number
 	headers = []*types.Header{
-		makeHeader(15, common.Hash{}, common.Address{}, nonceDropVote),
+		makeSnapshotTestHeader(15, common.Hash{}, common.Address{}, nonceDropVote),
 	}
 
 	_, err = snap.apply(headers)
 	if err != errInvalidVotingChain {
 		t.Errorf("Expected errInvalidVotingChain for wrong starting number, got: %v", err)
 	}
+}
+
+func makeSnapshotTestHeader(number uint64, parentHash common.Hash, coinbase common.Address, nonce []byte) *types.Header {
+	header := &types.Header{
+		ParentHash: parentHash,
+		Number:     big.NewInt(int64(number)),
+		Time:       number * 15,
+		GasLimit:   8000000,
+		GasUsed:    0,
+		Coinbase:   coinbase,
+		Difficulty: big.NewInt(1),
+		Extra:      make([]byte, ExtraVanity+ExtraSeal),
+		MixDigest:  common.Hash{},
+		UncleHash:  types.CalcUncleHash(nil),
+	}
+	copy(header.Nonce[:], nonce)
+	return header
+}
+
+func signHeader(header *types.Header, key *ecdsa.PrivateKey) error {
+	sig, err := crypto.Sign(SealHash(header).Bytes(), key)
+	if err != nil {
+		return err
+	}
+	copy(header.Extra[len(header.Extra)-ExtraSeal:], sig)
+	return nil
 }
