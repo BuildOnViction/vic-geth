@@ -415,7 +415,6 @@ func TestPosv(t *testing.T) {
 			Epoch:  tt.epoch,
 		}
 		engine := New(config.Posv, db)
-		engine.fakeDiff = true
 
 		blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, len(tt.votes), func(j int, gen *core.BlockGen) {
 			// Cast the vote contained in this block

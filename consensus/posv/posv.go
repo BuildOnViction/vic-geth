@@ -179,17 +179,13 @@ type Posv struct {
 	signatures       *lru.ARCCache // Signatures of recent blocks to speed up mining
 	attestSignatures *lru.ARCCache // Signatures of recent blocks to speed up mining
 	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up synching
-
-	BlockSigners *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
+	blockSigners     *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
 	signer common.Address // Ethereum address of the signing key
 	signFn SignerFn       // Signer function to authorize hashes with
 	lock   sync.RWMutex   // Protects the signer fields
-
-	// The fields below are for testing only
-	fakeDiff bool // Skip difficulty verifications
 
 	// Reference to the backend for accessing chain state.
 	backend PosvBackend
@@ -218,7 +214,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 		signatures:       signatures,
 		attestSignatures: attestSignatures,
 		verifiedBlocks:   verifiedBlocks,
-		BlockSigners:     blockSigners,
+		blockSigners:     blockSigners,
 
 		proposals: make(map[common.Address]bool),
 	}
@@ -243,6 +239,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		headers []*types.Header
 		snap    *Snapshot
 	)
+
 	for snap == nil {
 		// If an in-memory snapshot was found, use that
 		if s, ok := c.recents.Get(hash); ok {
@@ -250,9 +247,9 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			break
 		}
 		// If an on-disk checkpoint snapshot can be found, use that
-		if number%checkpointInterval == 0 {
+		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Trace("Loaded voting snapshot from disk", "number", number, "hash", hash)
+				log.Trace("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
 				snap = s
 				break
 			}
@@ -274,7 +271,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 				if err := snap.store(c.db); err != nil {
 					return nil, err
 				}
-				log.Info("Stored checkpoint snapshot to disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", number, "hash", hash)
 				break
 			}
 		}
@@ -308,11 +305,11 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	if snap.Number%checkpointInterval == 0 && len(headers) > 0 {
+	if (snap.Number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
-		log.Trace("Stored voting snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+		log.Trace("[PoSV][Snapshot] Stored gap snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
 	return snap, err
 }

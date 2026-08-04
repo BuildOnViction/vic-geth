@@ -130,7 +130,7 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
 	}
 	blockHash := header.Hash()
-	if signers, ok := c.BlockSigners.Get(blockHash); ok {
+	if signers, ok := c.blockSigners.Get(blockHash); ok {
 		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
 			return signers, nil
 		}
@@ -139,7 +139,7 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	if err != nil {
 		return nil, err
 	}
-	c.BlockSigners.Add(blockHash, signers)
+	c.blockSigners.Add(blockHash, signers)
 	return signers, nil
 }
 
