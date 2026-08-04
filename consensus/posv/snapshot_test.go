@@ -23,486 +23,474 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"math/big"
-	"sort"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
-// testerAccountPool is a pool to maintain currently active tester accounts,
-// mapped from textual names used in the tests below to actual Ethereum private
-// keys capable of signing transactions.
-type testerAccountPool struct {
-	accounts map[string]*ecdsa.PrivateKey
+func TestNewSnapshot(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	signers := []common.Address{
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		common.HexToAddress("0x3333333333333333333333333333333333333333"),
+	}
+
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, signers)
+
+	if snap.Number != 0 {
+		t.Errorf("Expected number 0, got %d", snap.Number)
+	}
+
+	if len(snap.Signers) != len(signers) {
+		t.Errorf("Expected %d signers, got %d", len(signers), len(snap.Signers))
+	}
+
+	for _, signer := range signers {
+		if _, ok := snap.Signers[signer]; !ok {
+			t.Errorf("Signer %s not found in snapshot", signer.Hex())
+		}
+	}
+
+	if len(snap.Recents) != 0 {
+		t.Errorf("Expected 0 recent signers, got %d", len(snap.Recents))
+	}
+
+	if len(snap.Votes) != 0 {
+		t.Errorf("Expected 0 votes, got %d", len(snap.Votes))
+	}
 }
 
-func newTesterAccountPool() *testerAccountPool {
-	return &testerAccountPool{
-		accounts: make(map[string]*ecdsa.PrivateKey),
+func TestSnapshotStore(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+	db := rawdb.NewMemoryDatabase()
+
+	signers := []common.Address{
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+	}
+
+	hash := common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	snap := newSnapshot(config, sigcache, 100, hash, signers)
+
+	// Add some recents
+	snap.Recents[95] = signers[0]
+	snap.Recents[98] = signers[1]
+
+	// Store the snapshot
+	if err := snap.store(db); err != nil {
+		t.Fatalf("Failed to store snapshot: %v", err)
+	}
+
+	// Load the snapshot
+	loaded, err := loadSnapshot(config, sigcache, db, hash)
+	if err != nil {
+		t.Fatalf("Failed to load snapshot: %v", err)
+	}
+
+	// Verify the loaded snapshot
+	if loaded.Number != snap.Number {
+		t.Errorf("Expected number %d, got %d", snap.Number, loaded.Number)
+	}
+
+	if loaded.Hash != snap.Hash {
+		t.Errorf("Expected hash %s, got %s", snap.Hash.Hex(), loaded.Hash.Hex())
+	}
+
+	if len(loaded.Signers) != len(snap.Signers) {
+		t.Errorf("Expected %d signers, got %d", len(snap.Signers), len(loaded.Signers))
+	}
+
+	if len(loaded.Recents) != len(snap.Recents) {
+		t.Errorf("Expected %d recents, got %d", len(snap.Recents), len(loaded.Recents))
 	}
 }
 
-// checkpoint creates a PoSV checkpoint signer section from the provided list
-// of authorized signers and embeds it into the provided header.
-func (ap *testerAccountPool) checkpoint(header *types.Header, signers []string) {
-	auths := make([]common.Address, len(signers))
-	for i, signer := range signers {
-		auths[i] = ap.address(signer)
+func TestSnapshotCopy(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
 	}
-	sort.Sort(signersAscending(auths))
-	for i, auth := range auths {
-		copy(header.Extra[ExtraVanity+i*common.AddressLength:], auth.Bytes())
+	sigcache, _ := lru.NewARC(128)
+
+	signers := []common.Address{
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+	}
+
+	snap := newSnapshot(config, sigcache, 100, common.Hash{}, signers)
+	snap.Recents[95] = signers[0]
+	snap.Recents[98] = signers[1]
+	snap.Votes = append(snap.Votes, &Vote{
+		Signer:    signers[0],
+		Block:     90,
+		Address:   common.HexToAddress("0x4444444444444444444444444444444444444444"),
+		Authorize: true,
+	})
+
+	// Create a copy
+	copy := snap.copy()
+
+	// Verify the copy
+	if copy.Number != snap.Number {
+		t.Errorf("Expected number %d, got %d", snap.Number, copy.Number)
+	}
+
+	if len(copy.Signers) != len(snap.Signers) {
+		t.Errorf("Expected %d signers, got %d", len(snap.Signers), len(copy.Signers))
+	}
+
+	if len(copy.Recents) != len(snap.Recents) {
+		t.Errorf("Expected %d recents, got %d", len(snap.Recents), len(copy.Recents))
+	}
+
+	if len(copy.Votes) != len(snap.Votes) {
+		t.Errorf("Expected %d votes, got %d", len(snap.Votes), len(copy.Votes))
+	}
+
+	// Modify the copy and ensure the original is unchanged
+	copy.Recents[100] = signers[0]
+	if len(snap.Recents) == len(copy.Recents) {
+		t.Error("Modifying copy affected the original snapshot")
 	}
 }
 
-// address retrieves the Ethereum address of a tester account by label, creating
-// a new account if no previous one exists yet.
-func (ap *testerAccountPool) address(account string) common.Address {
-	// Return the zero account for non-addresses
-	if account == "" {
-		return common.Address{}
+func TestValidVote(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
 	}
-	// Ensure we have a persistent key for the account
-	if ap.accounts[account] == nil {
-		ap.accounts[account], _ = crypto.GenerateKey()
+	sigcache, _ := lru.NewARC(128)
+
+	signer1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	signer2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	nonSigner := common.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, []common.Address{signer1, signer2})
+
+	// Valid votes
+	if !snap.validVote(nonSigner, true) {
+		t.Error("Should allow authorizing a non-signer")
 	}
-	// Resolve and return the Ethereum address
-	return crypto.PubkeyToAddress(ap.accounts[account].PublicKey)
+
+	if !snap.validVote(signer1, false) {
+		t.Error("Should allow deauthorizing a signer")
+	}
+
+	// Invalid votes
+	if snap.validVote(signer1, true) {
+		t.Error("Should not allow authorizing an existing signer")
+	}
+
+	if snap.validVote(nonSigner, false) {
+		t.Error("Should not allow deauthorizing a non-signer")
+	}
 }
 
-// sign calculates a PoSV digital signature for the given block and embeds it
-// back into the header.
-func (ap *testerAccountPool) sign(header *types.Header, signer string) {
-	// Ensure we have a persistent key for the signer
-	if ap.accounts[signer] == nil {
-		ap.accounts[signer], _ = crypto.GenerateKey()
+func TestCastAndUncast(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
 	}
-	// Sign the header and embed the signature in extra data
-	sig, _ := crypto.Sign(SealHash(header).Bytes(), ap.accounts[signer])
+	sigcache, _ := lru.NewARC(128)
+
+	signer1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	newAddress := common.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, []common.Address{signer1})
+
+	// Cast a vote to add a new signer
+	if !snap.cast(newAddress, true) {
+		t.Error("Failed to cast vote")
+	}
+
+	if tally, ok := snap.Tally[newAddress]; !ok {
+		t.Error("Vote not recorded in tally")
+	} else if tally.Votes != 1 || !tally.Authorize {
+		t.Errorf("Expected 1 authorize vote, got %d votes, authorize=%v", tally.Votes, tally.Authorize)
+	}
+
+	// Cast another vote
+	if !snap.cast(newAddress, true) {
+		t.Error("Failed to cast second vote")
+	}
+
+	if tally := snap.Tally[newAddress]; tally.Votes != 2 {
+		t.Errorf("Expected 2 votes, got %d", tally.Votes)
+	}
+
+	// Uncast a vote
+	if !snap.uncast(newAddress, true) {
+		t.Error("Failed to uncast vote")
+	}
+
+	if tally := snap.Tally[newAddress]; tally.Votes != 1 {
+		t.Errorf("Expected 1 vote after uncast, got %d", tally.Votes)
+	}
+
+	// Uncast the last vote
+	if !snap.uncast(newAddress, true) {
+		t.Error("Failed to uncast last vote")
+	}
+
+	if _, ok := snap.Tally[newAddress]; ok {
+		t.Error("Expected tally to be removed after all votes uncast")
+	}
+
+	// Try to uncast with wrong authorization
+	snap.cast(newAddress, true)
+	if snap.uncast(newAddress, false) {
+		t.Error("Should not allow uncasting with wrong authorization")
+	}
+}
+
+func TestGetSigners(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	signers := []common.Address{
+		common.HexToAddress("0x3333333333333333333333333333333333333333"),
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+	}
+
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, signers)
+
+	result := snap.signers()
+
+	// Should return sorted addresses
+	if len(result) != len(signers) {
+		t.Errorf("Expected %d signers, got %d", len(signers), len(result))
+	}
+
+	// Verify sorted order
+	for i := 0; i < len(result)-1; i++ {
+		if bytes.Compare(result[i][:], result[i+1][:]) >= 0 {
+			t.Error("Signers not properly sorted")
+		}
+	}
+}
+
+func TestInturn(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	signers := []common.Address{
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		common.HexToAddress("0x3333333333333333333333333333333333333333"),
+	}
+
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, signers)
+
+	// Get sorted signers
+	sortedSigners := snap.signers()
+
+	// Test inturn for different block numbers
+	for i := uint64(0); i < 10; i++ {
+		expectedSigner := sortedSigners[i%uint64(len(sortedSigners))]
+		if !snap.inturn(i, expectedSigner) {
+			t.Errorf("Block %d: Expected signer %s to be inturn", i, expectedSigner.Hex())
+		}
+
+		// Test that other signers are not inturn
+		for _, signer := range sortedSigners {
+			if signer != expectedSigner && snap.inturn(i, signer) {
+				t.Errorf("Block %d: Signer %s should not be inturn", i, signer.Hex())
+			}
+		}
+	}
+}
+
+func TestSnapshotApply(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	// Create test signers
+	key1, _ := crypto.GenerateKey()
+	key2, _ := crypto.GenerateKey()
+
+	signer1 := crypto.PubkeyToAddress(key1.PublicKey)
+	signer2 := crypto.PubkeyToAddress(key2.PublicKey)
+
+	// Create initial snapshot
+	snap := newSnapshot(config, sigcache, 0, common.Hash{}, []common.Address{signer1, signer2})
+
+	// Create a chain of headers
+	var headers []*types.Header
+	parentHash := common.Hash{}
+
+	for i := uint64(1); i <= 5; i++ {
+		key := key1
+		if i%2 == 0 {
+			key = key2
+		}
+
+		header := makeSnapshotTestHeader(i, parentHash, common.Address{}, nonceDropVote)
+		if err := signHeader(header, key); err != nil {
+			t.Fatalf("Failed to sign header: %v", err)
+		}
+
+		headers = append(headers, header)
+		parentHash = header.Hash()
+	}
+
+	// Apply headers
+	newSnap, err := snap.apply(headers)
+	if err != nil {
+		t.Fatalf("Failed to apply headers: %v", err)
+	}
+
+	// Verify the new snapshot
+	if newSnap.Number != snap.Number+uint64(len(headers)) {
+		t.Errorf("Expected number %d, got %d", snap.Number+uint64(len(headers)), newSnap.Number)
+	}
+
+	if newSnap.Hash != headers[len(headers)-1].Hash() {
+		t.Error("Snapshot hash doesn't match last header hash")
+	}
+
+	// Verify recents are tracked
+	if len(newSnap.Recents) == 0 {
+		t.Error("Expected recent signers to be tracked")
+	}
+}
+
+func TestSnapshotApplyCheckpoint(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  10, // Small epoch for testing
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	// Create test signers
+	key1, _ := crypto.GenerateKey()
+	signer1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	// Create initial snapshot
+	snap := newSnapshot(config, sigcache, 5, common.Hash{}, []common.Address{signer1})
+
+	// Add some votes
+	snap.Votes = append(snap.Votes, &Vote{
+		Signer:    signer1,
+		Block:     5,
+		Address:   common.HexToAddress("0x4444444444444444444444444444444444444444"),
+		Authorize: true,
+	})
+	snap.Tally[common.HexToAddress("0x4444444444444444444444444444444444444444")] = Tally{
+		Authorize: true,
+		Votes:     1,
+	}
+
+	// Create headers up to checkpoint
+	var headers []*types.Header
+	parentHash := common.Hash{}
+
+	for i := uint64(6); i <= 10; i++ {
+		header := makeSnapshotTestHeader(i, parentHash, common.Address{}, nonceDropVote)
+		if err := signHeader(header, key1); err != nil {
+			t.Fatalf("Failed to sign header: %v", err)
+		}
+
+		headers = append(headers, header)
+		parentHash = header.Hash()
+	}
+
+	// Apply headers
+	newSnap, err := snap.apply(headers)
+	if err != nil {
+		t.Fatalf("Failed to apply headers: %v", err)
+	}
+
+	// At checkpoint, votes and tally should be reset
+	if len(newSnap.Votes) != 0 {
+		t.Errorf("Expected votes to be cleared at checkpoint, got %d votes", len(newSnap.Votes))
+	}
+
+	if len(newSnap.Tally) != 0 {
+		t.Errorf("Expected tally to be cleared at checkpoint, got %d entries", len(newSnap.Tally))
+	}
+}
+
+func TestSnapshotApplyInvalidChain(t *testing.T) {
+	config := &params.PosvConfig{
+		Period: 2,
+		Epoch:  900,
+	}
+	sigcache, _ := lru.NewARC(128)
+
+	key1, _ := crypto.GenerateKey()
+	signer1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	snap := newSnapshot(config, sigcache, 10, common.Hash{}, []common.Address{signer1})
+
+	// Test 1: Non-contiguous headers
+	headers := []*types.Header{
+		makeSnapshotTestHeader(11, common.Hash{}, common.Address{}, nonceDropVote),
+		makeSnapshotTestHeader(13, common.Hash{}, common.Address{}, nonceDropVote), // Skip block 12
+	}
+
+	_, err := snap.apply(headers)
+	if err != errInvalidVotingChain {
+		t.Errorf("Expected errInvalidVotingChain for non-contiguous headers, got: %v", err)
+	}
+
+	// Test 2: Headers starting from wrong number
+	headers = []*types.Header{
+		makeSnapshotTestHeader(15, common.Hash{}, common.Address{}, nonceDropVote),
+	}
+
+	_, err = snap.apply(headers)
+	if err != errInvalidVotingChain {
+		t.Errorf("Expected errInvalidVotingChain for wrong starting number, got: %v", err)
+	}
+}
+
+func makeSnapshotTestHeader(number uint64, parentHash common.Hash, coinbase common.Address, nonce []byte) *types.Header {
+	header := &types.Header{
+		ParentHash: parentHash,
+		Number:     big.NewInt(int64(number)),
+		Time:       number * 15,
+		GasLimit:   8000000,
+		GasUsed:    0,
+		Coinbase:   coinbase,
+		Difficulty: big.NewInt(1),
+		Extra:      make([]byte, ExtraVanity+ExtraSeal),
+		MixDigest:  common.Hash{},
+		UncleHash:  types.CalcUncleHash(nil),
+	}
+	copy(header.Nonce[:], nonce)
+	return header
+}
+
+func signHeader(header *types.Header, key *ecdsa.PrivateKey) error {
+	sig, err := crypto.Sign(SealHash(header).Bytes(), key)
+	if err != nil {
+		return err
+	}
 	copy(header.Extra[len(header.Extra)-ExtraSeal:], sig)
-}
-
-// testerVote represents a single block signed by a parcitular account, where
-// the account may or may not have cast a PoSV vote.
-type testerVote struct {
-	signer     string
-	voted      string
-	auth       bool
-	checkpoint []string
-	newbatch   bool
-}
-
-// Tests that PoSV signer voting is evaluated correctly for various simple and
-// complex scenarios, as well as that a few special corner cases fail correctly.
-func TestPosv(t *testing.T) {
-	// Define the various voting scenarios to test
-	tests := []struct {
-		epoch   uint64
-		signers []string
-		votes   []testerVote
-		results []string
-		failure error
-	}{
-		{
-			// Single signer, no votes cast
-			signers: []string{"A"},
-			votes:   []testerVote{{signer: "A"}},
-			results: []string{"A"},
-		}, {
-			// Single signer, voting to add two others (only accept first, second needs 2 votes)
-			signers: []string{"A"},
-			votes: []testerVote{
-				{signer: "A", voted: "B", auth: true},
-				{signer: "B"},
-				{signer: "A", voted: "C", auth: true},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Two signers, voting to add three others (only accept first two, third needs 3 votes already)
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: true},
-				{signer: "B", voted: "C", auth: true},
-				{signer: "A", voted: "D", auth: true},
-				{signer: "B", voted: "D", auth: true},
-				{signer: "C"},
-				{signer: "A", voted: "E", auth: true},
-				{signer: "B", voted: "E", auth: true},
-			},
-			results: []string{"A", "B", "C", "D"},
-		}, {
-			// Single signer, dropping itself (weird, but one less cornercase by explicitly allowing this)
-			signers: []string{"A"},
-			votes: []testerVote{
-				{signer: "A", voted: "A", auth: false},
-			},
-			results: []string{},
-		}, {
-			// Two signers, actually needing mutual consent to drop either of them (not fulfilled)
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "B", auth: false},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Two signers, actually needing mutual consent to drop either of them (fulfilled)
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "B", auth: false},
-				{signer: "B", voted: "B", auth: false},
-			},
-			results: []string{"A"},
-		}, {
-			// Three signers, two of them deciding to drop the third
-			signers: []string{"A", "B", "C"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B", voted: "C", auth: false},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Four signers, consensus of two not being enough to drop anyone
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B", voted: "C", auth: false},
-			},
-			results: []string{"A", "B", "C", "D"},
-		}, {
-			// Four signers, consensus of three already being enough to drop someone
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "D", auth: false},
-				{signer: "B", voted: "D", auth: false},
-				{signer: "C", voted: "D", auth: false},
-			},
-			results: []string{"A", "B", "C"},
-		}, {
-			// Authorizations are counted once per signer per target
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: true},
-				{signer: "B"},
-				{signer: "A", voted: "C", auth: true},
-				{signer: "B"},
-				{signer: "A", voted: "C", auth: true},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Authorizing multiple accounts concurrently is permitted
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: true},
-				{signer: "B"},
-				{signer: "A", voted: "D", auth: true},
-				{signer: "B"},
-				{signer: "A"},
-				{signer: "B", voted: "D", auth: true},
-				{signer: "A"},
-				{signer: "B", voted: "C", auth: true},
-			},
-			results: []string{"A", "B", "C", "D"},
-		}, {
-			// Deauthorizations are counted once per signer per target
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "B", auth: false},
-				{signer: "B"},
-				{signer: "A", voted: "B", auth: false},
-				{signer: "B"},
-				{signer: "A", voted: "B", auth: false},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Deauthorizing multiple accounts concurrently is permitted
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B"},
-				{signer: "C"},
-				{signer: "A", voted: "D", auth: false},
-				{signer: "B"},
-				{signer: "C"},
-				{signer: "A"},
-				{signer: "B", voted: "D", auth: false},
-				{signer: "C", voted: "D", auth: false},
-				{signer: "A"},
-				{signer: "B", voted: "C", auth: false},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Votes from deauthorized signers are discarded immediately (deauth votes)
-			signers: []string{"A", "B", "C"},
-			votes: []testerVote{
-				{signer: "C", voted: "B", auth: false},
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B", voted: "C", auth: false},
-				{signer: "A", voted: "B", auth: false},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Votes from deauthorized signers are discarded immediately (auth votes)
-			signers: []string{"A", "B", "C"},
-			votes: []testerVote{
-				{signer: "C", voted: "D", auth: true},
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B", voted: "C", auth: false},
-				{signer: "A", voted: "D", auth: true},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Cascading changes are not allowed, only the account being voted on may change
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B"},
-				{signer: "C"},
-				{signer: "A", voted: "D", auth: false},
-				{signer: "B", voted: "C", auth: false},
-				{signer: "C"},
-				{signer: "A"},
-				{signer: "B", voted: "D", auth: false},
-				{signer: "C", voted: "D", auth: false},
-			},
-			results: []string{"A", "B", "C"},
-		}, {
-			// Changes reaching consensus out of bounds (via a deauth) execute on touch
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B"},
-				{signer: "C"},
-				{signer: "A", voted: "D", auth: false},
-				{signer: "B", voted: "C", auth: false},
-				{signer: "C"},
-				{signer: "A"},
-				{signer: "B", voted: "D", auth: false},
-				{signer: "C", voted: "D", auth: false},
-				{signer: "A"},
-				{signer: "C", voted: "C", auth: true},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// Changes reaching consensus out of bounds (via a deauth) may go out of consensus on first touch
-			signers: []string{"A", "B", "C", "D"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: false},
-				{signer: "B"},
-				{signer: "C"},
-				{signer: "A", voted: "D", auth: false},
-				{signer: "B", voted: "C", auth: false},
-				{signer: "C"},
-				{signer: "A"},
-				{signer: "B", voted: "D", auth: false},
-				{signer: "C", voted: "D", auth: false},
-				{signer: "A"},
-				{signer: "B", voted: "C", auth: true},
-			},
-			results: []string{"A", "B", "C"},
-		}, {
-			// Ensure that pending votes don't survive authorization status changes. This
-			// corner case can only appear if a signer is quickly added, removed and then
-			// readded (or the inverse), while one of the original voters dropped. If a
-			// past vote is left cached in the system somewhere, this will interfere with
-			// the final signer outcome.
-			signers: []string{"A", "B", "C", "D", "E"},
-			votes: []testerVote{
-				{signer: "A", voted: "F", auth: true}, // Authorize F, 3 votes needed
-				{signer: "B", voted: "F", auth: true},
-				{signer: "C", voted: "F", auth: true},
-				{signer: "D", voted: "F", auth: false}, // Deauthorize F, 4 votes needed (leave A's previous vote "unchanged")
-				{signer: "E", voted: "F", auth: false},
-				{signer: "B", voted: "F", auth: false},
-				{signer: "C", voted: "F", auth: false},
-				{signer: "D", voted: "F", auth: true}, // Almost authorize F, 2/3 votes needed
-				{signer: "E", voted: "F", auth: true},
-				{signer: "B", voted: "A", auth: false}, // Deauthorize A, 3 votes needed
-				{signer: "C", voted: "A", auth: false},
-				{signer: "D", voted: "A", auth: false},
-				{signer: "B", voted: "F", auth: true}, // Finish authorizing F, 3/3 votes needed
-			},
-			results: []string{"B", "C", "D", "E", "F"},
-		}, {
-			// Epoch transitions reset all votes to allow chain checkpointing
-			epoch:   3,
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A", voted: "C", auth: true},
-				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B"}},
-				{signer: "B", voted: "C", auth: true},
-			},
-			results: []string{"A", "B"},
-		}, {
-			// An unauthorized signer should not be able to sign blocks
-			signers: []string{"A"},
-			votes: []testerVote{
-				{signer: "B"},
-			},
-			failure: errUnauthorizedSigner,
-		}, {
-			// An authorized signer that signed recenty should not be able to sign again
-			signers: []string{"A", "B"},
-			votes: []testerVote{
-				{signer: "A"},
-				{signer: "A"},
-			},
-			failure: errRecentlySigned,
-		}, {
-			// Recent signatures should not reset on checkpoint blocks imported in a batch
-			epoch:   3,
-			signers: []string{"A", "B", "C"},
-			votes: []testerVote{
-				{signer: "A"},
-				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B", "C"}},
-				{signer: "A"},
-			},
-			failure: errRecentlySigned,
-		}, {
-			// Recent signatures should not reset on checkpoint blocks imported in a new
-			// batch (https://github.com/ethereum/go-ethereum/issues/17593). Whilst this
-			// seems overly specific and weird, it was a Rinkeby consensus split.
-			epoch:   3,
-			signers: []string{"A", "B", "C"},
-			votes: []testerVote{
-				{signer: "A"},
-				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B", "C"}},
-				{signer: "A", newbatch: true},
-			},
-			failure: errRecentlySigned,
-		},
-	}
-	// Run through the scenarios and test them
-	for i, tt := range tests {
-		// Create the account pool and generate the initial set of signers
-		accounts := newTesterAccountPool()
-
-		signers := make([]common.Address, len(tt.signers))
-		for j, signer := range tt.signers {
-			signers[j] = accounts.address(signer)
-		}
-		for j := 0; j < len(signers); j++ {
-			for k := j + 1; k < len(signers); k++ {
-				if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
-					signers[j], signers[k] = signers[k], signers[j]
-				}
-			}
-		}
-		// Create the genesis block with the initial set of signers
-		genesis := &core.Genesis{
-			ExtraData: make([]byte, ExtraVanity+common.AddressLength*len(signers)+ExtraSeal),
-			BaseFee:   big.NewInt(params.InitialBaseFee),
-		}
-		for j, signer := range signers {
-			copy(genesis.ExtraData[ExtraVanity+j*common.AddressLength:], signer[:])
-		}
-		// Create a pristine blockchain with the genesis injected
-		db := rawdb.NewMemoryDatabase()
-		genesis.Commit(db)
-
-		// Assemble a chain of headers from the cast votes
-		config := *params.TestChainConfig
-		config.Posv = &params.PosvConfig{
-			Period: 1,
-			Epoch:  tt.epoch,
-		}
-		engine := New(config.Posv, db)
-
-		blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, len(tt.votes), func(j int, gen *core.BlockGen) {
-			// Cast the vote contained in this block
-			gen.SetCoinbase(accounts.address(tt.votes[j].voted))
-			if tt.votes[j].auth {
-				var nonce types.BlockNonce
-				copy(nonce[:], nonceAuthVote)
-				gen.SetNonce(nonce)
-			}
-		})
-		// Iterate through the blocks and seal them individually
-		for j, block := range blocks {
-			// Get the header and prepare it for signing
-			header := block.Header()
-			if j > 0 {
-				header.ParentHash = blocks[j-1].Hash()
-			}
-			header.Extra = make([]byte, ExtraVanity+ExtraSeal)
-			if auths := tt.votes[j].checkpoint; auths != nil {
-				header.Extra = make([]byte, ExtraVanity+len(auths)*common.AddressLength+ExtraSeal)
-				accounts.checkpoint(header, auths)
-			}
-			header.Difficulty = diffInTurn // Ignored, we just need a valid number
-
-			// Generate the signature, embed it into the header and the block
-			accounts.sign(header, tt.votes[j].signer)
-			blocks[j] = block.WithSeal(header)
-		}
-		// Split the blocks up into individual import batches (cornercase testing)
-		batches := [][]*types.Block{nil}
-		for j, block := range blocks {
-			if tt.votes[j].newbatch {
-				batches = append(batches, nil)
-			}
-			batches[len(batches)-1] = append(batches[len(batches)-1], block)
-		}
-		// Pass all the headers through posv and ensure tallying succeeds
-		chain, err := core.NewBlockChain(db, nil, &config, engine, vm.Config{}, nil, nil)
-		if err != nil {
-			t.Errorf("test %d: failed to create test chain: %v", i, err)
-			continue
-		}
-		failed := false
-		for j := 0; j < len(batches)-1; j++ {
-			if k, err := chain.InsertChain(batches[j]); err != nil {
-				t.Errorf("test %d: failed to import batch %d, block %d: %v", i, j, k, err)
-				failed = true
-				break
-			}
-		}
-		if failed {
-			continue
-		}
-		if _, err = chain.InsertChain(batches[len(batches)-1]); err != tt.failure {
-			t.Errorf("test %d: failure mismatch: have %v, want %v", i, err, tt.failure)
-		}
-		if tt.failure != nil {
-			continue
-		}
-		// No failure was produced or requested, generate the final voting snapshot
-		head := blocks[len(blocks)-1]
-
-		snap, err := engine.snapshot(chain, head.NumberU64(), head.Hash(), nil)
-		if err != nil {
-			t.Errorf("test %d: failed to retrieve voting snapshot: %v", i, err)
-			continue
-		}
-		// Verify the final list of signers against the expected ones
-		signers = make([]common.Address, len(tt.results))
-		for j, signer := range tt.results {
-			signers[j] = accounts.address(signer)
-		}
-		for j := 0; j < len(signers); j++ {
-			for k := j + 1; k < len(signers); k++ {
-				if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
-					signers[j], signers[k] = signers[k], signers[j]
-				}
-			}
-		}
-		result := snap.signers()
-		if len(result) != len(signers) {
-			t.Errorf("test %d: signers mismatch: have %x, want %x", i, result, signers)
-			continue
-		}
-		for j := 0; j < len(result); j++ {
-			if !bytes.Equal(result[j][:], signers[j][:]) {
-				t.Errorf("test %d, signer %d: signer mismatch: have %x, want %x", i, j, result[j], signers[j])
-			}
-		}
-	}
+	return nil
 }
