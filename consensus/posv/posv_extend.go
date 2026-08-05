@@ -53,6 +53,8 @@ var (
 
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
+	errNoBackend = errors.New("backend reference is not available")
+
 	errNoChainReader = errors.New("chain reader is not available")
 )
 
@@ -180,9 +182,12 @@ func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.H
 	for _, a := range vs {
 		validators[a] = struct{}{}
 	}
-	snap.Signers = validators
+	snap.SignersNext = validators
 	c.recents.Add(snap.Hash, snap)
-	log.Info("[PoSV][Snapshot] Signers list updated.", "number", snap.Number, "hash", snap.Hash, "new signers", common.AddressesToStrings(vs))
+	if err = snap.store(c.db); err != nil {
+		return err
+	}
+	log.Info("[PoSV][Snapshot] Stored gap snapshot to disk.", "number", snap.Number, "hash", snap.Hash, "signers", common.AddressesToStrings(vs))
 	return nil
 }
 
@@ -194,7 +199,6 @@ func (c *Posv) calcDifficulty(validator common.Address, parent *types.Header, va
 		return big.NewInt(int64(validatorCount - distance + 1))
 	}
 	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
-
 }
 
 // Decode bytes with format of Block.Attestors into list of attestor numbers.

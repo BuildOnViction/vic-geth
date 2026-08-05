@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -90,4 +93,13 @@ var (
 
 	// ErrSenderNoEOA is returned if the sender of a transaction is a contract.
 	ErrSenderNoEOA = errors.New("sender not an eoa")
+)
+
+// Viction specific errors
+var (
+	ErrNoValidators = errors.New("no validators found")
+
+	ErrNoValidatorContract = errors.New("validator contract address is not set in chain config")
+
+	ErrPosvRequired = errors.New("posv engine is required")
 )

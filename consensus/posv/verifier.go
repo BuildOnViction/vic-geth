@@ -232,9 +232,6 @@ func (c *Posv) verifyCascadingFields(chainH consensus.ChainHeaderReader, header 
 		if header.BaseFee != nil {
 			return fmt.Errorf("invalid baseFee before fork: have %d, want <nil>", header.BaseFee)
 		}
-		if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
-			return err
-		}
 	} else if err := misc.VerifyEip1559Header(chain.Config(), parent, header); err != nil {
 		// Verify the header's EIP-1559 attributes.
 		return err
@@ -250,6 +247,11 @@ func (c *Posv) verifyCascadingFields(chainH consensus.ChainHeaderReader, header 
 }
 
 func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+	// When core.NewBlockChain is called, verifyHeader flow will be invoked before the backend is set.
+	if c.backend == nil {
+		return errNoBackend
+	}
+
 	number := header.Number.Uint64()
 	config := chain.Config()
 	posvConfig := config.Posv
@@ -347,7 +349,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signers()
+	snapshotValidators := snap.signersNext()
 	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
 		return nil
 	} else {
@@ -380,6 +382,11 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 // headers that aren't yet part of the local blockchain to generate the snapshots
 // from.
 func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
+	// When core.NewBlockChain is called, verifyHeader flow will be invoked before the backend is set.
+	if c.backend == nil {
+		return errNoBackend
+	}
+
 	chain, ok := chainH.(consensus.ChainReader)
 	if !ok {
 		return errNoChainReader

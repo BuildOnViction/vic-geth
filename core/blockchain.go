@@ -1940,6 +1940,17 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		dirty, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, it.index, dirty)
+
+		if bc.chainConfig.Posv != nil {
+			posvConfig := bc.chainConfig.Posv
+			if (block.NumberU64()+posvConfig.Gap)%posvConfig.Epoch == 0 {
+				err := bc.UpdateValidators()
+				if err != nil {
+					log.Error("[Blockchain] Error when updating validators list for next epoch. Stopping node!", "err", err)
+					return it.index, err
+				}
+			}
+		}
 	}
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && errors.Is(err, consensus.ErrFutureBlock) {

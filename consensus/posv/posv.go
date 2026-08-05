@@ -247,9 +247,16 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			break
 		}
 		// If an on-disk checkpoint snapshot can be found, use that
+		if number%c.config.Epoch == 0 {
+			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
+				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash)
+				snap = s
+				break
+			}
+		}
 		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Trace("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
 				snap = s
 				break
 			}
@@ -302,14 +309,14 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	if err != nil {
 		return nil, err
 	}
-	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	if (snap.Number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
+	if snap.Number%c.config.Epoch == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
-		log.Trace("[PoSV][Snapshot] Stored gap snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+		c.recents.Add(snap.Hash, snap)
+		log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", snap.signers())
 	}
 	return snap, err
 }
