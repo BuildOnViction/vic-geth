@@ -143,6 +143,11 @@ func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params
 	return signers, nil
 }
 
+// GetSnapshot returns the snapshot for the given block, exposing the full set validators regardless of penalty status.
+func (c *Posv) GetSnapshot(chain consensus.ChainHeaderReader, header *types.Header) (*Snapshot, error) {
+	return c.snapshot(chain, header.Number.Uint64(), header.Hash(), nil)
+}
+
 // Check if the give signer is assigned to create new block.
 func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators []common.Address) (bool, int, int, int, error) {
 	validatorsCount := len(validators)
@@ -162,6 +167,23 @@ func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators 
 
 	inturn := (parentIndex+1)%validatorsCount == currentIndex
 	return inturn, currentIndex, parentIndex, validatorsCount, nil
+}
+
+// Update validators list in snapshot.
+func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.Header, vs []common.Address) error {
+	number := header.Number.Uint64()
+	snap, err := c.snapshot(chain, number, header.Hash(), nil)
+	if err != nil {
+		return err
+	}
+	validators := make(map[common.Address]struct{})
+	for _, a := range vs {
+		validators[a] = struct{}{}
+	}
+	snap.Signers = validators
+	c.recents.Add(snap.Hash, snap)
+	log.Info("[PoSV][Snapshot] Signers list updated.", "number", snap.Number, "hash", snap.Hash, "new signers", common.AddressesToStrings(vs))
+	return nil
 }
 
 // Return difficulty of newly created block based on the validator creates the block.
