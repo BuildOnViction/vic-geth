@@ -350,31 +350,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		snap = parentSnap
 	}
 	snapshotValidators := snap.signersNext()
-	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
-		return nil
-	} else {
-		log.Warn("[PoSV] Verify header from snapshot failed. Retry with state.", "number", number, "err", err)
-	}
-
-	// Retry to verify remote header using state.
-	var lastErr error
-	var contractValidators []common.Address
-	for gapBlockNumber = number - posvConfig.Gap; gapBlockNumber < number; gapBlockNumber++ {
-		gapHeader := chain.GetHeaderByNumber(gapBlockNumber)
-		if gapHeader == nil {
-			continue
-		}
-		validators, err := c.backend.PosvGetValidators(config, victionConfig, gapHeader, chain)
-		if err == nil && len(validators) > 0 {
-			contractValidators = validators
-			break
-		}
-		lastErr = err
-	}
-	if len(contractValidators) == 0 {
-		return lastErr
-	}
-	return validateRemoteHeader(header, contractValidators)
+	return validateRemoteHeader(header, snapshotValidators)
 }
 
 // verifySeal checks whether the signature contained in the header satisfies the
