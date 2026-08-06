@@ -238,12 +238,20 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			return nil, err
 		}
 		if _, ok := snap.Signers[signer]; !ok {
-			log.Info("[PoSV][Snapshot] unauthorized signer", "number", number, "hash", header.Hash(), "signer", signer, "signers", snap.Signers)
+			log.Error("[PoSV] snapshot: unauthorized signer", "number", number, "hash", header.Hash(), "signer", signer, "signers", snap.Signers)
 			return nil, errUnauthorizedSigner
 		}
-		for _, recent := range snap.Recents {
+		for seen, recent := range snap.Recents {
+			if len(snap.Signers) <= 1 {
+				break
+			}
 			if recent == signer {
-				return nil, errRecentlySigned
+				if limit := uint64(2); seen > number-limit {
+					if number%s.config.Epoch != 0 {
+						log.Error("[PoSV] snapshot: recently signed", "number", number, "hash", header.Hash(), "signer", signer)
+						return nil, errRecentlySigned
+					}
+				}
 			}
 		}
 		snap.Recents[number] = signer

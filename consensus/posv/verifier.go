@@ -409,14 +409,13 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 	if _, ok := snap.Signers[creator]; !ok {
 		if common.IndexOf(validators, creator) == -1 {
-			log.Error("[PoSV] verify header: invalid creator", "number", number, "address", creator.Hex())
+			log.Error("[PoSV] verify header: unauthorized signer", "number", number, "hash", header.Hash(), "address", creator)
 			return errUnauthorizedSigner
 		}
 	}
 
 	// Validate recency: prevent a signer from sealing two consecutive blocks.
 	for seen, recent := range snap.Recents {
-		log.Trace("[PoSV] verify header: recency check", "number", number, "creator", creator, "recent", recent)
 		if len(validators) <= 1 {
 			break
 		}
@@ -426,7 +425,8 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 			if limit := uint64(2); seen > number-limit {
 				// Only take into account the non-epoch blocks
 				if number%c.config.Epoch != 0 {
-					return errUnauthorizedSigner
+					log.Error("[PoSV] verify header: recently signed", "number", number, "hash", header.Hash(), "signer", creator)
+					return errRecentlySigned
 				}
 			}
 		}
