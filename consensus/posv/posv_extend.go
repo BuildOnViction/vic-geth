@@ -53,6 +53,8 @@ var (
 
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
+	errNoBackend = errors.New("backend reference is not available")
+
 	errNoChainReader = errors.New("chain reader is not available")
 )
 
@@ -64,6 +66,7 @@ type EpochReward struct {
 	StakeholderRewards map[common.Address]*big.Int                    `json:"-"`
 }
 
+// EpochReward stores the rewards of a validator.
 type ValidatorReward struct {
 	Sign   uint64   `json:"sign"`
 	Reward *big.Int `json:"reward"`
@@ -168,20 +171,23 @@ func (c *Posv) IsMyTurn(signer common.Address, parent *types.Header, validators 
 	return inturn, currentIndex, parentIndex, validatorsCount, nil
 }
 
-// Update validators list in snapshot. hv is list of extraced from block header.
-func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.Header, hv []common.Address) error {
+// Update validators list in snapshot.
+func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.Header, vs []common.Address) error {
 	number := header.Number.Uint64()
 	snap, err := c.snapshot(chain, number, header.Hash(), nil)
 	if err != nil {
 		return err
 	}
 	validators := make(map[common.Address]struct{})
-	for _, a := range hv {
+	for _, a := range vs {
 		validators[a] = struct{}{}
 	}
-	snap.Signers = validators
+	snap.SignersNext = validators
 	c.recents.Add(snap.Hash, snap)
-	log.Info("[PoSV][Snapshot] Signers list updated.", "number", snap.Number, "hash", snap.Hash, "new signers", common.AddressesToStrings(hv))
+	if err = snap.store(c.db); err != nil {
+		return err
+	}
+	log.Info("[PoSV][Snapshot] Stored gap snapshot to disk.", "number", snap.Number, "hash", snap.Hash, "signers", common.AddressesToStrings(vs))
 	return nil
 }
 
@@ -193,7 +199,6 @@ func (c *Posv) calcDifficulty(validator common.Address, parent *types.Header, va
 		return big.NewInt(int64(validatorCount - distance + 1))
 	}
 	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
-
 }
 
 // Decode bytes with format of Block.Attestors into list of attestor numbers.

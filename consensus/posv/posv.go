@@ -55,6 +55,7 @@ const (
 	recentVerifiedBlocks = 256   // Number of recent blocks to cache verfication results
 )
 
+// PoSV proof-of-stake protocol constants.
 var (
 	epochLength = uint64(900) // Default number of blocks after which to checkpoint and reset the pending votes
 
@@ -177,7 +178,7 @@ type Posv struct {
 	recents          *lru.ARCCache // Snapshots for recent block to speed up reorgs
 	signatures       *lru.ARCCache // Signatures of recent blocks to speed up mining
 	attestSignatures *lru.ARCCache // Signatures of recent blocks to speed up mining
-	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up syncing
+	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up synching
 	blockSigners     *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
@@ -204,6 +205,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	attestSignatures, _ := lru.NewARC(inmemorySignatures)
 	verifiedBlocks, _ := lru.NewARC(recentVerifiedBlocks)
 	blockSigners, _ := lru.NewARC(recentBlockSigners)
+
 	return &Posv{
 		config: &conf,
 		db:     db,
@@ -245,9 +247,16 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			break
 		}
 		// If an on-disk checkpoint snapshot can be found, use that
+		if number%c.config.Epoch == 0 {
+			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
+				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash)
+				snap = s
+				break
+			}
+		}
 		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Trace("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
 				snap = s
 				break
 			}
@@ -300,14 +309,14 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	if err != nil {
 		return nil, err
 	}
-	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	if (snap.Number+c.config.Gap)%c.config.Epoch == 0 && len(headers) > 0 {
+	if snap.Number%c.config.Epoch == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
 		}
-		log.Trace("[PoSV][Snapshot] Stored gap snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+		c.recents.Add(snap.Hash, snap)
+		log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", snap.signers())
 	}
 	return snap, err
 }
@@ -328,7 +337,6 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	header.Nonce = types.BlockNonce{}
 
 	number := header.Number.Uint64()
-
 	// Assemble the voting snapshot to check which votes make sense
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
@@ -345,7 +353,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 		}
 		// If there's pending proposals, cast a vote on them
 		if len(addresses) > 0 {
-			header.Coinbase = addresses[rand.Intn(len(addresses))] // nolint: gosec
+			header.Coinbase = addresses[rand.Intn(len(addresses))]
 			if c.proposals[header.Coinbase] {
 				copy(header.Nonce[:], nonceAuthVote)
 			} else {
@@ -357,11 +365,10 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	// Copy signer protected by mutex to avoid race condition
 	signer := c.signer
 	c.lock.RUnlock()
 
-	// Set the correct difficulty using the parent header fetched earlier
+	// Set the correct difficulty
 	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	header.Difficulty = c.calcDifficulty(signer, parent, validators)
@@ -375,7 +382,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	if number%c.config.Epoch == 0 {
 		log.Info("[PoSV] Preparing checkpoint block", "number", number)
 		validators := snap.signers()
-		// remove penalized validators in current epoch
+		// Remove penalized validators in current epoch
 		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
 		if err != nil {
 			log.Error("[POSV] prepare: Failed to get penalties", "number", number, "err", err)
@@ -385,7 +392,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 			validators = common.SetSubstract(validators, penalties)
 			header.Penalties = EncodePenaltiesForHeader(penalties)
 		}
-		// remove penalized validators in recent epochs
+		// Remove penalized validators in recent epochs
 		for i := uint64(1); i <= chain.Config().Viction.PenaltyEpochCount; i++ {
 			if number > i*c.config.Epoch {
 				prevCheckpointBlockNumber := number - (i * c.config.Epoch)
@@ -487,7 +494,6 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	if c.config.Period == 0 && len(block.Transactions()) == 0 {
 		log.Info("Sealing paused, waiting for transactions")
 		results <- nil
-
 		return nil
 	}
 	// Don't hold the signer fields for the entire sealing procedure
@@ -532,7 +538,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 			}
 		}
 	}
-	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
+	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
 	// Sign all the things!
 	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypePosv, PosvRLP(header))
 	if err != nil {
@@ -558,9 +564,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	return nil
 }
 
-// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
-// that a new block should have based on the previous blocks in the chain and the
-// current signer.
+// Return difficulty for a new block.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
 	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
@@ -609,7 +613,6 @@ func PosvRLP(header *types.Header) []byte {
 	return b.Bytes()
 }
 
-// encodeSigHeader encodes the header fields relevant for signing.
 func encodeSigHeader(w io.Writer, header *types.Header) {
 	enc := []interface{}{
 		header.ParentHash,

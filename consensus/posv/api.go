@@ -37,6 +37,7 @@ type API struct {
 	chain consensus.ChainHeaderReader
 	posv  *Posv
 }
+
 type NetworkInformation struct {
 	NetworkId         *big.Int
 	ValidatorContract common.Address
@@ -91,7 +92,7 @@ func (api *API) GetSigners(number *rpc.BlockNumber) ([]common.Address, error) {
 	return snap.signers(), nil
 }
 
-// GetSignersAtHash retrieves the state snapshot at a given block.
+// GetSignersAtHash retrieves the list of authorized signers at the specified block.
 func (api *API) GetSignersAtHash(hash common.Hash) ([]common.Address, error) {
 	header := api.chain.GetHeaderByHash(hash)
 	if header == nil {

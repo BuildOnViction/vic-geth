@@ -97,6 +97,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 			}
 		}
 	}()
+
 	return abort, results
 }
 
@@ -115,9 +116,7 @@ func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Heade
 	return c.verifySeal(chain, header, nil, true)
 }
 
-// verifyHeaderWithCache checks the cache for previously verified headers and
-// performs full verification if not found. Successfully verified headers are
-// cached to avoid redundant checks.
+// Checks whether a header conforms to the consensus rules.
 func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	if header == nil {
 		return errUnknownBlock
@@ -141,7 +140,6 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	if header.Number == nil {
 		return errUnknownBlock
 	}
-
 	number := header.Number.Uint64()
 	now := time.Now()
 	nowUnix := now.Unix()
@@ -199,7 +197,6 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	if err := misc.VerifyForkHashes(chain.Config(), header, false); err != nil {
 		return err
 	}
-
 	// All basic checks passed, verify cascading fields
 	return c.verifyCascadingFields(chain, header, parents, seal)
 }
@@ -208,14 +205,18 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
-func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
+func (c *Posv) verifyCascadingFields(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
+	chain, ok := chainH.(consensus.ChainReader)
+	if !ok {
+		return errNoChainReader
+	}
+
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
 	if number == 0 {
 		return nil
 	}
-
-	// Retrieve the snapshot needed to verify this header and cache it
+	// Ensure that the block's timestamp isn't too close to its parent
 	var parent *types.Header
 	if len(parents) > 0 {
 		parent = parents[len(parents)-1]
@@ -235,24 +236,20 @@ func (c *Posv) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 
 	// If the block is a checkpoint block, verify the signer list
 	if number%c.config.Epoch == 0 {
-		chain, ok := chain.(consensus.ChainReader)
-		if !ok {
-			log.Error("No chain reader provided for checkpoint verification")
-			return fmt.Errorf("no chain reader provided for checkpoint verification")
-		}
-		err := c.verifyValidators(chain, header, parents)
-
-		if err != nil {
+		if err := c.verifyValidators(chain, header, parents); err != nil {
 			return err
 		}
 	}
-
 	// All basic checks passed, verify the seal and return
 	return c.verifySeal(chain, header, parents, seal)
-
 }
 
 func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+	// When core.NewBlockChain is called, verifyHeader flow will be invoked before the backend is set.
+	if c.backend == nil {
+		return errNoBackend
+	}
+
 	number := header.Number.Uint64()
 	config := chain.Config()
 	posvConfig := config.Posv
@@ -350,37 +347,20 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signers()
-	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
-		return nil
-	} else {
-		log.Warn("[PoSV] Verify header from snapshot failed. Retry with state.", "number", number, "err", err)
-	}
-
-	// Retry to verify remote header using state.
-	var lastErr error
-	var contractValidators []common.Address
-	for gapBlockNumber = number - posvConfig.Gap; gapBlockNumber < number; gapBlockNumber++ {
-		gapHeader := chain.GetHeaderByNumber(gapBlockNumber)
-		if gapHeader == nil {
-			continue
-		}
-		validators, err := c.backend.PosvGetValidators(config, victionConfig, gapHeader, chain)
-		if err == nil && len(validators) > 0 {
-			contractValidators = validators
-			break
-		}
-		lastErr = err
-	}
-	if len(contractValidators) == 0 {
-		return lastErr
-	}
-	return validateRemoteHeader(header, contractValidators)
+	snapshotValidators := snap.signersNext()
+	return validateRemoteHeader(header, snapshotValidators)
 }
 
 // verifySeal checks whether the signature contained in the header satisfies the
-// consensus protocol requirements.
+// consensus protocol requirements. The method accepts an optional list of parent
+// headers that aren't yet part of the local blockchain to generate the snapshots
+// from.
 func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
+	// When core.NewBlockChain is called, verifyHeader flow will be invoked before the backend is set.
+	if c.backend == nil {
+		return errNoBackend
+	}
+
 	chain, ok := chainH.(consensus.ChainReader)
 	if !ok {
 		return errNoChainReader
@@ -444,7 +424,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 			if limit := uint64(2); seen > number-limit {
 				// Only take into account the non-epoch blocks
 				if number%c.config.Epoch != 0 {
-					return errUnauthorizedSigner
+					return errRecentlySigned
 				}
 			}
 		}
