@@ -384,7 +384,7 @@ func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber ui
 	}
 	signer := types.MakeSigner(s.eth.blockchain.Config(), new(big.Int).SetUint64(blockNumber))
 	if engine, ok := s.Engine().(*posv.Posv); ok {
-		limitNumber := blockNumber + s.eth.blockchain.Config().Viction.LimitTimeFinality
+		limitNumber := blockNumber + s.eth.blockchain.Config().Viction.ConsensusLimitTimeFinality
 		currentNumber := s.CurrentBlock().NumberU64()
 		if limitNumber > currentNumber {
 			limitNumber = currentNumber
