@@ -1,5 +1,5 @@
 {
-  "chainName": "vicdevnet",
+  "chainName": "vicdev",
   "chainId": 69,
   "consensus": "posv",
   "homesteadBlock": 1,

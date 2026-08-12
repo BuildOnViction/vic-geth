@@ -213,12 +213,12 @@ func TestGenesisJSONFile(t *testing.T) {
 			chainName = "Viction (mainnet)"
 			expectedGenesis = DefaultVictionGenesisBlock()
 			expectedHashConstant = params.VictionGenesisHash
-			allocFile = "viction_allocs/viction.json"
+			allocFile = "allocs/viction.json"
 		} else if chainID == 89 {
 			chainName = "Victest (testnet)"
 			expectedGenesis = DefaultVictestGenesisBlock()
 			expectedHashConstant = params.VictestGenesisHash
-			allocFile = "viction_allocs/victest.json"
+			allocFile = "allocs/victest.json"
 		} else {
 			t.Fatalf("Unknown chain ID: %d. Expected 88 (Viction) or 89 (Victest)", chainID)
 		}
@@ -443,13 +443,13 @@ func TestVictestGenesisHash(t *testing.T) {
 	}
 }
 
-// TestVicdevnetGenesisHash checks VicdevnetGenesisHash matches the embedded default genesis.
-func TestVicdevnetGenesisHash(t *testing.T) {
-	g := DefaultVicdevnetGenesisBlock()
+// TestVicdevGenesisHash checks VicdevGenesisHash matches the embedded default genesis.
+func TestVicdevGenesisHash(t *testing.T) {
+	g := DefaultVicdevGenesisBlock()
 	hash := g.ToBlock(nil).Hash()
-	if params.VicdevnetGenesisHash != hash {
-		t.Errorf("params.VicdevnetGenesisHash mismatch: constant %s, ToBlock hash %s",
-			params.VicdevnetGenesisHash.Hex(), hash.Hex())
+	if params.VicdevGenesisHash != hash {
+		t.Errorf("params.VicdevGenesisHash mismatch: constant %s, ToBlock hash %s",
+			params.VicdevGenesisHash.Hex(), hash.Hex())
 	}
 }
 
