@@ -207,6 +207,10 @@ var (
 		Usage: `Blockchain garbage collection mode ("full", "archive")`,
 		Value: "full",
 	}
+	NoCompatRewindFlag = cli.BoolFlag{
+		Name:  "no-compat-rewind",
+		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
+	}
 	SnapshotFlag = cli.BoolFlag{
 		Name:  "snapshot",
 		Usage: `Enables snapshot-database mode -- experimental work in progress feature`,
@@ -1558,6 +1562,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	}
 	if ctx.GlobalIsSet(CacheNoPrefetchFlag.Name) {
 		cfg.NoPrefetch = ctx.GlobalBool(CacheNoPrefetchFlag.Name)
+	}
+	if ctx.GlobalIsSet(NoCompatRewindFlag.Name) {
+		cfg.SkipCompatRewind = ctx.GlobalBool(NoCompatRewindFlag.Name)
 	}
 	// Read the value from the flag no matter if it's set or not.
 	cfg.Preimages = ctx.GlobalBool(CachePreimagesFlag.Name)
