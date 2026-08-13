@@ -97,9 +97,9 @@ type blockTraceResult struct {
 // txTraceTask represents a single transaction trace task when an entire block
 // is being traced.
 type txTraceTask struct {
-	statedb *state.StateDB  // Intermediate state prepped for tracing
-	index   int             // Transaction offset in the block
-	feePool viction.FeePool // Running VRC25 fee capacities as of this tx (copy)
+	statedb *state.StateDB     // Intermediate state prepped for tracing
+	index   int                // Transaction offset in the block
+	feePool viction.BalanceMap // Running VRC25 fee capacities as of this tx (copy)
 }
 
 // TraceChain returns the structured logs created during the execution of EVM
@@ -779,7 +779,7 @@ func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs,
 	statedb, header, err := api.eth.APIBackend.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	// feePool is populated only when state is recomputed from a block below;
 	// nil otherwise (the live-state path needs no sponsorship pool).
-	var feePool viction.FeePool
+	var feePool viction.BalanceMap
 	if err != nil {
 		// Try to retrieve the specified block
 		var block *types.Block
@@ -811,7 +811,7 @@ func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs,
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, vmctx vm.BlockContext, statedb *state.StateDB, feePool viction.FeePool, config *TraceConfig) (interface{}, error) {
+func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, vmctx vm.BlockContext, statedb *state.StateDB, feePool viction.BalanceMap, config *TraceConfig) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer    vm.Tracer
@@ -879,7 +879,7 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 // returned feePool is the running VRC25 fee pool decremented up to (but not
 // including) the target transaction, so the caller's traceTx reproduces its
 // sponsorship with the correct capacity.
-func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, viction.FeePool, error) {
+func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, viction.BalanceMap, error) {
 	// Create the parent state database
 	parent := api.eth.blockchain.GetBlock(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {

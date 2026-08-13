@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/viction"
-	"github.com/ethereum/go-ethereum/core/vrc25"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -80,12 +79,9 @@ func (pool *TxPool) posvValidateGasPrice(tx *types.Transaction, from common.Addr
 		pool.chainconfig.Viction != nil &&
 		pool.chainconfig.Viction.VRC25Contract != (common.Address{}) {
 
-		cap := vrc25.GetFeeCapacity(pool.currentState,
-			pool.chainconfig.Viction.VRC25Contract, tx.To())
+		cap := pool.currentState.VicGetZeroGasCapacity(pool.chainconfig.Viction.VRC25Contract, tx.To())
 		if cap != nil && cap.Sign() > 0 {
-			if err := vrc25.ValidateVRC25Transaction(pool.currentState,
-				pool.chainconfig.Viction.VRC25Contract,
-				from, *tx.To(), tx.Data()); err == nil {
+			if err := viction.ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25Contract, from, *tx.To(), tx.Data()); err == nil {
 				return true
 			}
 		}

@@ -3,9 +3,7 @@ package misc
 import (
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/vrc25"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -30,8 +28,7 @@ func ApplySaigonHardFork(statedb *state.StateDB, config *params.VictionConfig, s
 func ApplyVIPVRC25Upgrade(statedb *state.StateDB, config *params.VictionConfig, atlasBlock *big.Int, headBlock *big.Int) {
 	if headBlock.Cmp(atlasBlock) == 0 {
 		if config.AtlasVRC25MinCap != nil {
-			slotHash := common.BigToHash(new(big.Int).SetUint64(vrc25.SlotVRC25Contract["minCap"]))
-			statedb.SetState(config.VRC25Contract, slotHash, common.BigToHash((*big.Int)(config.AtlasVRC25MinCap)))
+			statedb.VicSetZeroGasMinCap(config.VRC25Contract, (*big.Int)(config.AtlasVRC25MinCap))
 		}
 	}
 }
