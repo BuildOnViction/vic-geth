@@ -1,7 +1,21 @@
-// Copyright (c) 2026 Viction
-// POSV-specific transaction pool extensions.
-// All Viction/POSV tx pool logic lives in this file so upstream geth updates
-// can be cherry-picked into tx_pool.go with minimal conflicts.
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -10,8 +24,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -36,8 +50,8 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 // on the TIPBlacklist fork block: pool admission is local policy, and the
 // legacy pool rejected these unconditionally.
 func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
-	if sender, receiver := viction.ValidateBlackList(pool.chainconfig, from, tx.To()); sender || receiver {
-		return viction.ErrBlacklistedAddress
+	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To()); sender || receiver {
+		return ErrBlacklistedAddress
 	}
 	return nil
 }
@@ -81,7 +95,7 @@ func (pool *TxPool) posvValidateGasPrice(tx *types.Transaction, from common.Addr
 
 		cap := pool.currentState.VicGetZeroGasCapacity(pool.chainconfig.Viction.VRC25Contract, tx.To())
 		if cap != nil && cap.Sign() > 0 {
-			if err := viction.ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25Contract, from, *tx.To(), tx.Data()); err == nil {
+			if err := ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25Contract, from, *tx.To(), tx.Data()); err == nil {
 				return true
 			}
 		}

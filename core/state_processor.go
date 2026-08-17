@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -25,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -42,7 +44,7 @@ type StateProcessor struct {
 
 	// viction owns all Viction-specific processing hooks (hardfork activation,
 	// system transactions, VRC25 fees, TomoX/TomoZ replay). See viction.Processor.
-	viction *viction.Processor
+	viction *VictionProcessor
 
 	// Deferred trie GC fields for TomoX/TomoZ (full-node path).
 	// These are managed entirely by blockchain_viction.go / commitVictionState.
@@ -56,7 +58,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 		config:        config,
 		bc:            bc,
 		engine:        engine,
-		viction:       viction.NewProcessor(config, bc, engine),
+		viction:       NewVictionProcessor(config, bc, engine),
 		tradingTriegc: prque.New(nil),
 		lendingTriegc: prque.New(nil),
 	}
@@ -129,7 +131,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool viction.BalanceMap) (*types.Receipt, error) {
+func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool types.BalanceMap) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment
 	txContext := NewEVMTxContext(msg)
 	// Add addresses to access list if applicable

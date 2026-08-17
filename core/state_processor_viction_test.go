@@ -1,7 +1,8 @@
-// Copyright 2014 The go-ethereum Authors
+// Copyright 2015 The go-ethereum Authors
 // (original work)
 // Copyright 2025 The Viction Authors
-// (modifications)// This file is part of the go-ethereum library.
+// (modifications)
+// This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -16,7 +17,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package viction
+package core
 
 import (
 	"math/big"
@@ -148,7 +149,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 	header := &types.Header{Number: big.NewInt(100)}
 	block := types.NewBlock(header, []*types.Transaction{signedTx}, nil, nil, new(trie.Trie))
 
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:         cfg,
 		tradingEngine:  &mockTradingEngine{},
 		engine:         &mockConsensusEngine{authorAddr: authorAddr},
@@ -177,7 +178,7 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
 	tdb := newEmptyTradingStateDB(t)
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:         cfg,
 		engine:         &mockConsensusEngine{},
 		tradingEngine:  &mockTradingEngine{},
@@ -210,7 +211,7 @@ func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
 	block := types.NewBlock(header, nil, nil, nil, new(trie.Trie))
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:        cfg,
 		tradingEngine: &mockTradingEngine{},
 	}

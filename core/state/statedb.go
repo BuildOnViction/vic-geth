@@ -444,6 +444,14 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 	return true
 }
 
+// RemoveState deletes all state data associated with the addr.
+func (s *StateDB) RemoveState(addr common.Address) {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil && !stateObject.deleted {
+		s.deleteStateObject(stateObject)
+	}
+}
+
 //
 // Setting, updating & deleting state object methods.
 //
@@ -484,14 +492,6 @@ func (s *StateDB) deleteStateObject(obj *stateObject) {
 	addr := obj.Address()
 	if err := s.trie.TryDelete(addr[:]); err != nil {
 		s.setError(fmt.Errorf("deleteStateObject (%x) error: %v", addr[:], err))
-	}
-}
-
-// DeleteAddress removes the address from the state trie.
-func (s *StateDB) DeleteAddress(addr common.Address) {
-	stateObject := s.getStateObject(addr)
-	if stateObject != nil && !stateObject.deleted {
-		s.deleteStateObject(stateObject)
 	}
 }
 
