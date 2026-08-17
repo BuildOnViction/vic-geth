@@ -636,7 +636,7 @@ func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tra
 	log.Debug("ProcessCancelOrder", "baseToken", originOrder.BaseToken, "quoteToken", originOrder.QuoteToken)
 	feeRate := tradingstate.GetExRelayerFee(tomox.config.Viction.RelayerRegistrationContract, originOrder.ExchangeAddress, statedb)
 	tokenCancelFee, tokenPriceInTOMO := common.Big0, common.Big0
-	if !chain.Config().IsTIPTomoXCancelFee(header.Number) { // TomoX cancellation fee hardfork
+	if !chain.Config().IsTIP2021(header.Number) {
 		tokenCancelFee = getCancelFeeV1(baseTokenDecimal, feeRate, &originOrder)
 	} else {
 		tokenCancelFee, tokenPriceInTOMO = tomox.getCancelFee(chain, statedb, tradingStateDB, &originOrder, feeRate)
@@ -684,18 +684,18 @@ func (tomox *TomoX) ProcessCancelOrder(header *types.Header, tradingStateDB *tra
 }
 
 // cancellation fee = 1/10 trading fee
-// deprecated after hardfork at TIPTomoXCancellationFee
+// deprecated after hardfork at TIP2021
 func getCancelFeeV1(baseTokenDecimal *big.Int, feeRate *big.Int, order *tradingstate.OrderItem) *big.Int {
 	cancelFee := big.NewInt(0)
 	if order.Side == tradingstate.Ask {
-		// SELL 1 BTC => TOMO ,,
+		// SELL 1 BTC => NativeToken ,,
 		// order.Quantity =1 && fee rate =2
 		// ==> cancel fee = 2/10000
 		// order.Quantity already included baseToken decimal
 		cancelFee = new(big.Int).Mul(order.Quantity, feeRate)
 		cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
 	} else {
-		// BUY 1 BTC => TOMO with Price : 10000
+		// BUY 1 BTC => NativeToken with Price : 10000
 		// quoteTokenQuantity = 10000 && fee rate =2
 		// => cancel fee =2
 		quoteTokenQuantity := new(big.Int).Mul(order.Quantity, order.Price)
@@ -708,23 +708,23 @@ func getCancelFeeV1(baseTokenDecimal *big.Int, feeRate *big.Int, order *tradings
 	return cancelFee
 }
 
-// return tokenQuantity, tokenPriceInTOMO
+// return tokenQuantity, tokenPriceInNativeToken
 func (tomox *TomoX) getCancelFee(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, order *tradingstate.OrderItem, feeRate *big.Int) (*big.Int, *big.Int) {
 	if feeRate == nil || feeRate.Sign() == 0 {
 		return common.Big0, common.Big0
 	}
 	cancelFee := big.NewInt(0)
-	tokenPriceInTOMO := big.NewInt(0)
+	tokenPriceInNativeToken := big.NewInt(0)
 	var err error
 	if order.Side == tradingstate.Ask {
-		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.BaseToken, tradingstate.RelayerCancelFee)
+		cancelFee, tokenPriceInNativeToken, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.BaseToken, tradingstate.RelayerCancelFee)
 	} else {
-		cancelFee, tokenPriceInTOMO, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.QuoteToken, tradingstate.RelayerCancelFee)
+		cancelFee, tokenPriceInNativeToken, err = tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.QuoteToken, tradingstate.RelayerCancelFee)
 	}
 	if err != nil {
 		return common.Big0, common.Big0
 	}
-	return cancelFee, tokenPriceInTOMO
+	return cancelFee, tokenPriceInNativeToken
 }
 
 func (tomox *TomoX) UpdateMediumPriceBeforeEpoch(epochNumber uint64, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB) error {

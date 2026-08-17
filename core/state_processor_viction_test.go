@@ -41,10 +41,10 @@ import (
 // testChainConfig returns a minimal ChainConfig for production-level tests.
 func testChainConfig() *params.ChainConfig {
 	return &params.ChainConfig{
-		ChainID:       big.NewInt(88),
-		TIPTomoXBlock: big.NewInt(20_581_700),
-		AtlasBlock:    big.NewInt(97_705_094),
-		Posv:          &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
+		ChainID:               big.NewInt(88),
+		TIPNativeTradingBlock: big.NewInt(20_581_700),
+		AtlasBlock:            big.NewInt(97_705_094),
+		Posv:                  &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			TradingStateContract: common.HexToAddress("0x0000000000000000000000000000000000000092"),
 		},
@@ -204,10 +204,10 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	require.Equal(t, rootBefore, tdb.IntermediateRoot(), "no trading-state mutation on decode failure")
 }
 
-// TestBeforeProcessPreTIPTomoXNilDB verifies that a block before TIPTomoX
+// TestBeforeProcessPreTIPNativeTradingNilDB verifies that a block before TIPNativeTrading
 // activation does not initialize tradingStateDB (no error, no panic).
-func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
-	cfg := testChainConfig() // TIPTomoX at 20_581_700
+func TestBeforeProcessPreTIPNativeTradingNilDB(t *testing.T) {
+	cfg := testChainConfig() // TIPNativeTrading at 20_581_700
 
 	header := &types.Header{Number: big.NewInt(100)} // pre-activation
 	block := types.NewBlock(header, nil, nil, nil, new(trie.Trie))
@@ -220,6 +220,5 @@ func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
 
 	err := vp.BeforeBlockProcess(block, statedb)
 	require.NoError(t, err)
-	require.Nil(t, vp.tradingStateDB,
-		"tradingStateDB must be nil before TIPTomoX activation")
+	require.Nil(t, vp.tradingStateDB, "tradingStateDB must be nil before TIPNativeTrading activation")
 }

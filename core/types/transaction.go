@@ -408,7 +408,7 @@ func ExtractSpecialTransactionsForPosv(
 		}
 		lastSpecialTx := -1
 		for i, tx := range accTxs {
-			if tx.IsSpecialTransaction() {
+			if tx.IsPosvTransaction() {
 				lastSpecialTx = i
 			}
 		}

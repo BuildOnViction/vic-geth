@@ -111,7 +111,7 @@ func (p *VictionProcessor) BeforeBlockProcess(block *types.Block, statedb *state
 
 	misc.ApplyPosvHardForks(statedb, p.config, p.config.Viction, header.Number)
 
-	if p.config.IsTomoXEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
+	if p.config.IsNativeTradingEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
 		parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)
 		if parent != nil {
 			parentAuthor, _ := p.engine.Author(parent.Header())
@@ -251,26 +251,26 @@ func (p *VictionProcessor) ApplyNativeTransaction(statedb *state.StateDB, tx *ty
 	}
 
 	// 0x91 — Trading order-matching batch.
-	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
 			return p.applyTradingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
 	// 0x92 — Trading state root commit, verified in AfterBlockProcess.
-	if *tx.To() == vicConfig.TradingStateContract && p.config.IsTomoXEnabled(header.Number) {
+	if *tx.To() == vicConfig.TradingStateContract && p.config.IsNativeTradingEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
 
 	// 0x93 — Lending order-matching batch.
-	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
 			return p.applyLendingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
 	// 0x94 — Lending finalized trade.
-	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
 
@@ -289,10 +289,7 @@ func (p *VictionProcessor) AfterApplyTransaction(tx *types.Transaction, msg type
 	if p.config.IsAtlas(p.blockNumber) {
 		if receipt.Status == types.ReceiptStatusFailed && vicCfg.VRC25GasPrice != nil {
 			feeCap := statedb.VicGetZeroGasCapacity(vicCfg.VRC25Contract, tx.To())
-			fee := new(big.Int).Mul(
-				new(big.Int).SetUint64(usedGas),
-				(*big.Int)(vicCfg.VRC25GasPrice),
-			)
+			fee := new(big.Int).Mul(new(big.Int).SetUint64(usedGas), (*big.Int)(vicCfg.VRC25GasPrice))
 			if feeCap != nil && feeCap.Cmp(fee) > 0 {
 				PayTxFeeUsingToken(statedb, msg.From(), token)
 			}
@@ -608,9 +605,8 @@ func (p *FeeProcessor) Process(statedb *state.StateDB, blockNum *big.Int, tx *ty
 	}
 	vicCfg := p.config.Viction
 	fee := new(big.Int).SetUint64(usedGas)
-	if p.config.TIPTRC21FeeBlock != nil && blockNum.Cmp(p.config.TIPTRC21FeeBlock) > 0 &&
-		vicCfg != nil && vicCfg.VRC25GasPrice != nil {
-		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.VRC25GasPrice))
+	if p.config.TIPGasPriceBlock != nil && blockNum.Cmp(p.config.TIPGasPriceBlock) > 0 && vicCfg != nil && vicCfg.TRC21NewGasPrice != nil {
+		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.TRC21NewGasPrice))
 	}
 	if runningCap.Cmp(fee) > 0 {
 		newCap := new(big.Int).Sub(runningCap, fee)

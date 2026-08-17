@@ -54,8 +54,8 @@ func (st *StateTransition) vrc25BuyGas() error {
 		}
 
 		var effectiveGasPrice *big.Int
-		if st.evm.ChainConfig().TIPTRC21FeeBlock != nil && blockNum.Cmp(st.evm.ChainConfig().TIPTRC21FeeBlock) > 0 {
-			effectiveGasPrice = (*big.Int)(victionConfig.VRC25GasPrice) // 250,000,000
+		if st.evm.ChainConfig().TIPGasPriceBlock != nil && blockNum.Cmp(st.evm.ChainConfig().TIPGasPriceBlock) > 0 {
+			effectiveGasPrice = (*big.Int)(victionConfig.TRC21NewGasPrice) // 250,000,000
 		} else {
 			effectiveGasPrice = (*big.Int)(victionConfig.TRC21GasPrice) // 2,500
 		}
@@ -123,16 +123,16 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 		}
 		// Refund remaining native balance to the VRC25 issuer contract.
 		st.state.AddBalance(st.payer, remaining)
-	} else if st.evm.ChainConfig().IsPrePrometheus(blockNum) {
-		// Post-PrePrometheus normal tx: refund remaining gas to sender.
+	} else if st.evm.ChainConfig().IsPostAtlas(blockNum) {
+		// PostAtlas normal tx: refund remaining gas to sender.
 		st.state.AddBalance(st.msg.From(), remaining)
 	}
-	// Between Atlas and PrePrometheus, normal tx: no refund (gas burned).
+	// Between Atlas and PostAtlas, normal tx: no refund (gas burned).
 }
 
 // applyTransactionFee distributes the transaction fee to the correct recipient.
 //
-// After the TIPTRC21Fee fork the fee goes to the validator-owner stored on-chain
+// After the TIPGasPrice fork the fee goes to the validator-owner stored on-chain
 // inside VictionConfig.ValidatorContract. Before that fork, or when no owner is
 // registered, the fee falls back to the block coinbase.
 //
@@ -160,14 +160,14 @@ func (st *StateTransition) applyTransactionFee() {
 		txFee = new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionCfg.VRC25GasPrice))
 	}
 
-	// Before TIPTRC21Fee fork: fee goes to the block coinbase.
+	// Before TIPGasPrice fork: fee goes to the block coinbase.
 	chainCfg := st.evm.ChainConfig()
-	if chainCfg.TIPTRC21FeeBlock == nil || blockNum.Cmp(chainCfg.TIPTRC21FeeBlock) <= 0 {
+	if chainCfg.TIPGasPriceBlock == nil || blockNum.Cmp(chainCfg.TIPGasPriceBlock) <= 0 {
 		st.state.AddBalance(st.evm.Context.Coinbase, txFee)
 		return
 	}
 
-	// After TIPTRC21Fee fork: route fee to the registered owner of the validator.
+	// After TIPGasPrice fork: route fee to the registered owner of the validator.
 	slot := state.StorageLocationOfValidatorOwner(st.evm.Context.Coinbase)
 	ownerHash := st.state.GetState(victionCfg.ValidatorContract, slot)
 	owner := common.BytesToAddress(ownerHash.Bytes())

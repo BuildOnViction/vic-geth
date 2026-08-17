@@ -25,11 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// signMethodSelector is the 4-byte function selector for sign(uint256,bytes32).
 var signMethodSelector = common.Hex2Bytes("e341eaa4")
 
-// IsTradingTransaction returns true if the tx is a TomoX order-matching batch (0x91).
-// tomoXContract must come from ChainConfig.Viction.TomoXContract.
 func (tx *Transaction) IsTradingTransaction(tomoXContract common.Address) bool {
 	if tx.To() == nil {
 		return false
@@ -37,8 +34,6 @@ func (tx *Transaction) IsTradingTransaction(tomoXContract common.Address) bool {
 	return *tx.To() == tomoXContract
 }
 
-// IsLendingTransaction returns true if the tx is a TomoZ lending order-matching batch (0x93).
-// lendingContract must come from ChainConfig.Viction.LendingContract.
 func (tx *Transaction) IsLendingTransaction(lendingContract common.Address) bool {
 	if tx.To() == nil {
 		return false
@@ -46,8 +41,6 @@ func (tx *Transaction) IsLendingTransaction(lendingContract common.Address) bool
 	return *tx.To() == lendingContract
 }
 
-// IsLendingFinalizedTradeTransaction returns true if the tx is a TomoZ finalized-trade commit (0x94).
-// lendingFinalizedContract must come from ChainConfig.Viction.LendingFinalizedContract.
 func (tx *Transaction) IsLendingFinalizedTradeTransaction(lendingFinalizedContract common.Address) bool {
 	if tx.To() == nil {
 		return false
@@ -55,9 +48,6 @@ func (tx *Transaction) IsLendingFinalizedTradeTransaction(lendingFinalizedContra
 	return *tx.To() == lendingFinalizedContract
 }
 
-// IsSigningTransaction returns true if the transaction is a block-signer
-// registration transaction to the BlockSigner contract.
-// blockSignAddr is the ValidatorBlockSignContract address from chain config.
 func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	if tx == nil || tx.To() == nil {
 		return false
@@ -73,7 +63,7 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	return bytes.Equal(data[0:4], signMethodSelector)
 }
 
-func (tx *Transaction) IsSpecialTransaction() bool {
+func (tx *Transaction) IsPosvTransaction() bool {
 	if tx.To() == nil {
 		return false
 	}

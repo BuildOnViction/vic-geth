@@ -44,7 +44,7 @@ var (
 		TIPSigningBlock:   big.NewInt(0),
 		TIPRandomizeBlock: big.NewInt(0),
 		TIPBlacklistBlock: big.NewInt(0),
-		TIPTRC21FeeBlock:  big.NewInt(0),
+		TIPGasPriceBlock:  big.NewInt(0),
 		Posv:              &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			ValidatorBlockSignContract: blockSignerAddr,

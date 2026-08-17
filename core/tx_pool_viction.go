@@ -71,7 +71,7 @@ func (pool *TxPool) validateSufficientTransaction(tx *types.Transaction, from co
 // isPosvSpecialTx returns true if the pool is on a POSV chain and the
 // transaction is a special transaction (BlockSigner or Randomize).
 func (pool *TxPool) isPosvSpecialTx(tx *types.Transaction) bool {
-	return pool.chainconfig.Posv != nil && tx.IsSpecialTransaction()
+	return pool.chainconfig.Posv != nil && tx.IsPosvTransaction()
 }
 
 // posvValidateGasPrice returns true if the transaction should be exempt from
@@ -143,7 +143,7 @@ func (pool *TxPool) promoteSpecialTx(addr common.Address, tx *types.Transaction,
 	}
 	list := pool.pending[addr]
 	old := list.txs.Get(tx.Nonce())
-	if old != nil && old.IsSpecialTransaction() {
+	if old != nil && old.IsPosvTransaction() {
 		return false, ErrDuplicateSpecialTransaction
 	}
 	// Replace any existing normal tx at this nonce, or just insert

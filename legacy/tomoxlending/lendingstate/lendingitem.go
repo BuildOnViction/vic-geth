@@ -208,7 +208,7 @@ func (l *LendingItem) EncodedSide() *big.Int {
 	return big.NewInt(1)
 }
 
-func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *state.StateDB, lendingStateDb *LendingStateDB,
+func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb *state.StateDB, lendingStateDb *LendingStateDB,
 	orderType, side, status string, userAddress, relayer, lendingToken, collateralToken common.Address,
 	quantity, lendingTokenDecimal, collateralTokenDecimal, lendTokenTOMOPrice, collateralPrice *big.Int,
 	term uint64, lendingId uint64, lendingTradeId uint64) error {
@@ -289,7 +289,7 @@ func VerifyBalance(isTomoXLendingFork bool, lendingSMC common.Address, statedb *
 			switch status {
 			case LendingStatusNew:
 				depositRate, _, _ := GetCollateralDetail(lendingSMC, statedb, collateralToken)
-				settleBalanceResult, err := GetSettleBalance(isTomoXLendingFork, Borrowing, lendTokenTOMOPrice, collateralPrice, depositRate, borrowingFeeRate, lendingToken, collateralToken, lendingTokenDecimal, collateralTokenDecimal, quantity)
+				settleBalanceResult, err := GetSettleBalance(isNativeLendingFork, Borrowing, lendTokenTOMOPrice, collateralPrice, depositRate, borrowingFeeRate, lendingToken, collateralToken, lendingTokenDecimal, collateralTokenDecimal, quantity)
 				if err != nil {
 					return err
 				}
