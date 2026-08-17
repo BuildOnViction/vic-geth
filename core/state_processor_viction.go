@@ -253,10 +253,15 @@ func (p *VictionProcessor) ApplyNativeTransaction(statedb *state.StateDB, tx *ty
 	}
 	vicConfig := p.config.Viction
 
+	// 0x89 — Block signing.
+	if tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) && p.config.IsTIPSigning(header.Number) {
+		return p.applyBlockSigningTransaction(statedb, tx, header, usedGas)
+	}
+
 	// 0x91 — Trading order-matching batch.
 	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsTomoXEnabled(header.Number) {
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
-			return p.applyTradingTx(statedb, tx, header, usedGas, batch)
+			return p.applyTradingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
@@ -268,7 +273,7 @@ func (p *VictionProcessor) ApplyNativeTransaction(statedb *state.StateDB, tx *ty
 	// 0x93 — Lending order-matching batch.
 	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsTomoXEnabled(header.Number) {
 		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
-			return p.applyLendingTx(statedb, tx, header, usedGas, batch)
+			return p.applyLendingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
@@ -309,6 +314,44 @@ func (p *VictionProcessor) AfterApplyTransaction(tx *types.Transaction, msg type
 	return nil
 }
 
+// applyBlockSigningTransaction processes a BlockSigner special transaction (0x89)
+// without the EVM: increments the sender nonce, adds a log entry, and returns a
+// zero-gas receipt. Used during block import (ApplyNativeTransaction), the
+// standalone ApplyTransaction path, and the miner (block creation).
+func (p *VictionProcessor) applyBlockSigningTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	// Validate nonce BEFORE Finalise to avoid invalidating the snapshot
+	// on error (the caller may need to RevertToSnapshot).
+	from, err := types.Sender(types.MakeSigner(p.config, header.Number), tx)
+	if err != nil {
+		return true, nil, 0, err, nil
+	}
+	nonce := statedb.GetNonce(from)
+	if nonce < tx.Nonce() {
+		return true, nil, 0, ErrNonceTooHigh, nil
+	} else if nonce > tx.Nonce() {
+		return true, nil, 0, ErrNonceTooLow, nil
+	}
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+	statedb.SetNonce(from, nonce+1)
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	log := &types.Log{}
+	log.Address = p.config.Viction.ValidatorBlockSignContract
+	log.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(log)
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
+}
+
 // Process transaction as null transcation for system transactions (0x92,0x94).
 func (p *VictionProcessor) applyEmptyTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
@@ -332,7 +375,7 @@ func (p *VictionProcessor) applyEmptyTransaction(statedb *state.StateDB, tx *typ
 }
 
 // Process Trading order-matching batch transaction (0x91).
-func (p *VictionProcessor) applyTradingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+func (p *VictionProcessor) applyTradingTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
@@ -385,7 +428,7 @@ func (p *VictionProcessor) applyTradingTx(statedb *state.StateDB, tx *types.Tran
 }
 
 // Process Lending order-matching batch transaction (0x93).
-func (p *VictionProcessor) applyLendingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+func (p *VictionProcessor) applyLendingTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
 		statedb.Finalise(true)

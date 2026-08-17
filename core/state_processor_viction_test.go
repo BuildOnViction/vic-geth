@@ -165,7 +165,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 // --- Tests: GetTradingStateRoot ---
 
 // TestApplyTomoXTxMalformedBatch verifies the dispatch-layer pre-screening:
-// a 0x91 tx with non-decodable data must NOT be intercepted by applyVictionTransaction
+// a 0x91 tx with non-decodable data must NOT be intercepted by ApplyNativeTransaction
 // (it should return handled=false so the EVM handles it), and applyTomoXTx itself
 // should tolerate an unexpected decode failure gracefully (empty receipt, no error).
 func TestApplyTomoXTxMalformedBatch(t *testing.T) {
@@ -197,7 +197,7 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 
 	// applyTomoXTx itself (called directly) should produce an empty receipt on
 	// unexpected decode failure — no error, no state mutation.
-	handled, receipt, _, err, _ := vp.applyTradingTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
+	handled, receipt, _, err, _ := vp.applyTradingTransaction(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
 	require.True(t, handled)
 	require.NoError(t, err, "applyTomoXTx fallthrough must not return an error")
 	require.NotNil(t, receipt)
