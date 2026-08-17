@@ -377,6 +377,16 @@ func (c *PosvConfig) BlocksPerYear() uint64 {
 	return 31536000 / c.Period
 }
 
+// Check if given block number is checkpoint block.
+func (c *PosvConfig) IsCheckpointBlock(number uint64) bool {
+	return number%c.Epoch == 0
+}
+
+// Check if given block number is gap block.
+func (c *PosvConfig) IsGapBlock(number uint64) bool {
+	return number%c.Epoch == c.Epoch-c.Gap
+}
+
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
 type EthashConfig struct{}
 

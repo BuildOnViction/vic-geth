@@ -30,7 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/sortlgc"
 )
 
-// commitVictionState manages persistence of TomoX and TomoZ trie nodes using the
+// commitVictionState manages persistence of native trading and native lending trie nodes using the
 // same deferred GC strategy as the main EVM state trie (Reference + priority
 // queue; Commit to LevelDB every TriesInMemory blocks; Dereference old roots).
 //
@@ -59,26 +59,26 @@ func (bc *BlockChain) commitVictionState(block *types.Block) error {
 // commitVictionStateDirect is used in archive mode (TrieDirtyDisabled): flush
 // every block immediately to LevelDB, no deferred GC needed.
 func (bc *BlockChain) commitVictionStateDirect(block *types.Block) error {
-	sp, ok := bc.processor.(*StateProcessor)
-	if !ok || sp.viction == nil {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p.viction == nil {
 		return nil
 	}
-	if sp.viction.HasTradingState() && sp.viction.TradingEngine() != nil {
-		tradingRoot := sp.viction.CommittedTradingRoot()
+	if p.viction.IsTradingInitialized() {
+		tradingRoot := p.viction.CommittedTradingRoot()
 		if tradingRoot != (common.Hash{}) {
-			if err := sp.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoX: trading trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+			if err := p.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
+				return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoX: trading trie flushed to disk (archive)", "block", block.NumberU64(), "root", tradingRoot.Hex())
+			log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", block.NumberU64(), "root", tradingRoot.Hex())
 		}
 	}
-	if sp.viction.HasLendingState() && sp.viction.LendingEngine() != nil {
-		lendingRoot := sp.viction.CommittedLendingRoot()
+	if p.viction.IsLendingInitialized() {
+		lendingRoot := p.viction.CommittedLendingRoot()
 		if lendingRoot != (common.Hash{}) {
-			if err := sp.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
-				return fmt.Errorf("TomoZ: lending trieDB.Commit(archive) failed at block %d: %w", block.NumberU64(), err)
+			if err := p.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
+				return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", block.NumberU64(), err)
 			}
-			log.Trace("TomoZ: lending trie flushed to disk (archive)", "block", block.NumberU64(), "root", lendingRoot.Hex())
+			log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", block.NumberU64(), "root", lendingRoot.Hex())
 		}
 	}
 	return nil
@@ -97,33 +97,32 @@ func (bc *BlockChain) commitVictionStateDirect(block *types.Block) error {
 // TriesInMemory blocks, which is sufficient for reorg safety (same as EVM).
 // The extra write overhead per block is small compared to order matching.
 func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
-	sp, ok := bc.processor.(*StateProcessor)
-	if !ok || sp.viction == nil {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p.viction == nil {
 		return nil
 	}
 	current := block.NumberU64()
 
 	// Trading trie: commit the current block's dirty root immediately.
-	if sp.viction.HasTradingState() && sp.viction.TradingEngine() != nil {
-		tradingRoot := sp.viction.CommittedTradingRoot()
+	if p.viction.IsTradingInitialized() {
+		tradingRoot := p.viction.CommittedTradingRoot()
 		if tradingRoot != (common.Hash{}) {
-			tradingTrieDB := sp.viction.TradingEngine().GetStateCache().TrieDB()
+			tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
 			tradingTrieDB.Reference(tradingRoot, common.Hash{})
-			sp.tradingTriegc.Push(tradingRoot, -int64(current))
+			p.tradingTriegc.Push(tradingRoot, -int64(current))
 
 			if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit failed", "block", current, "err", err)
-			} else {
-				log.Trace("TomoX: trading trie flushed to disk", "block", current, "root", tradingRoot)
+				return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", current, err)
 			}
+			log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", current, "root", tradingRoot.Hex())
 
 			// Dereference roots old enough to no longer need keeping in memory.
 			if current > TriesInMemory {
 				chosen := current - TriesInMemory
-				for !sp.tradingTriegc.Empty() {
-					root, number := sp.tradingTriegc.Pop()
+				for !p.tradingTriegc.Empty() {
+					root, number := p.tradingTriegc.Pop()
 					if uint64(-number) > chosen {
-						sp.tradingTriegc.Push(root, number)
+						p.tradingTriegc.Push(root, number)
 						break
 					}
 					tradingTrieDB.Dereference(root.(common.Hash))
@@ -133,25 +132,24 @@ func (bc *BlockChain) commitVictionStateDeferred(block *types.Block) error {
 	}
 
 	// Lending trie: same strategy as trading trie.
-	if sp.viction.HasLendingState() && sp.viction.LendingEngine() != nil {
-		lendingRoot := sp.viction.CommittedLendingRoot()
+	if p.viction.IsLendingInitialized() {
+		lendingRoot := p.viction.CommittedLendingRoot()
 		if lendingRoot != (common.Hash{}) {
-			lendingTrieDB := sp.viction.LendingEngine().GetStateCache().TrieDB()
+			lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
 			lendingTrieDB.Reference(lendingRoot, common.Hash{})
-			sp.lendingTriegc.Push(lendingRoot, -int64(current))
+			p.lendingTriegc.Push(lendingRoot, -int64(current))
 
 			if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit failed", "block", current, "err", err)
-			} else {
-				log.Trace("TomoZ: lending trie flushed to disk", "block", current, "root", lendingRoot)
+				return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", current, err)
 			}
+			log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", current, "root", lendingRoot.Hex())
 
 			if current > TriesInMemory {
 				chosen := current - TriesInMemory
-				for !sp.lendingTriegc.Empty() {
-					root, number := sp.lendingTriegc.Pop()
+				for !p.lendingTriegc.Empty() {
+					root, number := p.lendingTriegc.Pop()
 					if uint64(-number) > chosen {
-						sp.lendingTriegc.Push(root, number)
+						p.lendingTriegc.Push(root, number)
 						break
 					}
 					lendingTrieDB.Dereference(root.(common.Hash))
@@ -170,56 +168,56 @@ func (bc *BlockChain) stopViction() {
 	if bc.cacheConfig.TrieDirtyDisabled {
 		return // archive mode commits every block; nothing to flush here
 	}
-	sp, ok := bc.processor.(*StateProcessor)
-	if !ok || sp == nil {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p == nil {
 		return
 	}
 
 	// Flush all remaining trading trie roots to LevelDB.
-	if sp.viction.TradingEngine() != nil {
-		tradingTrieDB := sp.viction.TradingEngine().GetStateCache().TrieDB()
-		for !sp.tradingTriegc.Empty() {
-			root := sp.tradingTriegc.PopItem().(common.Hash)
+	if p.viction.TradingEngine() != nil {
+		tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
+		for !p.tradingTriegc.Empty() {
+			root := p.tradingTriegc.PopItem().(common.Hash)
 			if err := tradingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoX: trading trieDB.Commit(shutdown) failed", "root", root, "err", err)
+				log.Error("[Processor][Native Trading] Failed to commit Trie on shutdown", "root", root, "err", err)
 			}
 			tradingTrieDB.Dereference(root)
 		}
 	}
 
 	// Flush all remaining lending trie roots to LevelDB.
-	if sp.viction.LendingEngine() != nil {
-		lendingTrieDB := sp.viction.LendingEngine().GetStateCache().TrieDB()
-		for !sp.lendingTriegc.Empty() {
-			root := sp.lendingTriegc.PopItem().(common.Hash)
+	if p.viction.LendingEngine() != nil {
+		lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
+		for !p.lendingTriegc.Empty() {
+			root := p.lendingTriegc.PopItem().(common.Hash)
 			if err := lendingTrieDB.Commit(root, true, nil); err != nil {
-				log.Error("TomoZ: lending trieDB.Commit(shutdown) failed", "root", root, "err", err)
+				log.Error("[Processor][Native Lending] Failed to commit Trie on shutdown", "root", root, "err", err)
 			}
 			lendingTrieDB.Dereference(root)
 		}
 	}
 }
 
-// SetTradingEngine injects the TomoX trading engine into the block processor.
+// SetTradingEngine injects the native trading engine into the block processor.
 func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
-	sp, ok := bc.processor.(*StateProcessor)
+	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("SetTradingEngine: processor is not a *StateProcessor, trading engine not installed")
+		log.Error("[Processor][Native Trading] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
-	sp.SetTradingEngine(engine)
-	log.Info("TomoX trading engine installed on state processor")
+	p.viction.SetTradingEngine(engine)
+	log.Info("[Processor][Native Trading] Engine installed on state processor")
 }
 
-// SetLendingEngine injects the TomoZ lending engine into the block processor.
+// SetLendingEngine injects the native lending engine into the block processor.
 func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
-	sp, ok := bc.processor.(*StateProcessor)
+	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("SetLendingEngine: processor is not a *StateProcessor, lending engine not installed")
+		log.Error("[Processor][Native Lending] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
-	sp.SetLendingEngine(engine)
-	log.Info("TomoZ lending engine installed on state processor")
+	p.viction.SetLendingEngine(engine)
+	log.Info("[Processor][Native Lending] Engine installed on state processor")
 }
 
 func (bc *BlockChain) UpdateM1() error {
@@ -314,14 +312,4 @@ func (bc *BlockChain) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool
 	}
 
 	return hash1 == bh2
-}
-
-// SetTradingEngine injects the TomoX trading engine into the state processor.
-func (p *StateProcessor) SetTradingEngine(engine TradingEngine) {
-	p.viction.SetTradingEngine(engine)
-}
-
-// SetLendingEngine injects the TomoZ lending engine into the state processor.
-func (p *StateProcessor) SetLendingEngine(engine LendingEngine) {
-	p.viction.SetLendingEngine(engine)
 }

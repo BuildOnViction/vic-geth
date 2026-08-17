@@ -44,6 +44,7 @@ func testChainConfig() *params.ChainConfig {
 		ChainID:       big.NewInt(88),
 		TIPTomoXBlock: big.NewInt(20_581_700),
 		AtlasBlock:    big.NewInt(97_705_094),
+		Posv:          &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			TradingStateContract: common.HexToAddress("0x0000000000000000000000000000000000000092"),
 		},
@@ -170,6 +171,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	cfg := testChainConfig()
 	tomoXAddr := common.HexToAddress("0x0000000000000000000000000000000000000091")
+	cfg.Viction.TradingContract = tomoXAddr
 	header := &types.Header{
 		Number:   big.NewInt(20_582_000),
 		Coinbase: common.Address{},

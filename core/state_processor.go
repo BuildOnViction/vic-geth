@@ -43,13 +43,13 @@ type StateProcessor struct {
 	engine consensus.Engine    // Consensus engine used for block rewards
 
 	// viction owns all Viction-specific processing hooks (hardfork activation,
-	// system transactions, VRC25 fees, TomoX/TomoZ replay). See viction.Processor.
+	// system transactions, VRC25 fees, native trading/lending replay). See viction.Processor.
 	viction *VictionProcessor
 
-	// Deferred trie GC fields for TomoX/TomoZ (full-node path).
+	// Deferred trie GC fields for native trading/lending (full-node path).
 	// These are managed entirely by blockchain_viction.go / commitVictionState.
-	tradingTriegc *prque.Prque // deferred GC queue for TomoX trading trie roots
-	lendingTriegc *prque.Prque // deferred GC queue for TomoZ lending trie roots
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
@@ -100,7 +100,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
-		// Apply Viction-specific system transactions (BlockSigner, TomoX).
+		// Apply Viction-specific system transactions (BlockSigner, native trading/lending).
 		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
 			return nil, nil, 0, err
