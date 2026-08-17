@@ -37,9 +37,9 @@ var (
 	YoloV2GenesisHash = common.HexToHash("0x498a7239036dd2cd09e2bb8a80922b78632017958c332b42044c250d603a8a3e")
 
 	// Viction genesis hashes
-	VictionGenesisHash   = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
-	VictestGenesisHash   = common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
-	VicdevnetGenesisHash = common.HexToHash("0x672b317f13b6c0bce7427009577674351c0f98d991f20f230454147d152cff0e")
+	VictionGenesisHash = common.HexToHash("0x9326145f8a2c8c00bbe13afc7d7f3d9c868b5ef39d89f2f4e9390e9720298624")
+	VictestGenesisHash = common.HexToHash("0x296f14cfe39dd2ce9cd2dcf2bd5973c9b59531bc239e7d445c66268b172e52e3")
+	VicdevGenesisHash  = common.HexToHash("0x672b317f13b6c0bce7427009577674351c0f98d991f20f230454147d152cff0e")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -242,9 +242,9 @@ var (
 		},
 	}
 
-	VictionChainConfig   = readChainSpec("viction_specs/viction.json")   // Viction mainnet chain config
-	VictestChainConfig   = readChainSpec("viction_specs/victest.json")   // Viction testnet chain config
-	VicdevnetChainConfig = readChainSpec("viction_specs/vicdevnet.json") // Viction devnet chain config
+	VictionChainConfig = readChainSpec("chainspecs/viction.json") // Viction mainnet chain config
+	VictestChainConfig = readChainSpec("chainspecs/victest.json") // Viction testnet chain config
+	VicdevChainConfig  = readChainSpec("chainspecs/vicdev.json")  // Viction devnet chain config
 
 	// AllEthashProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Ethash consensus.
@@ -338,7 +338,7 @@ type ChainConfig struct {
 	YoloV2Block *big.Int `json:"yoloV2Block,omitempty"` // YOLO v2: Gas repricings TODO @holiman add EIP references
 	EWASMBlock  *big.Int `json:"ewasmBlock,omitempty"`  // EWASM switch block (nil = no fork, 0 = already activated)
 
-	// Viction mainnet upgrades
+	// Viction network upgrades
 	TIP2019Block           *big.Int `json:"tip2019Block,omitempty"`
 	TIPSigningBlock        *big.Int `json:"tipSigningBlock,omitempty"`
 	TIPRandomizeBlock      *big.Int `json:"tipRandomizeBlock,omitempty"`
@@ -354,13 +354,9 @@ type ChainConfig struct {
 	PrePrometheusBlock *big.Int `json:"prePrometheusBlock,omitempty"`
 
 	// Various consensus engines
-	Ethash *EthashConfig `json:"ethash,omitempty"`
-	Clique *CliqueConfig `json:"clique,omitempty"`
-
-	// Viction consensus engine configs
-	Posv *PosvConfig `json:"posv,omitempty"`
-
-	// Viction chain config
+	Ethash  *EthashConfig  `json:"ethash,omitempty"`
+	Clique  *CliqueConfig  `json:"clique,omitempty"`
+	Posv    *PosvConfig    `json:"posv,omitempty"`
 	Viction *VictionConfig `json:"viction,omitempty"`
 }
 
@@ -611,64 +607,35 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "eip155Block", block: c.EIP155Block},
 		{name: "eip158Block", block: c.EIP158Block},
 		{name: "byzantiumBlock", block: c.ByzantiumBlock},
-		{name: "constantinopleBlock", block: c.ConstantinopleBlock},
-		{name: "petersburgBlock", block: c.PetersburgBlock},
-		{name: "istanbulBlock", block: c.IstanbulBlock},
-		{name: "muirGlacierBlock", block: c.MuirGlacierBlock, optional: true},
-		{name: "yoloV2Block", block: c.YoloV2Block},
 		{name: "tip2019Block", block: c.TIP2019Block},
 		{name: "tipSigningBlock", block: c.TIPSigningBlock},
 		{name: "tipRandomizeBlock", block: c.TIPRandomizeBlock},
 		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock},
 		{name: "tipTRC21FeeBlock", block: c.TIPTRC21FeeBlock},
-		{name: "tipFixSignerCheckBlock", block: c.TIPFixSignerCheckBlock},
+		{name: "tipFixSignerCheckBlock", block: c.TIPFixSignerCheckBlock, optional: true},
 		{name: "tipTomoXBlock", block: c.TIPTomoXBlock, optional: true},
 		{name: "tipTomoXLendingBlock", block: c.TIPTomoXLendingBlock, optional: true},
 		{name: "tipTomoXCancelFeeBlock", block: c.TIPTomoXCancelFeeBlock, optional: true},
+		{name: "constantinopleBlock", block: c.ConstantinopleBlock},
+		{name: "petersburgBlock", block: c.PetersburgBlock},
+		{name: "istanbulBlock", block: c.IstanbulBlock},
+		{name: "muirGlacierBlock", block: c.MuirGlacierBlock, optional: true},
 		{name: "saigonBlock", block: c.SaigonBlock},
 		{name: "atlasBlock", block: c.AtlasBlock},
 		{name: "prePrometheusBlock", block: c.PrePrometheusBlock},
 	} {
-		// For Posv chains (Viction), skip certain Ethereum forks and nil Viction-specific forks
-		if c.Posv != nil {
-			if cur.name == "constantinopleBlock" || cur.name == "petersburgBlock" ||
-				cur.name == "istanbulBlock" || cur.name == "muirGlacierBlock" ||
-				cur.name == "yoloV2Block" {
-				continue
-			}
-			// Skip nil Viction-specific forks (they may not be used in all configurations)
-			isVictionFork := cur.name == "tip2019Block" || cur.name == "tipSigningBlock" ||
-				cur.name == "tipRandomizeBlock" || cur.name == "tipBlacklistBlock" ||
-				cur.name == "tipTRC21FeeBlock" || cur.name == "tipFixSignerCheckBlock" ||
-				cur.name == "tipTomoXBlock" || cur.name == "tipTomoXLendingBlock" ||
-				cur.name == "tipTomoXCancelFeeBlock"
-			if isVictionFork && cur.block == nil {
-				continue
-			}
+		// Skip Viction own hard fork for non-Viction networks.
+		if c.Posv == nil && isVictionHardfork(cur.name) {
+			continue
 		}
 		if lastFork.name != "" {
 			// Next one must be higher number
 			if lastFork.block == nil && cur.block != nil {
-				// For Posv chains, allow nil Viction-specific forks (tip2019Block onwards) to be skipped
-				isVictionFork := lastFork.name == "tip2019Block" || lastFork.name == "tipSigningBlock" ||
-					lastFork.name == "tipRandomizeBlock" || lastFork.name == "tipBlacklistBlock" ||
-					lastFork.name == "tipTRC21FeeBlock" || lastFork.name == "tipFixSignerCheckBlock" ||
-					lastFork.name == "tipTomoXBlock" || lastFork.name == "tipTomoXLendingBlock" ||
-					lastFork.name == "tipTomoXCancelFeeBlock"
-				if c.Posv == nil || (!lastFork.optional && !isVictionFork) {
-					return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
-						lastFork.name, cur.name, cur.block)
-				}
+				return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
+					lastFork.name, cur.name, cur.block)
 			}
 			if lastFork.block != nil && cur.block != nil {
-				// For Posv chains, allow Viction forks at 0 (genesis) even if previous fork is higher
-				isVictionForkAtZero := c.Posv != nil && cur.block.Sign() == 0 && (cur.name == "tip2019Block" || cur.name == "tipSigningBlock" ||
-					cur.name == "tipRandomizeBlock" || cur.name == "tipBlacklistBlock" ||
-					cur.name == "tipTRC21FeeBlock" || cur.name == "tipFixSignerCheckBlock" ||
-					cur.name == "tipTomoXBlock" || cur.name == "tipTomoXLendingBlock" ||
-					cur.name == "tipTomoXCancelFeeBlock" || cur.name == "saigonBlock" ||
-					cur.name == "atlasBlock" || cur.name == "prePrometheusBlock")
-				if !isVictionForkAtZero && lastFork.block.Cmp(cur.block) > 0 {
+				if lastFork.block.Cmp(cur.block) > 0 {
 					return fmt.Errorf("unsupported fork ordering: %v enabled at %v, but %v enabled at %v",
 						lastFork.name, lastFork.block, cur.name, cur.block)
 				}
@@ -707,6 +674,33 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.ByzantiumBlock, newcfg.ByzantiumBlock, head) {
 		return newCompatError("Byzantium fork block", c.ByzantiumBlock, newcfg.ByzantiumBlock)
 	}
+	if isForkIncompatible(c.TIP2019Block, newcfg.TIP2019Block, head) {
+		return newCompatError("TIP2019 fork block", c.TIP2019Block, newcfg.TIP2019Block)
+	}
+	if isForkIncompatible(c.TIPSigningBlock, newcfg.TIPSigningBlock, head) {
+		return newCompatError("TIPSigning fork block", c.TIPSigningBlock, newcfg.TIPSigningBlock)
+	}
+	if isForkIncompatible(c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock, head) {
+		return newCompatError("TIPRandomize fork block", c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock)
+	}
+	if isForkIncompatible(c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock, head) {
+		return newCompatError("TIPBlacklist fork block", c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock)
+	}
+	if isForkIncompatible(c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock, head) {
+		return newCompatError("TIPTRC21Fee fork block", c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock)
+	}
+	if isForkIncompatible(c.TIPFixSignerCheckBlock, newcfg.TIPFixSignerCheckBlock, head) {
+		return newCompatError("TIPFixSignerCheck fork block", c.TIPFixSignerCheckBlock, newcfg.TIPFixSignerCheckBlock)
+	}
+	if isForkIncompatible(c.TIPTomoXBlock, newcfg.TIPTomoXBlock, head) {
+		return newCompatError("TIPTomoX fork block", c.TIPTomoXBlock, newcfg.TIPTomoXBlock)
+	}
+	if isForkIncompatible(c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock, head) {
+		return newCompatError("TIPTomoXLending fork block", c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock)
+	}
+	if isForkIncompatible(c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock, head) {
+		return newCompatError("TIPTomoXCancelFee fork block", c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock)
+	}
 	if isForkIncompatible(c.ConstantinopleBlock, newcfg.ConstantinopleBlock, head) {
 		return newCompatError("Constantinople fork block", c.ConstantinopleBlock, newcfg.ConstantinopleBlock)
 	}
@@ -728,30 +722,6 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	}
 	if isForkIncompatible(c.EWASMBlock, newcfg.EWASMBlock, head) {
 		return newCompatError("ewasm fork block", c.EWASMBlock, newcfg.EWASMBlock)
-	}
-	if isForkIncompatible(c.TIP2019Block, newcfg.TIP2019Block, head) {
-		return newCompatError("TIP2019 fork block", c.TIP2019Block, newcfg.TIP2019Block)
-	}
-	if isForkIncompatible(c.TIPSigningBlock, newcfg.TIPSigningBlock, head) {
-		return newCompatError("TIPSigning fork block", c.TIPSigningBlock, newcfg.TIPSigningBlock)
-	}
-	if isForkIncompatible(c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock, head) {
-		return newCompatError("TIPRandomize fork block", c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock)
-	}
-	if isForkIncompatible(c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock, head) {
-		return newCompatError("TIPBlacklist fork block", c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock)
-	}
-	if isForkIncompatible(c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock, head) {
-		return newCompatError("TIPTRC21Fee fork block", c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock)
-	}
-	if isForkIncompatible(c.TIPTomoXBlock, newcfg.TIPTomoXBlock, head) {
-		return newCompatError("TIPTomoX fork block", c.TIPTomoXBlock, newcfg.TIPTomoXBlock)
-	}
-	if isForkIncompatible(c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock, head) {
-		return newCompatError("TIPTomoXLending fork block", c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock)
-	}
-	if isForkIncompatible(c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock, head) {
-		return newCompatError("TIPTomoXCancelFee fork block", c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock)
 	}
 	if isForkIncompatible(c.SaigonBlock, newcfg.SaigonBlock, head) {
 		return newCompatError("Saigon fork block", c.SaigonBlock, newcfg.SaigonBlock)
@@ -869,7 +839,7 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 	}
 }
 
-//go:embed viction_specs/*.json
+//go:embed chainspecs/*.json
 var chainspecs embed.FS
 
 func readChainSpec(filename string) *ChainConfig {

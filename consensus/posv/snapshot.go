@@ -1,17 +1,21 @@
-// Copyright (c) 2018 Tomochain
+// Copyright 2017 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
 //
-// This program is free software: you can redistribute it and/or modify
+// The go-ethereum library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// The go-ethereum library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package posv
 
@@ -50,12 +54,13 @@ type Snapshot struct {
 	config   *params.PosvConfig // Consensus engine parameters to fine tune behavior
 	sigcache *lru.ARCCache      // Cache of recent block signatures to speed up ecrecover
 
-	Number  uint64                      `json:"number"`  // Block number where the snapshot was created
-	Hash    common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
-	Signers map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
-	Recents map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
-	Votes   []*Vote                     `json:"votes"`   // List of votes cast in chronological order
-	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
+	Number      uint64                      `json:"number"`      // Block number where the snapshot was created
+	Hash        common.Hash                 `json:"hash"`        // Block hash where the snapshot was created
+	Signers     map[common.Address]struct{} `json:"signers"`     // Set of authorized signers at this moment
+	SignersNext map[common.Address]struct{} `json:"signersNext"` // Set of authorized signers for next checkpoint
+	Recents     map[uint64]common.Address   `json:"recents"`     // Set of recent signers for spam protections
+	Votes       []*Vote                     `json:"votes"`       // List of votes cast in chronological order
+	Tally       map[common.Address]Tally    `json:"tally"`       // Current vote tally to avoid recalculating
 }
 
 // signersAscending implements the sort interface to allow sorting a list of addresses
@@ -70,16 +75,20 @@ func (s signersAscending) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 // the genesis block.
 func newSnapshot(config *params.PosvConfig, sigcache *lru.ARCCache, number uint64, hash common.Hash, signers []common.Address) *Snapshot {
 	snap := &Snapshot{
-		config:   config,
-		sigcache: sigcache,
-		Number:   number,
-		Hash:     hash,
-		Signers:  make(map[common.Address]struct{}),
-		Recents:  make(map[uint64]common.Address),
-		Tally:    make(map[common.Address]Tally),
+		config:      config,
+		sigcache:    sigcache,
+		Number:      number,
+		Hash:        hash,
+		Signers:     make(map[common.Address]struct{}),
+		SignersNext: make(map[common.Address]struct{}),
+		Recents:     make(map[uint64]common.Address),
+		Tally:       make(map[common.Address]Tally),
 	}
 	for _, signer := range signers {
 		snap.Signers[signer] = struct{}{}
+	}
+	for _, signer := range signers {
+		snap.SignersNext[signer] = struct{}{}
 	}
 	return snap
 }
@@ -112,17 +121,21 @@ func (s *Snapshot) store(db ethdb.Database) error {
 // copy creates a deep copy of the snapshot, though not the individual votes.
 func (s *Snapshot) copy() *Snapshot {
 	cpy := &Snapshot{
-		config:   s.config,
-		sigcache: s.sigcache,
-		Number:   s.Number,
-		Hash:     s.Hash,
-		Signers:  make(map[common.Address]struct{}),
-		Recents:  make(map[uint64]common.Address),
-		Votes:    make([]*Vote, len(s.Votes)),
-		Tally:    make(map[common.Address]Tally),
+		config:      s.config,
+		sigcache:    s.sigcache,
+		Number:      s.Number,
+		Hash:        s.Hash,
+		Signers:     make(map[common.Address]struct{}),
+		SignersNext: make(map[common.Address]struct{}),
+		Recents:     make(map[uint64]common.Address),
+		Votes:       make([]*Vote, len(s.Votes)),
+		Tally:       make(map[common.Address]Tally),
 	}
 	for signer := range s.Signers {
 		cpy.Signers[signer] = struct{}{}
+	}
+	for signer := range s.SignersNext {
+		cpy.SignersNext[signer] = struct{}{}
 	}
 	for block, signer := range s.Recents {
 		cpy.Recents[block] = signer
@@ -208,6 +221,12 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if number%s.config.Epoch == 0 {
 			snap.Votes = nil
 			snap.Tally = make(map[common.Address]Tally)
+			for k := range snap.Signers {
+				delete(snap.Signers, k)
+			}
+			for k := range snap.SignersNext {
+				snap.Signers[k] = struct{}{}
+			}
 		}
 		// Delete the oldest signer from the recent list to allow it signing again
 		if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
@@ -218,15 +237,23 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if err != nil {
 			return nil, err
 		}
-		//FIXME: skip signer checking at this step until a good solution found
-		//if _, ok := snap.Signers[signer]; !ok {
-		//	return nil, errUnauthorized
-		//}
-		//for _, recent := range snap.Recents {
-		//	if recent == signer {
-		//		return nil, errUnauthorized
-		//	}
-		//}
+		// Temporarily skip signer check inside snapshot. Use verifyValidators flow instead.
+		// if _, ok := snap.Signers[signer]; !ok {
+		// 	log.Info("[PoSV][Snapshot] unauthorized signer", "number", number, "hash", header.Hash(), "signer", signer, "signers", snap.Signers)
+		// 	return nil, errUnauthorizedSigner
+		// }
+		// for seen, recent := range snap.Recents {
+		// 	if len(snap.Signers) <= 1 {
+		// 		break
+		// 	}
+		// 	if recent == signer {
+		// 		if limit := uint64(2); seen > number-limit {
+		// 			if number%s.config.Epoch != 0 {
+		// 				return nil, errRecentlySigned
+		// 			}
+		// 		}
+		// 	}
+		// }
 		snap.Recents[number] = signer
 
 		// Header authorized, discard any previous votes from the signer
@@ -307,7 +334,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 }
 
 // signers retrieves the list of authorized signers in ascending order.
-func (s *Snapshot) GetSigners() []common.Address {
+func (s *Snapshot) signers() []common.Address {
 	sigs := make([]common.Address, 0, len(s.Signers))
 	for sig := range s.Signers {
 		sigs = append(sigs, sig)
@@ -316,9 +343,19 @@ func (s *Snapshot) GetSigners() []common.Address {
 	return sigs
 }
 
+// signersNext retrieves the list of authorized signers of next epoch in ascending order.
+func (s *Snapshot) signersNext() []common.Address {
+	sigs := make([]common.Address, 0, len(s.SignersNext))
+	for sig := range s.SignersNext {
+		sigs = append(sigs, sig)
+	}
+	sort.Sort(signersAscending(sigs))
+	return sigs
+}
+
 // inturn returns if a signer at a given block height is in-turn or not.
 func (s *Snapshot) inturn(number uint64, signer common.Address) bool {
-	signers, offset := s.GetSigners(), 0
+	signers, offset := s.signers(), 0
 	for offset < len(signers) && signers[offset] != signer {
 		offset++
 	}

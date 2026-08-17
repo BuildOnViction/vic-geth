@@ -393,7 +393,7 @@ func (vp *Processor) ApplyVictionTransaction(statedb *state.StateDB, tx *types.T
 	vicConfig := vp.config.Viction
 
 	// 0x91 — TomoX order-matching batch (active only in TIPTomoX..Atlas window).
-	if tx.IsTradingTransaction(vicConfig.TomoXContract) && vp.config.IsTomoXEnabled(header.Number) {
+	if tx.IsTradingTransaction(vicConfig.TradingContract) && vp.config.IsTomoXEnabled(header.Number) {
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
 			return vp.applyTomoXTx(statedb, tx, header, usedGas, batch)
 		}

@@ -125,11 +125,8 @@ func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
-	if !ok {
-		return nil, errors.New("engine is not a posv engine")
-	}
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	config := s.eth.blockchain.Config()
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
 	return pairs, err
 }
 
@@ -147,11 +144,8 @@ func (s *EthAPIBackend) GetAttestorsPairsByNumber(ctx context.Context, number rp
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
-	engine, ok := s.Engine().(*posv.Posv)
-	if !ok {
-		return nil, errors.New("engine is not a posv engine")
-	}
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(engine, s.eth.blockchain.Config(), header, checkpointHeader)
+	config := s.eth.blockchain.Config()
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
 	return pairs, err
 }
 
@@ -390,7 +384,7 @@ func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber ui
 	}
 	signer := types.MakeSigner(s.eth.blockchain.Config(), new(big.Int).SetUint64(blockNumber))
 	if engine, ok := s.Engine().(*posv.Posv); ok {
-		limitNumber := blockNumber + s.eth.blockchain.Config().Viction.LimitTimeFinality
+		limitNumber := blockNumber + s.eth.blockchain.Config().Viction.ConsensusLimitTimeFinality
 		currentNumber := s.CurrentBlock().NumberU64()
 		if limitNumber > currentNumber {
 			limitNumber = currentNumber
@@ -526,23 +520,23 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	for _, candidate := range candidates {
 		statusMap[candidate.Address.String()] = map[string]interface{}{
 			fieldStatus:   statusProposed,
-			fieldCapacity: candidate.Stake,
+			fieldCapacity: candidate.Capacity,
 		}
 	}
 
 	// First, Sort candidates by capacity
-	sortedCandidates := append([]posv.Masternode(nil), candidates...)
+	sortedCandidates := append([]posv.ValidatorInfo(nil), candidates...)
 	forkBlockNum := big.NewInt(int64(stateBlockNr))
 	if stateBlockNr == rpc.LatestBlockNumber || stateBlockNr == rpc.PendingBlockNumber {
 		forkBlockNum = s.eth.blockchain.CurrentBlock().Number()
 	}
 	if s.eth.blockchain.Config().IsAtlas(forkBlockNum) {
 		sort.SliceStable(sortedCandidates, func(i, j int) bool {
-			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+			return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
 		})
 	} else {
 		sortlgc.Slice(sortedCandidates, func(i, j int) bool {
-			return sortedCandidates[i].Stake.Cmp(sortedCandidates[j].Stake) >= 0
+			return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
 		})
 	}
 
@@ -566,11 +560,11 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	penalties = posv.DecodePenaltiesFromHeader(header.Penalties)
 
 	// check last 5 epochs to find penalize masternodes
-	for i:= uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
-		if header.Number.Uint64() < epochConfig * i {
+	for i := uint64(1); i <= vicConfig.PenaltyEpochCount; i++ {
+		if header.Number.Uint64() < epochConfig*i {
 			break
 		}
-		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig * i
+		prevCheckpointBlockNumber := header.Number.Uint64() - epochConfig*i
 		prevCheckpointHeader, err := s.HeaderByNumber(ctx, rpc.BlockNumber(prevCheckpointBlockNumber))
 		if prevCheckpointHeader == nil || err != nil {
 			log.Error("Failed to get previous checkpoint header", "error", err)
@@ -588,7 +582,7 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 		return result, nil
 	}
 
-	var topCandidates []posv.Masternode
+	var topCandidates []posv.ValidatorInfo
 	if len(sortedCandidates) > int(vicConfig.ValidatorMaxCount) {
 		topCandidates = sortedCandidates[:vicConfig.ValidatorMaxCount]
 	} else {
@@ -608,20 +602,20 @@ func (s *EthAPIBackend) GetCandidates(ctx context.Context, epoch rpc.EpochNumber
 	return result, nil
 }
 
-func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.Masternode, error) {
+func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *params.VictionConfig, blockNr rpc.BlockNumber) ([]posv.ValidatorInfo, error) {
 	statedb, _, err := s.StateAndHeaderByNumber(ctx, blockNr)
 	if err != nil {
 		return nil, err
 	}
 
 	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
-	candidates := make([]posv.Masternode, 0, len(addresses))
+	candidates := make([]posv.ValidatorInfo, 0, len(addresses))
 	for _, addr := range addresses {
 		if addr == (common.Address{}) {
 			continue
 		}
 		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
-		candidates = append(candidates, posv.Masternode{Address: addr, Stake: cap})
+		candidates = append(candidates, posv.ValidatorInfo{Address: addr, Capacity: cap})
 	}
 	if len(candidates) == 0 {
 		log.Debug("Candidates list cannot be found", "len(candidates)", len(candidates))

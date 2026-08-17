@@ -84,7 +84,7 @@ func (s *Ethereum) posvAttestBlock(block *types.Block) (*types.Block, bool, erro
 	if checkpoint == nil {
 		return block, false, nil
 	}
-	pairs, _, err := s.PosvGetCreatorAttestorPairs(posvEngine, cfg, header, checkpoint)
+	pairs, _, err := s.PosvGetCreatorAttestorPairs(cfg, posvCfg, cfg.Viction, header, checkpoint)
 	if err != nil {
 		log.Warn("[POSV-M2] GetCreatorAttestorPairs failed", "number", header.Number, "err", err)
 		return nil, false, err

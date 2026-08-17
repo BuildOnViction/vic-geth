@@ -153,11 +153,11 @@ var (
 	}
 	VictestFlag = cli.BoolFlag{
 		Name:  "victest",
-		Usage: "Victest network: pre-configured proof-of-stake-voting test network",
+		Usage: "Viction Tesnet network: pre-configured proof-of-stake-voting test network",
 	}
-	VicdevnetFlag = cli.BoolFlag{
-		Name:  "vicdevnet",
-		Usage: "Vicdevnet network: pre-configured proof-of-stake-voting dev network",
+	VicdevFlag = cli.BoolFlag{
+		Name:  "Vicdev",
+		Usage: "Viction Devnet network: pre-configured proof-of-stake-voting dev network",
 	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
@@ -206,6 +206,10 @@ var (
 		Name:  "gcmode",
 		Usage: `Blockchain garbage collection mode ("full", "archive")`,
 		Value: "full",
+	}
+	NoCompatRewindFlag = cli.BoolFlag{
+		Name:  "no-compat-rewind",
+		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
 	}
 	SnapshotFlag = cli.BoolFlag{
 		Name:  "snapshot",
@@ -832,7 +836,7 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.VictionBootnodes
 	case ctx.GlobalBool(VictestFlag.Name):
 		urls = params.VictestBootnodes
-	case ctx.GlobalBool(VicdevnetFlag.Name):
+	case ctx.GlobalBool(VicdevFlag.Name):
 		urls = []string{}
 	case cfg.BootstrapNodes != nil:
 		return // already set, don't apply defaults.
@@ -872,7 +876,7 @@ func setBootstrapNodesV5(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.YoloV2Bootnodes
 	case ctx.GlobalBool(VictionFlag.Name):
 		urls = params.VictionBootnodes
-	case ctx.GlobalBool(VicdevnetFlag.Name):
+	case ctx.GlobalBool(VicdevFlag.Name):
 		urls = []string{}
 	case cfg.BootstrapNodesV5 != nil:
 		return // already set, don't apply defaults.
@@ -1516,7 +1520,7 @@ func SetShhConfig(ctx *cli.Context, stack *node.Node) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag, VictionFlag, VictestFlag, VicdevnetFlag)
+	CheckExclusive(ctx, DeveloperFlag, LegacyTestnetFlag, RopstenFlag, RinkebyFlag, GoerliFlag, YoloV2Flag, VictionFlag, VictestFlag, VicdevFlag)
 	CheckExclusive(ctx, LegacyLightServFlag, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, GCModeFlag, "archive", TxLookupLimitFlag)
@@ -1558,6 +1562,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	}
 	if ctx.GlobalIsSet(CacheNoPrefetchFlag.Name) {
 		cfg.NoPrefetch = ctx.GlobalBool(CacheNoPrefetchFlag.Name)
+	}
+	if ctx.GlobalIsSet(NoCompatRewindFlag.Name) {
+		cfg.SkipCompatRewind = ctx.GlobalBool(NoCompatRewindFlag.Name)
 	}
 	// Read the value from the flag no matter if it's set or not.
 	cfg.Preimages = ctx.GlobalBool(CachePreimagesFlag.Name)
@@ -1661,11 +1668,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 		}
 		cfg.Genesis = core.DefaultVictestGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.VictestGenesisHash)
-	case ctx.GlobalBool(VicdevnetFlag.Name):
+	case ctx.GlobalBool(VicdevFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 69
 		}
-		cfg.Genesis = core.DefaultVicdevnetGenesisBlock()
+		cfg.Genesis = core.DefaultVicdevGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1864,8 +1871,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultVictionGenesisBlock()
 	case ctx.GlobalBool(VictestFlag.Name):
 		genesis = core.DefaultVictestGenesisBlock()
-	case ctx.GlobalBool(VicdevnetFlag.Name):
-		genesis = core.DefaultVicdevnetGenesisBlock()
+	case ctx.GlobalBool(VicdevFlag.Name):
+		genesis = core.DefaultVicdevGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}

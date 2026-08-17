@@ -8,13 +8,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/legacy/tomox"
 	"github.com/ethereum/go-ethereum/legacy/tomoxlending"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
@@ -23,8 +23,9 @@ import (
 
 const SignMethodHex = "e341eaa4"
 
-// Get attestors from list of validators at checkpoint block.
-func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+// Get attestors from list of validators.
+func (s *Ethereum) PosvGetAttestors(
+	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
 	state, err := s.BlockChain().State()
 	if err != nil {
@@ -34,7 +35,8 @@ func (s *Ethereum) PosvGetAttestors(vicConfig *params.VictionConfig, header *typ
 }
 
 // Get block signers from the state.
-func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+func (s *Ethereum) PosvGetBlockSignData(
+	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader,
 ) ([]types.Transaction, error) {
 	if header == nil {
@@ -87,10 +89,10 @@ func (s *Ethereum) PosvGetBlockSignData(config *params.ChainConfig, vicConfig *p
 }
 
 // Get creator-attestor pairs from the state.
-func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.ChainConfig,
-	header, checkpointHeader *types.Header,
+func (s *Ethereum) PosvGetCreatorAttestorPairs(
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
-	pairs, offset, err := viction.GetCreatorAttestorPairs(c, config, config.Posv, header, checkpointHeader)
+	pairs, offset, err := viction.GetCreatorAttestorPairs(config, config.Posv, header, checkpointHeader)
 	if err != viction.ErrInvalidAttestorList {
 		// Either success or a non-recoverable error — propagate as-is.
 		return pairs, offset, err
@@ -124,9 +126,9 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(c *posv.Posv, config *params.Chai
 	return viction.BuildCreatorAttestorPairs(config, config.Posv, header.Number.Uint64(), validators, attestorIdxs)
 }
 
-// PosvGetEpochReward calculates and distributes reward at checkpoint block.
-func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header,
+// Calculate reward at the end of each epoch.
+func (s *Ethereum) PosvGetEpochReward(
+	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
@@ -178,9 +180,10 @@ func (s *Ethereum) PosvGetEpochReward(c *posv.Posv, config *params.ChainConfig, 
 	return epochRewards, nil
 }
 
-// PosvAddBalanceRewards applies epoch rewards to the state by adding balances to all stakeholders.
-// It does NOT recalculate; caller should pass the epochReward returned by PosvGetEpochReward.
-func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state.StateDB, epochReward *posv.EpochReward) error {
+// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
+func (s *Ethereum) PosvDistributeEpochRewards(
+	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
+) error {
 	blockNumber := header.Number.Uint64()
 
 	if epochReward == nil {
@@ -208,11 +211,10 @@ func (s *Ethereum) PosvDistributeEpochRewards(header *types.Header, state *state
 	return nil
 }
 
-// Get list of validators creating bad block or not creating block at all.
-func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header,
-	chain consensus.ChainReader,
-	validators []common.Address,
+// Penalize validators for creating bad block or not creating block at all.
+func (s *Ethereum) PosvGetPenalties(
+	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader, validators []common.Address,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
 		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, validators)
@@ -221,7 +223,9 @@ func (s *Ethereum) PosvGetPenalties(c *posv.Posv, config *params.ChainConfig, po
 }
 
 // Get eligble validators from the state.
-func (s *Ethereum) PosvGetValidators(vicConfig *params.VictionConfig, header *types.Header, chain consensus.ChainReader,
+func (s *Ethereum) PosvGetValidators(
+	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	chain consensus.ChainReader,
 ) ([]common.Address, error) {
 	if header == nil {
 		return []common.Address{}, fmt.Errorf("header is nil")
