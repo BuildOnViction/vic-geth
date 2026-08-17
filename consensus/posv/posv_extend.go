@@ -195,7 +195,7 @@ func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.H
 func (c *Posv) calcDifficulty(validator common.Address, parent *types.Header, validators []common.Address) *big.Int {
 	_, currentIndex, parentIndex, validatorCount, err := c.IsMyTurn(validator, parent, validators)
 	if err == nil {
-		distance := distance(currentIndex, parentIndex, validatorCount)
+		distance := common.CircularDistance(currentIndex, parentIndex, validatorCount)
 		return big.NewInt(int64(validatorCount - distance + 1))
 	}
 	return big.NewInt(int64(validatorCount + currentIndex - parentIndex))
@@ -291,14 +291,6 @@ func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, ch
 	}
 
 	return nil
-}
-
-// Return the distance between current index and parent index in the circular list of validators.
-func distance(currentIndex, parentIndex, validatorCount int) int {
-	if currentIndex > parentIndex {
-		return currentIndex - parentIndex
-	}
-	return validatorCount + currentIndex - parentIndex
 }
 
 // ecrecover2 extracts the Ethereum account address from a Attestor header.

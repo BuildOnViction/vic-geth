@@ -109,15 +109,7 @@ func (p *VictionProcessor) BeforeBlockProcess(block *types.Block, statedb *state
 	p.tradingStateDB = nil
 	p.tradingCommittedRoot = common.Hash{}
 
-	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
-		statedb.RemoveState(p.config.Viction.ValidatorBlockSignContract)
-	}
-	if p.config.IsAtlas(header.Number) {
-		misc.ApplyAtlasHardFork(statedb, p.config.Viction, p.config.AtlasBlock, header.Number)
-	}
-	if p.config.IsSaigon(block.Number()) {
-		misc.ApplySaigonHardFork(statedb, p.config.Viction, p.config.SaigonBlock, block.Number())
-	}
+	misc.ApplyPosvHardForks(statedb, p.config, p.config.Viction, header.Number)
 
 	if p.config.IsTomoXEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
 		parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)

@@ -27,6 +27,22 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// Apply PoSV-specific hard forks.
+func ApplyPosvHardForks(statedb *state.StateDB, config *params.ChainConfig, victionConfig *params.VictionConfig, headerNumber *big.Int) {
+	if config.Posv == nil && victionConfig != nil {
+		return
+	}
+	if config.TIPSigningBlock != nil && config.TIPSigningBlock.Cmp(headerNumber) == 0 {
+		statedb.RemoveState(victionConfig.ValidatorBlockSignContract)
+	}
+	if config.AtlasBlock != nil && config.AtlasBlock.Cmp(headerNumber) >= 0 {
+		ApplyAtlasHardFork(statedb, victionConfig, config.AtlasBlock, headerNumber)
+	}
+	if config.SaigonBlock != nil && config.SaigonBlock.Cmp(headerNumber) <= 0 {
+		ApplySaigonHardFork(statedb, victionConfig, config.SaigonBlock, headerNumber)
+	}
+}
+
 // Apply recurring changes of Saigon hard fork:
 // - Mint native token to Eco Systtem Fund address.
 func ApplySaigonHardFork(statedb *state.StateDB, victionConfig *params.VictionConfig, saigonBlock *big.Int, headBlock *big.Int) {

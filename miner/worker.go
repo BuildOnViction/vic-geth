@@ -886,7 +886,7 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		// [POSV] Never seal a transaction whose sender or receiver is
 		// blacklisted after the TIPBlacklist hardfork: importing nodes reject
 		// such a block, forking this miner off the network.
-		if skip, pop := w.blacklistTxAction(tx, from); skip {
+		if skip, pop := w.EnforceBlacklist(tx, from); skip {
 			if pop {
 				log.Debug("[POSV commitTxs]Skipping transaction with blacklisted sender", "sender", from, "hash", tx.Hash())
 				txs.Pop()
@@ -975,7 +975,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
 			return
 		}
-		if !w.turnCommitNewWorkWithPosv(parent.Header()) {
+		if !w.commitNewWorkForPoSV(parent.Header()) {
 			return
 		}
 	}
@@ -1042,21 +1042,9 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(env.state)
 	}
+	misc.ApplyPosvHardForks(env.state, w.chainConfig, w.chainConfig.Viction, header.Number)
 
-	// [POSV] Fork-specific state mutations.
-	if isPosv {
-		if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
-			env.state.RemoveState(w.chainConfig.Viction.ValidatorBlockSignContract)
-		}
-		if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
-			misc.ApplyAtlasHardFork(env.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
-		}
-		if w.chainConfig.SaigonBlock != nil && w.chainConfig.SaigonBlock.Cmp(header.Number) <= 0 {
-			misc.ApplySaigonHardFork(env.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)
-		}
-	}
-
-	// Uncle processing (non-POSV only; POSV has no uncles).
+	// Uncle processing
 	var uncles []*types.Header
 	if !isPosv {
 		uncles = make([]*types.Header, 0, 2)
@@ -1122,7 +1110,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			signers[v] = struct{}{}
 		}
 		specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
-		if w.commitSpecialTransactions(specialTxs, w.coinbase, nil) {
+		if w.commitPosvTransactions(specialTxs, w.coinbase, nil) {
 			return
 		}
 	}
