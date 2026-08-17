@@ -1932,9 +1932,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			return it.index, err
 		}
 		// Commit native trading/lending trie nodes to their LevelDB backing stores.
-		// This must happen after writeBlockWithState so the next block's
-		// beforeProcess can open the trading/lending trie from the correct root.
-		if err := bc.commitVictionState(block); err != nil {
+		// This must happen after writeBlockWithState so the next block's *beforeProcess* can open the trading/lending trie from the correct root.
+		if err := bc.commitNativeExchangeState(block); err != nil {
 			return it.index, err
 		}
 
@@ -1978,11 +1977,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		dirty, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, it.index, dirty)
 		if bc.chainConfig.Posv != nil {
-			// prepare set of masternodes for the next epoch
-			if (block.NumberU64() % bc.chainConfig.Posv.Epoch) == (bc.chainConfig.Posv.Epoch - bc.chainConfig.Posv.Gap) {
-				err := bc.UpdateM1()
+			if bc.chainConfig.Posv.IsGapBlock(block.NumberU64()) {
+				err := bc.UpdateValidators()
 				if err != nil {
-					log.Error("Error when update masternodes set. Stopping node", "err", err)
+					log.Error("[Blockchain] Error when updating validators list for next epoch. Stopping node!", "err", err)
 					return it.index, err
 				}
 			}

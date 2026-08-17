@@ -595,3 +595,133 @@ func (p *FeeProcessor) Flush(statedb *state.StateDB) {
 	}
 	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25Contract, p.updatedBalances, p.totalChange)
 }
+
+// Flush current block Lending State Trie to LevelDB.
+func (p *StateProcessor) CommitLendingState(block *types.Block) error {
+	if !p.viction.IsLendingInitialized() {
+		return nil
+	}
+	lendingRoot := p.viction.CommittedLendingRoot()
+	if lendingRoot == (common.Hash{}) {
+		return nil
+	}
+	if err := p.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
+		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", block.NumberU64(), err)
+	}
+	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", block.NumberU64(), "root", lendingRoot.Hex())
+	return nil
+}
+
+// Flush current block Lending State Trie in GC cache to LevelDB.
+func (p *StateProcessor) CommitLendingStateDeferred(block *types.Block) error {
+	if !p.viction.IsLendingInitialized() {
+		return nil
+	}
+	current := block.NumberU64()
+	lendingRoot := p.viction.CommittedLendingRoot()
+	if lendingRoot == (common.Hash{}) {
+		return nil
+	}
+	lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
+	lendingTrieDB.Reference(lendingRoot, common.Hash{})
+	p.lendingTriegc.Push(lendingRoot, -int64(current))
+
+	if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
+		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", current, err)
+	}
+	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", current, "root", lendingRoot.Hex())
+
+	if current > TriesInMemory {
+		chosen := current - TriesInMemory
+		for !p.lendingTriegc.Empty() {
+			root, number := p.lendingTriegc.Pop()
+			if uint64(-number) > chosen {
+				p.lendingTriegc.Push(root, number)
+				break
+			}
+			lendingTrieDB.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
+
+// Flush all Lending State Trie entires in GC cache to LevelDB.
+func (p *StateProcessor) FlushLendingStateGCCache() {
+	if p.bc.cacheConfig.TrieDirtyDisabled || p.viction.LendingEngine() == nil {
+		return
+	}
+
+	lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
+	for !p.lendingTriegc.Empty() {
+		root := p.lendingTriegc.PopItem()
+		if err := lendingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
+			log.Error("[Processor][Native Lending] Failed to commit Trie on shutdown", "root", root, "err", err)
+		}
+		lendingTrieDB.Dereference(root.(common.Hash))
+	}
+}
+
+// Flush current block Trading State Trie to LevelDB.
+func (p *StateProcessor) CommitTradingState(block *types.Block) error {
+	if !p.viction.IsTradingInitialized() {
+		return nil
+	}
+	tradingRoot := p.viction.CommittedTradingRoot()
+	if tradingRoot == (common.Hash{}) {
+		return nil
+	}
+	if err := p.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
+		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", block.NumberU64(), err)
+	}
+	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", block.NumberU64(), "root", tradingRoot.Hex())
+	return nil
+}
+
+// Flush current block Trading State Trie in GC cache to LevelDB.
+func (p *StateProcessor) CommitTradingStateDeferred(block *types.Block) error {
+	if !p.viction.IsTradingInitialized() {
+		return nil
+	}
+	current := block.NumberU64()
+	tradingRoot := p.viction.CommittedTradingRoot()
+	if tradingRoot == (common.Hash{}) {
+		return nil
+	}
+	tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
+	tradingTrieDB.Reference(tradingRoot, common.Hash{})
+	p.tradingTriegc.Push(tradingRoot, -int64(current))
+
+	if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
+		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", current, err)
+	}
+	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", current, "root", tradingRoot.Hex())
+
+	if current > TriesInMemory {
+		chosen := current - TriesInMemory
+		for !p.tradingTriegc.Empty() {
+			root, number := p.tradingTriegc.Pop()
+			if uint64(-number) > chosen {
+				p.tradingTriegc.Push(root, number)
+				break
+			}
+			tradingTrieDB.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
+
+// Flush all Trading State Trie entires in GC cache to LevelDB.
+func (p *StateProcessor) FlushTradingStateGCCache() {
+	if p.bc.cacheConfig.TrieDirtyDisabled || p.viction.TradingEngine() == nil {
+		return
+	}
+
+	tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
+	for !p.tradingTriegc.Empty() {
+		root := p.tradingTriegc.PopItem()
+		if err := tradingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
+			log.Error("[Processor][Native Trading] Failed to commit Trie on shutdown", "root", root, "err", err)
+		}
+		tradingTrieDB.Dereference(root.(common.Hash))
+	}
+}
