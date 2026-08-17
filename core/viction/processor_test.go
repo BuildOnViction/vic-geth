@@ -179,6 +179,7 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	tdb := newEmptyTradingStateDB(t)
 	vp := &Processor{
 		config:         cfg,
+		engine:         &mockConsensusEngine{},
 		tradingEngine:  &mockTradingEngine{},
 		tradingStateDB: tdb,
 	}
@@ -187,13 +188,13 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	// ApplyVictionTransaction must return handled=false for a non-JSON 0x91 tx
 	// so it falls through to the normal EVM path.
 	var usedGas uint64
-	handled, _, _, err, _ := vp.ApplyVictionTransaction(statedb, tx, header, &usedGas)
+	handled, _, _, err, _ := vp.ApplyNativeTransaction(statedb, tx, header, &usedGas)
 	require.False(t, handled, "non-JSON 0x91 tx must not be intercepted by viction dispatch")
 	require.NoError(t, err)
 
 	// applyTomoXTx itself (called directly) should produce an empty receipt on
 	// unexpected decode failure — no error, no state mutation.
-	handled, receipt, _, err, _ := vp.applyTomoXTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
+	handled, receipt, _, err, _ := vp.applyTradingTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
 	require.True(t, handled)
 	require.NoError(t, err, "applyTomoXTx fallthrough must not return an error")
 	require.NotNil(t, receipt)
@@ -214,7 +215,7 @@ func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
 		tradingEngine: &mockTradingEngine{},
 	}
 
-	err := vp.BeforeProcess(block, statedb)
+	err := vp.BeforeBlockProcess(block, statedb)
 	require.NoError(t, err)
 	require.Nil(t, vp.tradingStateDB,
 		"tradingStateDB must be nil before TIPTomoX activation")

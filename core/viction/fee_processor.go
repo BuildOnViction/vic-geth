@@ -27,30 +27,18 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// BalanceMap is the per-execution running map of VRC25 token fee capacities,
-// keyed by token (transaction recipient). It is threaded explicitly through
-// ApplyMessage as the StateTransition's feePool, so block import and each tracing
-// re-execution own an independent instance and never share fee state. A nil pool
-// means "no sponsorship" — every transaction is treated as a regular VIC tx.
+// BalanceMap holds sponsoring capacities of VRC25 tokens.
 type BalanceMap = map[common.Address]*big.Int
 
-// FeeProcessor owns the pre-Atlas VRC25 fee accounting for a single
-// execution over one block. It is a plain value type deliberately decoupled from
-// StateProcessor (which needs the blockchain and consensus engine), so that the
-// tracing API — which re-executes transactions with only a StateDB — can create
-// and drive its own instance with the exact same seed/decrement/flush logic as
-// block import. This is the single source of truth for the fee formula; block
-// import and tracing share it and therefore cannot diverge.
+// FeeProcessor applies zero-gas logic for sponsoring transactions.
 type FeeProcessor struct {
-	config           *params.ChainConfig
-	originalBalances BalanceMap // running per-token capacity; nil = no sponsorship
-	updatedBalances  BalanceMap // tokens charged this block -> final capacity (flush)
-	totalChange      *big.Int   // total fee charged this block (flush)
+	config           *params.ChainConfig // Chain configuration
+	originalBalances BalanceMap          // Capacities snapshot during initialization of FeeProcessor.
+	updatedBalances  BalanceMap          // Capacities changed during block processing.
+	totalChange      *big.Int            // Sum of fee incurred during block processing.
 }
 
-// NewFeeProcessor builds the fee processor for a block. On pre-Atlas Viction
-// blocks with a VRC25 issuer configured it snapshots all token fee capacities;
-// otherwise feePool stays nil and every transaction is a regular VIC tx.
+// Return new FeeProcessor instance.
 func NewFeeProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNum *big.Int) *FeeProcessor {
 	p := &FeeProcessor{
 		config:          config,
@@ -64,10 +52,7 @@ func NewFeeProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNu
 	return p
 }
 
-// Copy returns an independent copy of vp with the running fee pool deep-copied
-// (keys and *big.Int values cloned) and fresh flush accumulators, or nil on a
-// nil receiver. The parallel block tracer gives each task its own copy so worker
-// goroutines never mutate a shared map; copies are never flushed.
+// Return a deep copy of FeeProcessor.
 func (p *FeeProcessor) Copy() *FeeProcessor {
 	if p == nil {
 		return nil
@@ -88,8 +73,7 @@ func (p *FeeProcessor) Copy() *FeeProcessor {
 	return cp
 }
 
-// FeePool returns the running fee-capacity map to thread into ApplyMessage.
-// Safe on a nil receiver (returns nil).
+// Return original balances snapshot.
 func (p *FeeProcessor) FeePool() BalanceMap {
 	if p == nil {
 		return nil
@@ -97,14 +81,8 @@ func (p *FeeProcessor) FeePool() BalanceMap {
 	return p.originalBalances
 }
 
-// HandleFee applies the pre-Atlas per-transaction fee accounting: it decrements
-// the running pool for tx's token by the fee charged, records the update for the
-// end-of-block flush, and for a failed sponsored transaction applies the same
-// PayFeeWithVRC25 balance mutation as block import.
-//
-// No-op on a nil receiver, post-Atlas blocks, non-VRC25 transactions, contract
-// creations, or when the pool has no entry for the token.
-func (p *FeeProcessor) HandleFee(statedb *state.StateDB, blockNum *big.Int, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
+// Process fee for given transaction.
+func (p *FeeProcessor) Process(statedb *state.StateDB, blockNum *big.Int, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
 	if p == nil || p.originalBalances == nil || tx.To() == nil || p.config.IsAtlas(blockNum) {
 		return
 	}
@@ -130,9 +108,7 @@ func (p *FeeProcessor) HandleFee(statedb *state.StateDB, blockNum *big.Int, tx *
 	}
 }
 
-// Flush writes the accumulated pre-Atlas fee updates back to state. Called once
-// per block after all transactions (block import only; tracing never flushes).
-// No-op when nothing was charged.
+// Persist the `updatedBalances` and `totalChange` to database.
 func (p *FeeProcessor) Flush(statedb *state.StateDB) {
 	if p == nil || p.originalBalances == nil || len(p.updatedBalances) == 0 || p.config.Viction == nil {
 		return

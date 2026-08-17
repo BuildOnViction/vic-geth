@@ -71,7 +71,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 	// Viction hooks
-	if err := p.viction.BeforeProcess(block, statedb); err != nil {
+	if err := p.viction.BeforeBlockProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 	var (
@@ -222,7 +222,7 @@ func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *typ
 		p.config.IsTIPSigning(header.Number) {
 		return ApplySignTransaction(p.config, statedb, tx, header, usedGas)
 	}
-	return p.viction.ApplyVictionTransaction(statedb, tx, header, usedGas)
+	return p.viction.ApplyNativeTransaction(statedb, tx, header, usedGas)
 }
 
 // ApplySignTransaction processes a BlockSigner special transaction (0x89)

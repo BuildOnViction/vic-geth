@@ -190,7 +190,7 @@ func (w *worker) blacklistTxAction(tx *types.Transaction, from common.Address) (
 	if !w.chainConfig.IsTIPBlacklist(w.current.header.Number) {
 		return false, false
 	}
-	sender, receiver := viction.BlacklistedTxParty(w.chainConfig, from, tx.To())
+	sender, receiver := viction.ValidateBlackList(w.chainConfig, from, tx.To())
 	if sender {
 		return true, true
 	}

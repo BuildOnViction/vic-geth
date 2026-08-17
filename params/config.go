@@ -610,7 +610,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "tip2019Block", block: c.TIP2019Block},
 		{name: "tipSigningBlock", block: c.TIPSigningBlock},
 		{name: "tipRandomizeBlock", block: c.TIPRandomizeBlock},
-		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock},
+		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock, optional: true},
 		{name: "tipTRC21FeeBlock", block: c.TIPTRC21FeeBlock},
 		{name: "tipFixSignerCheckBlock", block: c.TIPFixSignerCheckBlock, optional: true},
 		{name: "tipTomoXBlock", block: c.TIPTomoXBlock, optional: true},

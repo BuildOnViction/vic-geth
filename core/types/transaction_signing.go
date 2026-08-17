@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -273,4 +275,32 @@ func CacheSigner(signer Signer, tx *Transaction) {
 		return
 	}
 	tx.from.Store(sigCache{signer: signer, from: addr})
+}
+
+func CacheSigners(signer Signer, txs Transactions) {
+	if txs.Len() == 0 {
+		return
+	}
+	nWorker := runtime.NumCPU()
+	chunkSize := txs.Len() / nWorker
+	if txs.Len()%nWorker != 0 {
+		chunkSize++
+	}
+	wg := sync.WaitGroup{}
+	wg.Add(nWorker)
+	for i := 0; i < nWorker; i++ {
+		from := i * chunkSize
+		to := from + chunkSize
+		if to > txs.Len() {
+			to = txs.Len()
+		}
+		go func(from int, to int) {
+			defer wg.Done()
+			for j := from; j < to; j++ {
+				CacheSigner(signer, txs[j])
+				txs[j].CacheHash()
+			}
+		}(from, to)
+	}
+	wg.Wait()
 }

@@ -22,8 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"runtime"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -36,15 +34,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// ErrBlacklistedAddress is returned when a transaction sender/receiver is
-// blacklisted. Canonical definition; used by transaction pool admission,
-// block import and the worker sealing lanes.
-var ErrBlacklistedAddress = errors.New("blacklisted address")
+var (
+	ErrBlacklistedAddress = errors.New("blacklisted address")
+)
 
-// ChainReader is the subset of *core.BlockChain the Processor needs during
-// block processing. Defined here to avoid an import cycle between core and
-// core/viction; it embeds tradingstate.ChainContext so the chain can be passed
-// straight into the TomoX/TomoZ engines.
+// ChainReader is the subset of *core.BlockChain the Processor needs during block processing.
+// Defined here to avoid an import cycle between core and core/viction.
 type ChainReader interface {
 	tradingstate.ChainContext
 
@@ -52,47 +47,25 @@ type ChainReader interface {
 	GetBlock(hash common.Hash, number uint64) *types.Block
 }
 
-// Processor owns all Viction-specific block and transaction processing
-// hooks. It is deliberately decoupled from StateProcessor so that block import,
-// the tracing API and the miner can all drive the identical hook logic instead
-// of re-implementing it. Create one instance per block execution: block import
-// uses NewProcessor and calls the full hook cycle, while consumers that
-// only re-execute transactions (tracing, eth_call) use NewTxProcessor,
-// which leaves the chain, engine and order-matching paths inert.
+// Processor handles Viction-specific block and transaction logic.
 type Processor struct {
-	config        *params.ChainConfig // Chain configuration options
-	chain         ChainReader         // Canonical block chain, nil for tx-only consumers
-	engine        consensus.Engine    // Consensus engine, nil disables author-dependent paths
-	tradingEngine TradingEngine       // legacy TomoX engine, nil when TomoX is not needed
-	lendingEngine LendingEngine       // legacy TomoZ engine, nil when lending is not needed
+	config *params.ChainConfig // Chain configuration
+	chain  ChainReader         // Canonical block chain, nil for tx-only consumers
+	engine consensus.Engine    // Consensus engine, nil disables author-dependent paths
+	fee    *FeeProcessor       // Zero-gas fee processor.
 
-	// Per-block state, reset by BeforeProcess (block import) or seeded once by
-	// NewTxProcessor (transaction re-execution).
-	currentBlockNumber *big.Int
+	blockNumber *big.Int // Cached block number for synchronizing between BeforeProcess and AfterProcess.
 
-	// tradingStateDB is the TomoX order-book trie. Non-nil only for pre-Atlas blocks.
-	tradingStateDB *tradingstate.TradingStateDB
+	lendingEngine        LendingEngine
+	lendingStateDB       *lendingstate.LendingStateDB
+	lendingCommittedRoot common.Hash
 
-	// lendingStateDB is the TomoZ lending order-book trie. Non-nil only for pre-Atlas blocks.
-	lendingStateDB *lendingstate.LendingStateDB
-
-	// committedTradingRoot is the root returned by tradingStateDB.Commit() in
-	// AfterProcess. It is already staged into the trie.Database dirty set and
-	// ready to flush to LevelDB.
-	committedTradingRoot common.Hash
-
-	// committedLendingRoot is the root returned by lendingStateDB.Commit() in AfterProcess.
-	committedLendingRoot common.Hash
-
-	// fee owns the pre-Atlas VRC25 fee accounting for this block: the running
-	// pool threaded into each transaction, the per-tx decrement, and the
-	// end-of-block flush. See FeeProcessor.
-	fee *FeeProcessor
+	tradingEngine        TradingEngine
+	tradingStateDB       *tradingstate.TradingStateDB
+	tradingCommittedRoot common.Hash
 }
 
-// NewProcessor creates the full block-import processor. The TomoX and
-// TomoZ engines are injected later via SetTradingEngine / SetLendingEngine;
-// per-block state is initialised by BeforeProcess.
+// Return new Processor instance for new block production.
 func NewProcessor(config *params.ChainConfig, chain ChainReader, engine consensus.Engine) *Processor {
 	return &Processor{
 		config: config,
@@ -101,89 +74,17 @@ func NewProcessor(config *params.ChainConfig, chain ChainReader, engine consensu
 	}
 }
 
-// NewTxProcessor creates a transaction-only processor for consumers that
-// execute transactions outside block import: replaying canonical transactions
-// (tracing API) or simulating hypothetical ones (eth_call, estimateGas).
-// It seeds the VRC25 fee pool immediately from the given state; the chain,
-// consensus engine and TomoX/TomoZ paths stay inert, so only
-// BeforeApplyTransaction, HandleFee, FeePool and Copy are meaningful on the
-// result. Do not use it for block import — it never runs BeforeProcess or
-// AfterProcess, so system transactions, fee distribution and order-book
-// settlement are all skipped. Block import must use NewProcessor.
+// Return new Processor instance for old block execution.
 func NewTxProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNum *big.Int) *Processor {
 	return &Processor{
-		config:             config,
-		currentBlockNumber: new(big.Int).Set(blockNum),
-		fee:                NewFeeProcessor(config, statedb, blockNum),
+		config: config,
+		fee:    NewFeeProcessor(config, statedb, blockNum),
+
+		blockNumber: new(big.Int).Set(blockNum),
 	}
 }
 
-// SetTradingEngine injects the TomoX trading engine.
-func (p *Processor) SetTradingEngine(engine TradingEngine) {
-	p.tradingEngine = engine
-}
-
-// SetLendingEngine injects the TomoZ lending engine.
-func (p *Processor) SetLendingEngine(engine LendingEngine) {
-	p.lendingEngine = engine
-}
-
-// TradingEngine returns the injected TomoX engine, nil when not installed.
-func (p *Processor) TradingEngine() TradingEngine {
-	return p.tradingEngine
-}
-
-// LendingEngine returns the injected TomoZ engine, nil when not installed.
-func (p *Processor) LendingEngine() LendingEngine {
-	return p.lendingEngine
-}
-
-// HasTradingState reports whether a TomoX trading trie is open for the current block.
-func (p *Processor) HasTradingState() bool {
-	return p.tradingStateDB != nil
-}
-
-// HasLendingState reports whether a TomoZ lending trie is open for the current block.
-func (p *Processor) HasLendingState() bool {
-	return p.lendingStateDB != nil
-}
-
-// CommittedTradingRoot returns the trading trie root committed by AfterProcess,
-// or the zero hash when nothing was committed. Used by the blockchain to flush
-// the staged trie nodes to LevelDB.
-func (p *Processor) CommittedTradingRoot() common.Hash {
-	return p.committedTradingRoot
-}
-
-// CommittedLendingRoot returns the lending trie root committed by AfterProcess,
-// or the zero hash when nothing was committed.
-func (p *Processor) CommittedLendingRoot() common.Hash {
-	return p.committedLendingRoot
-}
-
-// FeePool returns the running fee-capacity map to thread into ApplyMessage.
-// Safe on a nil receiver (returns nil).
-func (p *Processor) FeePool() BalanceMap {
-	if p == nil {
-		return nil
-	}
-	return p.fee.FeePool()
-}
-
-// HandleFee applies the pre-Atlas per-transaction fee accounting for one
-// re-executed transaction. It delegates to the owned FeeProcessor; see
-// FeeProcessor.HandleFee for the exact semantics. Safe on a nil receiver.
-func (p *Processor) HandleFee(statedb *state.StateDB, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
-	if p == nil {
-		return
-	}
-	p.fee.HandleFee(statedb, p.currentBlockNumber, tx, from, usedGas, failed)
-}
-
-// Copy returns an independent transaction-only copy of vp for use by a parallel
-// worker: the fee pool is deep-copied so goroutines never mutate a shared map,
-// while the flush accumulators start fresh (tracing never flushes). The chain,
-// engines and TomoX/TomoZ trie state are deliberately not carried over.
+// Return a deep copy of Processor.
 func (p *Processor) Copy() *Processor {
 	if p == nil {
 		return nil
@@ -191,26 +92,32 @@ func (p *Processor) Copy() *Processor {
 	cp := &Processor{
 		config: p.config,
 	}
-	if p.currentBlockNumber != nil {
-		cp.currentBlockNumber = new(big.Int).Set(p.currentBlockNumber)
+	if p.blockNumber != nil {
+		cp.blockNumber = new(big.Int).Set(p.blockNumber)
 	}
 	cp.fee = p.fee.Copy()
 	return cp
 }
 
-// BeforeProcess initialises Viction-specific per-block state and runs hardfork
-// activation logic (TIPSigning, Atlas, Saigon, VRC25 fee snapshots, TomoX/TomoZ
-// trie opening, and epoch liquidation). Called once at the start of Process
-// before any transactions are applied.
-func (p *Processor) BeforeProcess(block *types.Block, statedb *state.StateDB) error {
+// Return original balances snapshot.
+func (p *Processor) FeePool() BalanceMap {
+	if p == nil {
+		return nil
+	}
+	return p.fee.FeePool()
+}
+
+// Pre block processing: - Prepare internal state for block processing - Active Viction-specific hard forks.
+func (p *Processor) BeforeBlockProcess(block *types.Block, statedb *state.StateDB) error {
 	header := block.Header()
 
-	p.currentBlockNumber = new(big.Int).Set(header.Number)
-	p.tradingStateDB = nil
-	p.lendingStateDB = nil
-	p.committedTradingRoot = common.Hash{}
-	p.committedLendingRoot = common.Hash{}
 	p.fee = NewFeeProcessor(p.config, statedb, header.Number)
+	p.blockNumber = new(big.Int).Set(header.Number)
+
+	p.lendingStateDB = nil
+	p.lendingCommittedRoot = common.Hash{}
+	p.tradingStateDB = nil
+	p.tradingCommittedRoot = common.Hash{}
 
 	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
 		if p.config.Viction != nil {
@@ -226,9 +133,6 @@ func (p *Processor) BeforeProcess(block *types.Block, statedb *state.StateDB) er
 		}
 	}
 
-	// Open TomoX and TomoZ tries from the parent block.
-	// Both engines share the same parent fetch; Author() is called once per engine
-	// since the signature scheme may differ in future (currently both use PoSV).
 	if p.config.Posv != nil && p.config.IsTomoXEnabled(header.Number) &&
 		header.Number.Uint64() > p.config.Posv.Epoch {
 
@@ -263,9 +167,6 @@ func (p *Processor) BeforeProcess(block *types.Block, statedb *state.StateDB) er
 		}
 	}
 
-	// At epoch+LendingLiquidateTradeBlock boundaries, run liquidation before the tx
-	// loop so that AutoTopUp changes land on the same trie objects that will be used
-	// during applyLendingTx and committed in AfterProcess.
 	if p.lendingEngine != nil && p.config.Posv != nil &&
 		p.config.IsTomoXEnabled(header.Number) &&
 		p.config.Viction != nil &&
@@ -281,33 +182,34 @@ func (p *Processor) BeforeProcess(block *types.Block, statedb *state.StateDB) er
 		log.Debug("TomoZ: epoch liquidation processed", "block", header.Number.Uint64())
 	}
 
-	InitSignerInTransactions(p.config, header, block.Transactions())
+	signer := types.MakeSigner(p.config, header.Number)
+	types.CacheSigners(signer, block.Transactions())
 
 	return nil
 }
 
-// AfterProcess flushes accumulated VRC25 fee updates to state and commits the
-// TomoX and TomoZ trie roots, verifying them against the 0x92 system
-// transaction embedded in the block. Called once after all transactions have
-// been applied.
+// Process fee for given transaction.
+func (p *Processor) ProcessFee(statedb *state.StateDB, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
+	if p == nil {
+		return
+	}
+	p.fee.Process(statedb, p.blockNumber, tx, from, usedGas, failed)
+}
+
+// Post block processing: - Commit Trading/Lending/ZeroGas journal to database.
 func (p *Processor) AfterProcess(block *types.Block, statedb *state.StateDB) error {
-	// Pre-Atlas: flush accumulated VRC25 fee updates to state.
 	p.fee.Flush(statedb)
 
-	// Commit and verify the TomoX trading state root.
-	//
 	// IMPORTANT: tradingStateDB.Commit() must be called BEFORE IntermediateRoot().
-	// IntermediateRoot calls trie.Hash() which collapses in-memory dirty nodes into
-	// hash nodes.  A subsequent trie.Commit() on a fully-hashed trie finds no dirty
-	// nodes and writes nothing to trie.Database.dirties.  If Commit() runs first, it
-	// flushes dirty nodes into trie.Database.dirties; trie.Database.Commit() can then
-	// persist them to LevelDB.
+	// IntermediateRoot calls trie.Hash() which collapses in-memory dirty nodes into hash nodes.
+	// A subsequent trie.Commit() on a fully-hashed trie finds no dirty nodes and writes nothing to trie.Database.dirties.
+	// If Commit() runs first, it flushes dirty nodes into trie.Database.dirties; trie.Database.Commit() can then persist them to LevelDB.
 	if p.tradingStateDB != nil && p.tradingEngine != nil {
 		tradingRoot, err := p.tradingStateDB.Commit()
 		if err != nil {
 			return fmt.Errorf("TomoX: TradingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
 		}
-		p.committedTradingRoot = tradingRoot
+		p.tradingCommittedRoot = tradingRoot
 
 		blockAuthor, err := p.engine.Author(block.Header())
 		if err != nil {
@@ -321,13 +223,12 @@ func (p *Processor) AfterProcess(block *types.Block, statedb *state.StateDB) err
 		log.Debug("TomoX: trading state root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
 	}
 
-	// Commit and verify the TomoZ lending state root (same logic as above).
 	if p.lendingStateDB != nil && p.tradingStateDB != nil {
 		lendingRoot, err := p.lendingStateDB.Commit()
 		if err != nil {
 			return fmt.Errorf("TomoZ: LendingStateDB.Commit failed at block %d: %w", block.NumberU64(), err)
 		}
-		p.committedLendingRoot = lendingRoot
+		p.lendingCommittedRoot = lendingRoot
 
 		blockAuthor, err := p.engine.Author(block.Header())
 		if err != nil {
@@ -344,9 +245,7 @@ func (p *Processor) AfterProcess(block *types.Block, statedb *state.StateDB) err
 	return nil
 }
 
-// BeforeApplyTransaction runs per-transaction Viction pre-checks: optional
-// balance override for specific accounts in early blocks, and blacklist
-// enforcement after TIPBlacklist.
+// Pre transaction processing: - Fix incorrect balances for early blocks. - Prohibit blacklisted addresses.
 func (p *Processor) BeforeApplyTransaction(block *types.Block, tx *types.Transaction, msg types.Message, statedb *state.StateDB) error {
 	if p.config.Viction == nil {
 		return nil
@@ -360,7 +259,7 @@ func (p *Processor) BeforeApplyTransaction(block *types.Block, tx *types.Transac
 	}
 
 	if p.config.IsTIPBlacklist(block.Number()) {
-		if sender, receiver := BlacklistedTxParty(p.config, msg.From(), tx.To()); sender || receiver {
+		if sender, receiver := ValidateBlackList(p.config, msg.From(), tx.To()); sender || receiver {
 			return ErrBlacklistedAddress
 		}
 	}
@@ -368,54 +267,34 @@ func (p *Processor) BeforeApplyTransaction(block *types.Block, tx *types.Transac
 	return nil
 }
 
-// BlacklistedTxParty reports whether the transaction sender or recipient is
-// blacklisted. It is not fork-gated: callers (block import, transaction pool
-// admission, worker sealing lanes) apply their own gating and their own
-// action on a hit.
-func BlacklistedTxParty(config *params.ChainConfig, from common.Address, to *common.Address) (sender, receiver bool) {
-	if config.Viction == nil {
-		return false, false
-	}
-	return config.Viction.IsBlacklisted(from), to != nil && config.Viction.IsBlacklisted(*to)
-}
-
-// ApplyVictionTransaction checks whether tx is a Viction system transaction
-// (0x91 TomoX batch, 0x92 state-root commit, 0x93 lending batch, 0x94
-// finalized trade) and handles it without the EVM.
-// Returns (false, nil, 0, nil, nil) for regular transactions.
-//
-// The 0x89 block-signer transaction is NOT handled here: it is dispatched by
-// core (see core.ApplySignTransaction) so its nonce errors stay core-native.
-func (p *Processor) ApplyVictionTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+// Handle Viction own transactions without the EVM.
+// Return (false, nil, 0, nil, nil) for regular transactions.
+func (p *Processor) ApplyNativeTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
 	if tx.To() == nil || p.config.Viction == nil {
 		return false, nil, 0, nil, nil
 	}
 	vicConfig := p.config.Viction
 
-	// 0x91 — TomoX order-matching batch (active only in TIPTomoX..Atlas window).
+	// 0x91 — Trading order-matching batch.
 	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsTomoXEnabled(header.Number) {
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
-			return p.applyTomoXTx(statedb, tx, header, usedGas, batch)
+			return p.applyTradingTx(statedb, tx, header, usedGas, batch)
 		}
-		// Decode failed — let the normal EVM path handle it.
 	}
 
-	// 0x92 — trading state root commit; verified in AfterProcess
+	// 0x92 — Trading state root commit, verified in AfterBlockProcess.
 	if tx.To() != nil && *tx.To() == vicConfig.TradingStateContract && p.config.IsTomoXEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
 
-	// 0x93 — TomoZ lending order-matching batch.
-	// The outer gate is IsTomoXEnabled (TIPTomoX..Atlas); the inner matching
-	// only runs once TIPTomoXLending is also active.
+	// 0x93 — Lending order-matching batch.
 	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsTomoXEnabled(header.Number) {
 		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
 			return p.applyLendingTx(statedb, tx, header, usedGas, batch)
 		}
-		// Decode failed — let the normal EVM path handle it.
 	}
 
-	// 0x94 — lending finalized trade; outer gate is IsTomoXEnabled.
+	// 0x94 — Lending finalized trade.
 	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsTomoXEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
@@ -423,14 +302,13 @@ func (p *Processor) ApplyVictionTransaction(statedb *state.StateDB, tx *types.Tr
 	return false, nil, 0, nil, nil
 }
 
-// AfterApplyTransaction accumulates the VRC25 token fee deducted for this
-// transaction into the per-block feeUpdated map. Runs only on pre-Atlas blocks.
+// Post transaction processing: - Apply zero-gas.
 func (p *Processor) AfterApplyTransaction(tx *types.Transaction, msg types.Message, statedb *state.StateDB, receipt *types.Receipt, usedGas uint64, err error) error {
-	if p.currentBlockNumber == nil {
+	if p.blockNumber == nil {
 		return nil
 	}
 
-	blockNum := p.currentBlockNumber
+	blockNum := p.blockNumber
 
 	if tx.To() == nil {
 		return nil
@@ -440,7 +318,6 @@ func (p *Processor) AfterApplyTransaction(tx *types.Transaction, msg types.Messa
 	vicCfg := p.config.Viction
 
 	if p.config.IsAtlas(blockNum) {
-		// Post-Atlas: charge VRC25 token fee for failed sponsored txs.
 		if receipt.Status == types.ReceiptStatusFailed && vicCfg != nil && vicCfg.VRC25GasPrice != nil {
 			feeCap := statedb.VicGetZeroGasCapacity(vicCfg.VRC25Contract, tx.To())
 			fee := new(big.Int).Mul(
@@ -454,17 +331,13 @@ func (p *Processor) AfterApplyTransaction(tx *types.Transaction, msg types.Messa
 		return nil
 	}
 
-	// Pre-Atlas: decrement the running fee pool and record the update for the
-	// AfterProcess flush. Shared with the tracing API via FeeProcessor, so the
-	// fee formula cannot drift.
 	failed := receipt.Status == types.ReceiptStatusFailed
-	p.fee.HandleFee(statedb, blockNum, tx, msg.From(), usedGas, failed)
+	p.fee.Process(statedb, blockNum, tx, msg.From(), usedGas, failed)
 
 	return nil
 }
 
-// applyEmptyTransaction produces a zero-gas receipt without running the EVM.
-// Used for system transactions whose effects are handled outside the EVM (0x91–0x94).
+// Process transaction as null transcation for system transactions (0x92,0x94).
 func (p *Processor) applyEmptyTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
@@ -486,14 +359,8 @@ func (p *Processor) applyEmptyTransaction(statedb *state.StateDB, tx *types.Tran
 	return true, receipt, 0, nil, nil
 }
 
-// applyTomoXTx replays a TomoX order-matching batch (0x91 transaction).
-//
-// batch is pre-decoded by the caller in ApplyVictionTransaction; no second
-// RLP decode is performed here.
-//
-// On epoch-boundary blocks (block % Epoch == 0) skips order execution
-// entirely — UpdateMediumPriceBeforeEpoch already ran in BeforeProcess.
-func (p *Processor) applyTomoXTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+// Process Trading order-matching batch transaction (0x91).
+func (p *Processor) applyTradingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
@@ -504,10 +371,8 @@ func (p *Processor) applyTomoXTx(statedb *state.StateDB, tx *types.Transaction, 
 	isEpochBlock := p.config.Posv != nil && header.Number.Uint64()%p.config.Posv.Epoch == 0
 
 	if !isEpochBlock && p.tradingStateDB != nil && p.tradingEngine != nil {
-		// Use the block author (recovered from header signature) as coinbase,
-		// not header.Coinbase which is zeroed in PoSV blocks. The author is
-		// the address passed to ValidateTradingOrder -> DoSettleBalance for
-		// masternode fee accounting.
+		// Use the block author (recovered from header signature) as coinbase, not header.Coinbase which is zeroed in PoSV blocks.
+		// The author is the address passed to ValidateTradingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
 			log.Warn("TomoX: failed to recover block author, using zero address", "err", err)
@@ -549,13 +414,7 @@ func (p *Processor) applyTomoXTx(statedb *state.StateDB, tx *types.Transaction, 
 	return true, receipt, 0, nil, nil
 }
 
-// applyLendingTx replays a TomoZ lending order-matching batch (0x93 transaction).
-//
-// batch is pre-decoded by the caller in ApplyVictionTransaction; no second
-// RLP decode is performed here.
-//
-// Mirrors the epoch-skip rule from applyTomoXTx: on epoch-boundary blocks
-// skips all order execution — UpdateMediumPriceBeforeEpoch already ran in BeforeProcess.
+// Process Lending order-matching batch transaction (0x93).
 func (p *Processor) applyLendingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
@@ -571,10 +430,8 @@ func (p *Processor) applyLendingTx(statedb *state.StateDB, tx *types.Transaction
 		p.tradingStateDB != nil &&
 		p.lendingEngine != nil {
 
-		// Use the block author (recovered from header signature) as coinbase,
-		// not header.Coinbase which is zeroed in PoSV blocks. The author is
-		// the address passed to ValidateLendingOrder -> DoSettleBalance for
-		// masternode fee accounting.
+		// Use the block author (recovered from header signature) as coinbase, not header.Coinbase which is zeroed in PoSV blocks.
+		// The author is the address passed to ValidateLendingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
 			log.Warn("TomoZ: failed to recover block author, using zero address", "err", err)
@@ -612,39 +469,20 @@ func (p *Processor) applyLendingTx(statedb *state.StateDB, tx *types.Transaction
 	return true, receipt, 0, nil, nil
 }
 
-// InitSignerInTransactions pre-caches sender addresses for all transactions in
-// parallel, amortizing ECDSA recovery before the sequential transaction loop.
-func InitSignerInTransactions(config *params.ChainConfig, header *types.Header, txs types.Transactions) {
-	if txs.Len() == 0 {
-		return
-	}
-	nWorker := runtime.NumCPU()
-	signer := types.MakeSigner(config, header.Number)
-	chunkSize := txs.Len() / nWorker
-	if txs.Len()%nWorker != 0 {
-		chunkSize++
-	}
-	wg := sync.WaitGroup{}
-	wg.Add(nWorker)
-	for i := 0; i < nWorker; i++ {
-		from := i * chunkSize
-		to := from + chunkSize
-		if to > txs.Len() {
-			to = txs.Len()
-		}
-		go func(from int, to int) {
-			defer wg.Done()
-			for j := from; j < to; j++ {
-				types.CacheSigner(signer, txs[j])
-				txs[j].CacheHash()
-			}
-		}(from, to)
-	}
-	wg.Wait()
+// ----------------------------- Native Lending --------------------------------
+
+func (p *Processor) LendingEngine() LendingEngine {
+	return p.lendingEngine
 }
 
-// GetLendingStateRoot extracts the TomoZ lending state root from the 0x92 tx.
-// The tx payload is [32 bytes trading root | 32 bytes lending root]; this returns bytes [32:64].
+func (p *Processor) HasLendingState() bool {
+	return p.lendingStateDB != nil
+}
+
+func (p *Processor) SetLendingEngine(engine LendingEngine) {
+	p.lendingEngine = engine
+}
+
 func GetLendingStateRoot(block *types.Block, tradingStateAddr common.Address, author common.Address, config *params.ChainConfig) common.Hash {
 	signer := types.MakeSigner(config, block.Number())
 	for _, tx := range block.Transactions() {
@@ -662,8 +500,24 @@ func GetLendingStateRoot(block *types.Block, tradingStateAddr common.Address, au
 	return lendingstate.EmptyRoot
 }
 
-// GetTradingStateRoot extracts the TomoX trading state root from the 0x92 tx.
-// The tx payload is [32 bytes trading root | 32 bytes lending root]; this returns bytes [0:32].
+func (p *Processor) CommittedLendingRoot() common.Hash {
+	return p.lendingCommittedRoot
+}
+
+// ----------------------------- Native Trading --------------------------------
+
+func (p *Processor) SetTradingEngine(engine TradingEngine) {
+	p.tradingEngine = engine
+}
+
+func (p *Processor) TradingEngine() TradingEngine {
+	return p.tradingEngine
+}
+
+func (p *Processor) HasTradingState() bool {
+	return p.tradingStateDB != nil
+}
+
 func GetTradingStateRoot(block *types.Block, tradingStateAddr common.Address, author common.Address, config *params.ChainConfig) common.Hash {
 	signer := types.MakeSigner(config, block.Number())
 	for _, tx := range block.Transactions() {
@@ -681,102 +535,6 @@ func GetTradingStateRoot(block *types.Block, tradingStateAddr common.Address, au
 	return tradingstate.EmptyRoot
 }
 
-// TradingEngine is the interface the TomoX engine must satisfy.
-// Defined here to avoid an import cycle between core/viction and legacy/tomox.
-type TradingEngine interface {
-	// CommitOrder replays a single order through the matching engine,
-	// mutating statedb and tradingStateDB.
-	CommitOrder(
-		header *types.Header,
-		coinbase common.Address,
-		chain tradingstate.ChainContext,
-		statedb *state.StateDB,
-		tradingStateDB *tradingstate.TradingStateDB,
-		orderBook common.Hash,
-		order *tradingstate.OrderItem,
-	) ([]map[string]string, []*tradingstate.OrderItem, error)
-
-	// GetTradingState opens the TradingStateDB trie rooted at the given block.
-	GetTradingState(block *types.Block, author common.Address) (*tradingstate.TradingStateDB, error)
-
-	// GetTradingStateRoot returns the trading state root committed in the 0x92 tx
-	// of the given block.
-	GetTradingStateRoot(block *types.Block, author common.Address) (common.Hash, error)
-
-	// UpdateMediumPriceBeforeEpoch computes epoch-averaged prices; must be called
-	// before order matching at epoch boundaries.
-	UpdateMediumPriceBeforeEpoch(epoch uint64, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB) error
-
-	// GetStateCache returns the trie-node cache backed by the tomox LevelDB.
-	// Used to flush trie nodes to disk after each block.
-	GetStateCache() tradingstate.Database
-}
-
-// LendingEngine is the interface the TomoZ lending engine must satisfy.
-// Defined here to avoid an import cycle between core/viction and legacy/tomoxlending.
-type LendingEngine interface {
-	// GetLendingStateRoot returns the lending state root embedded in the 0x92
-	// system transaction of the given block.
-	GetLendingStateRoot(block *types.Block, author common.Address) (common.Hash, error)
-
-	// GetLendingState opens the LendingStateDB trie rooted at the given block's
-	// lending state root.
-	GetLendingState(block *types.Block, author common.Address) (*lendingstate.LendingStateDB, error)
-
-	// HasLendingState reports whether the given block has a lending state trie.
-	HasLendingState(block *types.Block, author common.Address) bool
-
-	// GetStateCache returns the trie-node cache backed by the tomoxlending LevelDB.
-	// Used to flush trie nodes to disk after each block.
-	GetStateCache() lendingstate.Database
-
-	// CommitOrder applies a single lending order, reverting all state on error.
-	CommitOrder(
-		header *types.Header,
-		coinbase common.Address,
-		chain tradingstate.ChainContext,
-		statedb *state.StateDB,
-		lendingStateDB *lendingstate.LendingStateDB,
-		tradingStateDB *tradingstate.TradingStateDB,
-		lendingOrderBook common.Hash,
-		order *lendingstate.LendingItem,
-	) ([]*lendingstate.LendingTrade, []*lendingstate.LendingItem, error)
-
-	// GetCollateralPrices returns the VIC-denominated prices for the lending
-	// token and collateral token.
-	GetCollateralPrices(
-		header *types.Header,
-		chain tradingstate.ChainContext,
-		statedb *state.StateDB,
-		tradingStateDB *tradingstate.TradingStateDB,
-		collateralToken common.Address,
-		lendingToken common.Address,
-	) (*big.Int, *big.Int, error)
-
-	// GetMediumTradePriceBeforeEpoch returns the epoch-averaged trade price for
-	// the given token pair from the trading state.
-	GetMediumTradePriceBeforeEpoch(
-		chain tradingstate.ChainContext,
-		statedb *state.StateDB,
-		tradingStateDB *tradingstate.TradingStateDB,
-		baseToken common.Address,
-		quoteToken common.Address,
-	) (*big.Int, error)
-
-	// ProcessLiquidationData computes which lending trades must be liquidated,
-	// auto-repaid, topped up, or recalled at epoch boundaries.
-	ProcessLiquidationData(
-		header *types.Header,
-		chain tradingstate.ChainContext,
-		statedb *state.StateDB,
-		tradingState *tradingstate.TradingStateDB,
-		lendingState *lendingstate.LendingStateDB,
-	) (
-		updatedTrades map[common.Hash]*lendingstate.LendingTrade,
-		liquidatedTrades []*lendingstate.LendingTrade,
-		autoRepayTrades []*lendingstate.LendingTrade,
-		autoTopUpTrades []*lendingstate.LendingTrade,
-		autoRecallTrades []*lendingstate.LendingTrade,
-		err error,
-	)
+func (p *Processor) CommittedTradingRoot() common.Hash {
+	return p.tradingCommittedRoot
 }
