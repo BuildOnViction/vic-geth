@@ -58,8 +58,10 @@ type StateTransition struct {
 	data       []byte
 	state      vm.StateDB
 	evm        *vm.EVM
-	payer      common.Address
-	feePool    map[common.Address]*big.Int
+
+	// Viction-specific
+	payer  common.Address
+	zgPool map[common.Address]*big.Int
 }
 
 // Message represents a message sent to a contract.
@@ -149,7 +151,7 @@ func IntrinsicGas(data []byte, contractCreation, isHomestead bool, isEIP2028 boo
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, feePool map[common.Address]*big.Int) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common.Address]*big.Int) *StateTransition {
 	return &StateTransition{
 		gp:       gp,
 		evm:      evm,
@@ -158,7 +160,7 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, feePool map[commo
 		value:    msg.Value(),
 		data:     msg.Data(),
 		state:    evm.StateDB,
-		feePool:  feePool,
+		zgPool:   zgPool,
 	}
 }
 
@@ -169,8 +171,8 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, feePool map[commo
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, feePool map[common.Address]*big.Int) (*ExecutionResult, error) {
-	return NewStateTransition(evm, msg, gp, feePool).TransitionDb()
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common.Address]*big.Int) (*ExecutionResult, error) {
+	return NewStateTransition(evm, msg, gp, zgPool).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -182,7 +184,7 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
-	if err := st.vrc25BuyGas(); err != nil {
+	if err := st.buyGasVrc25(); err != nil {
 		return err
 	}
 
@@ -193,7 +195,7 @@ func (st *StateTransition) buyGas() error {
 
 	st.initialGas = st.msg.Gas()
 	// Pre-Atlas sponsored tx
-	if st.isVRC25Transaction() && !st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber) {
+	if st.isZeroGasTransaction() && !st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber) {
 		return nil
 	}
 	mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), st.gasPrice)
@@ -281,7 +283,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
 	st.refundGas()
-	st.applyTransactionFee()
+	st.distributeFee()
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
@@ -302,10 +304,10 @@ func (st *StateTransition) refundGas() {
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
 
 	// VRC25, Atlas gas, ...
-	isCustomGasRefunding := st.isVRC25Transaction() || st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber)
+	isCustomGasRefunding := st.isZeroGasTransaction() || st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber)
 
 	if isCustomGasRefunding {
-		st.vrc25RefundGas(remaining)
+		st.refundGasVrc25(remaining)
 	} else {
 		// If normal transaction, fallback to basic ETH refunding
 		st.state.AddBalance(st.msg.From(), remaining)

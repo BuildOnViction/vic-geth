@@ -26,152 +26,121 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 )
 
-// vrc25BuyGas checks VRC25 sponsorship eligibility and adjusts payer/gasPrice.
-func (st *StateTransition) vrc25BuyGas() error {
+// Try to buyGas with gas sponsoring on supported chain.
+func (st *StateTransition) buyGasVrc25() error {
 	st.payer = st.msg.From()
 
-	victionConfig := st.evm.ChainConfig().Viction
+	chainConfig := st.evm.ChainConfig()
+	victionConfig := chainConfig.Viction
 	if victionConfig == nil || victionConfig.VRC25Contract == (common.Address{}) {
 		return nil
 	}
 
-	blockNum := st.evm.Context.BlockNumber
-
-	if !st.evm.ChainConfig().IsAtlas(blockNum) {
-		// Pre-Atlas path: eligibility comes from the running fee pool threaded into
-		// this StateTransition. Block import seeds it in beforeProcess and
-		// decrements it via afterApplyTransaction; the tracing API seeds and
-		// decrements its own instance. A nil pool means no sponsorship — treat as a
-		// regular VIC transaction.
-		fb := st.feePool
-		if st.msg.To() == nil || fb == nil {
-			return nil
-		}
-		feeCap, ok := fb[*st.msg.To()]
-		if !ok || feeCap == nil {
-			// Token not in the registered list — treat as regular VIC tx.
+	number := st.evm.Context.BlockNumber
+	if chainConfig.IsAtlas(number) {
+		stateDb := st.state.(*state.StateDB)
+		zgCap := stateDb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, st.msg.To())
+		if zgCap == nil || zgCap.Sign() == 0 {
 			return nil
 		}
 
-		var effectiveGasPrice *big.Int
-		if st.evm.ChainConfig().TIPGasPriceBlock != nil && blockNum.Cmp(st.evm.ChainConfig().TIPGasPriceBlock) > 0 {
-			effectiveGasPrice = (*big.Int)(victionConfig.TRC21NewGasPrice) // 250,000,000
-		} else {
-			effectiveGasPrice = (*big.Int)(victionConfig.TRC21GasPrice) // 2,500
-		}
-
-		mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), effectiveGasPrice)
-		if feeCap.Cmp(mgval) < 0 {
-			// Token is registered but capacity is insufficient — fall through
-			// to regular VIC path.  buyGas will then check the sender's VIC
-			// balance at the original gasPrice (which for VRC25 txs is
-			// typically 0, so this effectively rejects the tx with
-			// ErrInsufficientFunds
+		vrc25GasPrice := (*big.Int)(victionConfig.VRC25GasPrice)
+		vrc25GasAmount := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), vrc25GasPrice)
+		if zgCap.Cmp(vrc25GasAmount) <= 0 {
 			return nil
 		}
-		// Set payer = VRC25Contract so isVRC25Transaction() returns true.
-		// buyGas will skip the balance check and SubBalance for pre-Atlas sponsored txs.
-		st.gasPrice = effectiveGasPrice
+
+		st.gasPrice = vrc25GasPrice
 		st.payer = victionConfig.VRC25Contract
 		return nil
 	}
 
-	// Post-Atlas: read capacity from statedb (each tx writes back via vrc25RefundGas).
-	stateDb := st.state.(*state.StateDB)
-	feeCap := stateDb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, st.msg.To())
-	if feeCap == nil || feeCap.Sign() == 0 {
+	zgPool := st.zgPool
+	if st.msg.To() == nil || zgPool == nil {
+		return nil
+	}
+	zgCap, ok := zgPool[*st.msg.To()]
+	if !ok || zgCap == nil {
 		return nil
 	}
 
-	vrc25GasPrice := (*big.Int)(victionConfig.VRC25GasPrice)
-	vrc25GasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), vrc25GasPrice)
-	if feeCap.Cmp(vrc25GasFee) <= 0 {
-		return nil
+	gasPrice := (*big.Int)(victionConfig.TRC21NewGasPrice)
+	if !chainConfig.IsTIPGasPrice(number) {
+		gasPrice = (*big.Int)(victionConfig.TRC21GasPrice)
 	}
 
-	st.gasPrice = vrc25GasPrice
+	gasAmount := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), gasPrice)
+	if zgCap.Cmp(gasAmount) < 0 {
+		return nil
+	}
+	st.gasPrice = gasPrice
 	st.payer = victionConfig.VRC25Contract
 	return nil
 }
 
-func (st *StateTransition) isVRC25Transaction() bool {
-	return st.payer != st.msg.From()
-}
+// refundGasVrc25 handles gas refund for sponsored transactions.
+func (st *StateTransition) refundGasVrc25(remaining *big.Int) {
+	number := st.evm.Context.BlockNumber
+	chainConfig := st.evm.ChainConfig()
+	victionConfig := chainConfig.Viction
+	statedb := st.state.(*state.StateDB)
 
-// vrc25RefundGas handles gas refund for sponsored transactions.
-func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
-	blockNum := st.evm.Context.BlockNumber
-	stateDb := st.state.(*state.StateDB)
-
-	if st.isVRC25Transaction() {
-		if !st.evm.ChainConfig().IsAtlas(blockNum) {
-			// Pre-Atlas VRC25: buyGas was skipped entirely, nothing to refund.
+	if st.isZeroGasTransaction() {
+		if !chainConfig.IsAtlas(number) {
+			// PreAtlas ZG: buyGas was skipped, nothing to refund.
 			return
 		}
 
-		// Post-Atlas VRC25: deduct exactly gasUsed * price from the token's storage slot.
+		// Atlas ZG: deduct exactly gasUsed * price from the token's storage slot.
 		addr := st.msg.To()
-		victionConfig := st.evm.ChainConfig().Viction
-		vrc25Contract := victionConfig.VRC25Contract
-		feeCap := stateDb.VicGetZeroGasCapacity(vrc25Contract, addr)
-		if feeCap != nil {
-			gasUsedFee := new(big.Int).Mul(
-				new(big.Int).SetUint64(st.gasUsed()),
-				(*big.Int)(victionConfig.VRC25GasPrice),
-			)
-			stateDb.VicSetVrc25Balance(vrc25Contract, *addr, new(big.Int).Sub(feeCap, gasUsedFee))
+		zgCap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, addr)
+		if zgCap != nil {
+			gasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionConfig.VRC25GasPrice))
+			statedb.VicSetVrc25Balance(victionConfig.VRC25Contract, *addr, new(big.Int).Sub(zgCap, gasFee))
 		}
 		// Refund remaining native balance to the VRC25 issuer contract.
 		st.state.AddBalance(st.payer, remaining)
-	} else if st.evm.ChainConfig().IsPostAtlas(blockNum) {
-		// PostAtlas normal tx: refund remaining gas to sender.
+	} else if chainConfig.IsPostAtlas(number) {
+		// PostAtlas: refund remaining gas to sender.
 		st.state.AddBalance(st.msg.From(), remaining)
 	}
-	// Between Atlas and PostAtlas, normal tx: no refund (gas burned).
+	// Between Atlas and PostAtlas: no refund (gas burned).
 }
 
-// applyTransactionFee distributes the transaction fee to the correct recipient.
-//
-// After the TIPGasPrice fork the fee goes to the validator-owner stored on-chain
-// inside VictionConfig.ValidatorContract. Before that fork, or when no owner is
-// registered, the fee falls back to the block coinbase.
-//
-// When the Atlas fork is active and this is a VRC25-sponsored transaction the fee
-// amount is re-derived using VictionConfig.VRC25GasPrice (which matches the price
-// already used in buyGas / refundGas) instead of the regular gasPrice.
-func (st *StateTransition) applyTransactionFee() {
-	victionCfg := st.evm.ChainConfig().Viction
-	blockNum := st.evm.Context.BlockNumber
+func (st *StateTransition) isZeroGasTransaction() bool {
+	return st.payer != st.msg.From()
+}
 
-	txFee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice)
+// distributeFee distributes the transaction fee to the correct recipient.
+func (st *StateTransition) distributeFee() {
+	number := st.evm.Context.BlockNumber
+	chainConfig := st.evm.ChainConfig()
+	victionConfig := chainConfig.Viction
 
-	if victionCfg == nil {
-		// Non-Viction chain: fee always goes to the coinbase.
-		st.state.AddBalance(st.evm.Context.Coinbase, txFee)
+	gasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice)
+
+	if victionConfig == nil {
+		// Non-Viction blockchain: fee always goes to the coinbase.
+		st.state.AddBalance(st.evm.Context.Coinbase, gasFee)
 		return
 	}
 
-	// After Atlas HF, VRC25-sponsored transactions carry a different gas price that
-	// was set on st.gasPrice in vrc25BuyGas. However, if IsAtlas and we are a VRC25
-	// transaction the gasPrice was already overridden to VRC25GasPrice, so txFee is
-	// already correct. Explicitly recalculate only when VRC25GasPrice is set and the
-	// current gasPrice could have been overridden (i.e., IsAtlas is active).
-	if st.evm.ChainConfig().IsAtlas(blockNum) && st.isVRC25Transaction() && victionCfg.VRC25GasPrice != nil {
-		txFee = new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionCfg.VRC25GasPrice))
+	// Atlas: Fee is enforced with fixed price and go to validator-owner as Atlas require TIPGasPrice.
+	if st.isZeroGasTransaction() && chainConfig.IsAtlas(number) && victionConfig.VRC25GasPrice != nil {
+		gasFee = new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionConfig.VRC25GasPrice))
 	}
 
-	// Before TIPGasPrice fork: fee goes to the block coinbase.
-	chainCfg := st.evm.ChainConfig()
-	if chainCfg.TIPGasPriceBlock == nil || blockNum.Cmp(chainCfg.TIPGasPriceBlock) <= 0 {
-		st.state.AddBalance(st.evm.Context.Coinbase, txFee)
+	// TIPGasPrice: fee goes to validator-owner.
+	if chainConfig.IsTIPGasPrice(number) {
+		slot := state.StorageLocationOfValidatorOwner(st.evm.Context.Coinbase)
+		ownerHash := st.state.GetState(victionConfig.ValidatorContract, slot)
+		owner := common.BytesToAddress(ownerHash.Bytes())
+		if owner != (common.Address{}) {
+			st.state.AddBalance(owner, gasFee)
+		}
 		return
 	}
 
-	// After TIPGasPrice fork: route fee to the registered owner of the validator.
-	slot := state.StorageLocationOfValidatorOwner(st.evm.Context.Coinbase)
-	ownerHash := st.state.GetState(victionCfg.ValidatorContract, slot)
-	owner := common.BytesToAddress(ownerHash.Bytes())
-	if owner != (common.Address{}) {
-		st.state.AddBalance(owner, txFee)
-	}
+	// Pre-TIPGasPrice: fee goes to the coinbase.
+	st.state.AddBalance(st.evm.Context.Coinbase, gasFee)
 }

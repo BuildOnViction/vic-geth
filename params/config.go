@@ -494,7 +494,7 @@ func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
 
 // IsTIPGasPrice returns whether num is either equal to the TIPGasPrice fork block or greater.
 func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
-	return isForked(c.TIPGasPriceBlock, num)
+	return isForkedExclusive(c.TIPGasPriceBlock, num)
 }
 
 // IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
@@ -753,6 +753,14 @@ func isForked(s, head *big.Int) bool {
 		return false
 	}
 	return s.Cmp(head) <= 0
+}
+
+// isForkedExclusive returns whether a fork scheduled at block s is active at the given head block + 1.
+func isForkedExclusive(s, head *big.Int) bool {
+	if s == nil || head == nil {
+		return false
+	}
+	return s.Cmp(head) < 0
 }
 
 func configNumEqual(x, y *big.Int) bool {
