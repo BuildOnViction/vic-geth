@@ -54,10 +54,3 @@ func StorageLocationOfFixedArrayElement(arraySlot StorageLocation, elementIndex 
 	)
 	return StorageLocation(new(big.Int).Add(arraySlot.Big(), offset).Bytes())
 }
-
-func StorageLocationOfValidatorOwner(candidate common.Address) common.Hash {
-	slot := vicValidatorStorageMap["validatorsState"] // uint64 slot index
-	mappingSlot := StorageLocationFromSlot(slot)      // 32‑byte slot
-	loc := StorageLocationOfMappingElement(mappingSlot, candidate.Hash().Bytes())
-	return loc.Hash() // common.Hash to use with GetState
-}

@@ -101,7 +101,7 @@ type blockTraceResult struct {
 type txTraceTask struct {
 	statedb *state.StateDB   // Intermediate state prepped for tracing
 	index   int              // Transaction offset in the block
-	feePool types.BalanceMap // Running VRC25 fee capacities as of this tx (copy)
+	zp      types.BalanceMap // Running VRC25 fee capacities as of this tx (copy)
 }
 
 // TraceChain returns the structured logs created during the execution of EVM
@@ -483,7 +483,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			// Fetch and execute the next transaction trace tasks
 			for task := range jobs {
 				msg, _ := txs[task.index].AsMessage(signer)
-				res, err := api.traceTx(ctx, msg, blockCtx, task.statedb, task.feePool, config)
+				res, err := api.traceTx(ctx, msg, blockCtx, task.statedb, task.zp, config)
 				if err != nil {
 					results[task.index] = &txTraceResult{Error: err.Error()}
 					continue
@@ -498,7 +498,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	// state, and the driver decrements it as it advances the shared state — so a
 	// task sees the capacities as they stood just before its own transaction.
 	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
-	feePool := vp.ZeroGasPool()
+	zp := vp.ZeroGasPool()
 	var failed error
 	for i, tx := range txs {
 		msg, _ := tx.AsMessage(signer)
@@ -509,13 +509,13 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			break
 		}
 		// Send the trace task over for execution
-		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, feePool: vp.Copy().ZeroGasPool()}
+		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, zp: vp.Copy().ZeroGasPool()}
 
 		// Generate the next state snapshot fast without tracing
 		txContext := core.NewEVMTxContext(msg)
 
 		vmenv := vm.NewEVM(blockCtx, txContext, statedb, cfg, vm.Config{})
-		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), feePool)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
 		if err != nil {
 			failed = err
 			break
@@ -602,7 +602,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 	// Running VRC25 fee pool for the block, decremented per tx as execution
 	// advances, so sponsored transactions are reproduced with correct capacities.
 	vp := core.NewTxVictionProcessor(chainConfig, statedb, block.Number())
-	feePool := vp.ZeroGasPool()
+	zp := vp.ZeroGasPool()
 	for i, tx := range block.Transactions() {
 		// Prepare the trasaction for un-traced execution
 		var (
@@ -641,7 +641,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		}
 		// Execute the transaction and flush any traces to disk
 		vmenv := vm.NewEVM(vmctx, txContext, statedb, chainConfig, vmConf)
-		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), feePool)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
 		if writer != nil {
 			writer.Flush()
 		}
@@ -779,9 +779,9 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceConfig) (interface{}, error) {
 	// First try to retrieve the state
 	statedb, header, err := api.eth.APIBackend.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	// feePool is populated only when state is recomputed from a block below;
+	// zp is populated only when state is recomputed from a block below;
 	// nil otherwise (the live-state path needs no sponsorship pool).
-	var feePool types.BalanceMap
+	var zp types.BalanceMap
 	if err != nil {
 		// Try to retrieve the specified block
 		var block *types.Block
@@ -798,7 +798,7 @@ func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs,
 		if config != nil && config.Reexec != nil {
 			reexec = *config.Reexec
 		}
-		_, _, statedb, feePool, err = api.computeTxEnv(block, 0, reexec)
+		_, _, statedb, zp, err = api.computeTxEnv(block, 0, reexec)
 		if err != nil {
 			return nil, err
 		}
@@ -807,13 +807,13 @@ func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs,
 	// Execute the trace
 	msg := args.ToMessage(api.eth.APIBackend.RPCGasCap())
 	vmctx := core.NewEVMBlockContext(header, api.eth.blockchain, nil)
-	return api.traceTx(ctx, msg, vmctx, statedb, feePool, config)
+	return api.traceTx(ctx, msg, vmctx, statedb, zp, config)
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, vmctx vm.BlockContext, statedb *state.StateDB, feePool types.BalanceMap, config *TraceConfig) (interface{}, error) {
+func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, vmctx vm.BlockContext, statedb *state.StateDB, zp types.BalanceMap, config *TraceConfig) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer    vm.Tracer
@@ -850,7 +850,7 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 	// Run the transaction with tracing enabled.
 	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.eth.blockchain.Config(), vm.Config{Debug: true, Tracer: tracer})
 
-	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), feePool)
+	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), zp)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %v", err)
 	}
@@ -902,7 +902,7 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 	// Running fee pool, decremented per replayed tx so the target tx sees the
 	// capacities as they stood just before it.
 	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
-	feePool := vp.ZeroGasPool()
+	zp := vp.ZeroGasPool()
 
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
@@ -915,11 +915,11 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 		txContext := core.NewEVMTxContext(msg)
 		context := core.NewEVMBlockContext(block.Header(), api.eth.blockchain, nil)
 		if idx == txIndex {
-			return msg, context, statedb, feePool, nil
+			return msg, context, statedb, zp, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(context, txContext, statedb, cfg, vm.Config{})
-		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), feePool)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp)
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}

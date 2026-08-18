@@ -25,6 +25,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -60,8 +61,8 @@ type StateTransition struct {
 	evm        *vm.EVM
 
 	// Viction-specific
-	payer  common.Address
-	zgPool map[common.Address]*big.Int
+	payer common.Address
+	zp    types.BalanceMap
 }
 
 // Message represents a message sent to a contract.
@@ -151,7 +152,7 @@ func IntrinsicGas(data []byte, contractCreation, isHomestead bool, isEIP2028 boo
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common.Address]*big.Int) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zp types.BalanceMap) *StateTransition {
 	return &StateTransition{
 		gp:       gp,
 		evm:      evm,
@@ -160,7 +161,7 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common
 		value:    msg.Value(),
 		data:     msg.Data(),
 		state:    evm.StateDB,
-		zgPool:   zgPool,
+		zp:       zp,
 	}
 }
 
@@ -171,8 +172,8 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, zgPool map[common.Address]*big.Int) (*ExecutionResult, error) {
-	return NewStateTransition(evm, msg, gp, zgPool).TransitionDb()
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, zp types.BalanceMap) (*ExecutionResult, error) {
+	return NewStateTransition(evm, msg, gp, zp).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -184,25 +185,25 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
-	if err := st.buyGasVrc25(); err != nil {
+	ok, err := st.buyGasZG()
+	if err != nil {
 		return err
 	}
-
+	mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), st.gasPrice)
+	if !ok {
+		if have, want := st.state.GetBalance(st.msg.From()), mgval; have.Cmp(want) < 0 {
+			return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have, want)
+		}
+	}
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
 	}
 	st.gas += st.msg.Gas()
 
 	st.initialGas = st.msg.Gas()
-	// Pre-Atlas sponsored tx
-	if st.isZeroGasTransaction() && !st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber) {
-		return nil
+	if !ok {
+		st.state.SubBalance(st.msg.From(), mgval)
 	}
-	mgval := new(big.Int).Mul(new(big.Int).SetUint64(st.msg.Gas()), st.gasPrice)
-	if have, want := st.state.GetBalance(st.payer), mgval; have.Cmp(want) < 0 {
-		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.payer.Hex(), have, want)
-	}
-	st.state.SubBalance(st.payer, mgval)
 	return nil
 }
 
@@ -256,9 +257,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	contractCreation := msg.To() == nil
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	// On Viction (Posv) networks, EIP-2028 data gas reduction is intentionally not applied:
-	isEIP2028 := istanbul && st.evm.ChainConfig().Posv == nil
-	gas, err := IntrinsicGas(st.data, contractCreation, homestead, isEIP2028)
+	// TODO: On Viction, EIP-2028 migration is incomplete, this will be active next hard fork.
+	nonViction := st.evm.ChainConfig().Viction == nil
+	gas, err := IntrinsicGas(st.data, contractCreation, homestead, istanbul && nonViction)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +284,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
 	st.refundGas()
-	st.distributeFee()
+	ok := st.rewardValidatorOwner()
+	if !ok {
+		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
+	}
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
@@ -302,14 +306,8 @@ func (st *StateTransition) refundGas() {
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-
-	// VRC25, Atlas gas, ...
-	isCustomGasRefunding := st.isZeroGasTransaction() || st.evm.ChainConfig().IsAtlas(st.evm.Context.BlockNumber)
-
-	if isCustomGasRefunding {
-		st.refundGasVrc25(remaining)
-	} else {
-		// If normal transaction, fallback to basic ETH refunding
+	ok := st.refundGasZG(remaining)
+	if !ok {
 		st.state.AddBalance(st.msg.From(), remaining)
 	}
 
