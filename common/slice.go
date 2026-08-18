@@ -37,6 +37,14 @@ func AreSimilarSlices[T comparable](a, b []T) bool {
 	return true
 }
 
+// Return the forward distance from parentIndex to currentIndex on a circular list with length.
+func CircularDistance(currentIndex, parentIndex, length int) int {
+	if currentIndex > parentIndex {
+		return currentIndex - parentIndex
+	}
+	return length + currentIndex - parentIndex
+}
+
 // Return index of the element e in slice s. Return -1 if not found.
 func IndexOf[T comparable](s []T, e T) int {
 	for i, item := range s {
