@@ -110,7 +110,13 @@ func (c *Posv) VerifyUncles(chain consensus.ChainReader, block *types.Block) err
 	return nil
 }
 
-// verifyHeader checks whether a header conforms to the consensus rules.
+// VerifySeal implements consensus.Engine, checking whether the signature contained
+// in the header satisfies the consensus protocol requirements.
+func (c *Posv) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
+	return c.verifySeal(chain, header, nil, true)
+}
+
+// Checks whether a header conforms to the consensus rules.
 func (c *Posv) verifyHeaderWithCache(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, seal bool) error {
 	if header == nil {
 		return errUnknownBlock
@@ -349,8 +355,32 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signersNext()
-	return validateRemoteHeader(header, snapshotValidators)
+	snapshotValidators := snap.signers()
+	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
+		return nil
+	} else {
+		log.Warn("[PoSV] Verify header from snapshot failed. Retry with state.", "number", number, "err", err)
+	}
+
+	// Retry to verify remote header using state.
+	var lastErr error
+	var contractValidators []common.Address
+	for gapBlockNumber = number - posvConfig.Gap; gapBlockNumber < number; gapBlockNumber++ {
+		gapHeader := chain.GetHeaderByNumber(gapBlockNumber)
+		if gapHeader == nil {
+			continue
+		}
+		validators, err := c.backend.PosvGetValidators(config, victionConfig, gapHeader, chain)
+		if err == nil && len(validators) > 0 {
+			contractValidators = validators
+			break
+		}
+		lastErr = err
+	}
+	if len(contractValidators) == 0 {
+		return lastErr
+	}
+	return validateRemoteHeader(header, contractValidators)
 }
 
 // verifySeal checks whether the signature contained in the header satisfies the
