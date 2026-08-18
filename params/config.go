@@ -304,34 +304,34 @@ var (
 	// AllPosvProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the PoSV consensus.
 	AllPosvProtocolChanges = &ChainConfig{
-		ChainID:                big.NewInt(1337),
-		HomesteadBlock:         big.NewInt(0),
-		DAOForkBlock:           nil,
-		DAOForkSupport:         false,
-		EIP150Block:            big.NewInt(0),
-		EIP155Block:            big.NewInt(0),
-		EIP158Block:            big.NewInt(0),
-		ByzantiumBlock:         big.NewInt(0),
-		TIP2019Block:           big.NewInt(0),
-		TIPSigningBlock:        big.NewInt(0),
-		TIPRandomizeBlock:      big.NewInt(0),
-		TIPBlacklistBlock:      big.NewInt(0),
-		TIPTRC21FeeBlock:       big.NewInt(0),
-		TIPFixSignerCheckBlock: big.NewInt(0),
-		TIPTomoXBlock:          big.NewInt(0),
-		TIPTomoXLendingBlock:   big.NewInt(0),
-		TIPTomoXCancelFeeBlock: big.NewInt(0),
-		ConstantinopleBlock:    big.NewInt(0),
-		PetersburgBlock:        big.NewInt(0),
-		IstanbulBlock:          big.NewInt(0),
-		MuirGlacierBlock:       big.NewInt(0),
-		SaigonBlock:            big.NewInt(0),
-		AtlasBlock:             big.NewInt(0),
-		PrePrometheusBlock:     big.NewInt(0),
-		BerlinBlock:            big.NewInt(0),
-		LondonBlock:            big.NewInt(0),
-		Ethash:                 nil,
-		Posv:                   &PosvConfig{Period: 2, Epoch: 900, Gap: 5},
+		ChainID:               big.NewInt(1337),
+		HomesteadBlock:        big.NewInt(0),
+		DAOForkBlock:          nil,
+		DAOForkSupport:        false,
+		EIP150Block:           big.NewInt(0),
+		EIP155Block:           big.NewInt(0),
+		EIP158Block:           big.NewInt(0),
+		ByzantiumBlock:        big.NewInt(0),
+		TIP2019Block:          big.NewInt(0),
+		TIPSigningBlock:       big.NewInt(0),
+		TIPRandomizeBlock:     big.NewInt(0),
+		TIPBlacklistBlock:     big.NewInt(0),
+		TIPGasPriceBlock:      big.NewInt(0),
+		TIPSignerCheckBlock:   big.NewInt(0),
+		TIPNativeTradingBlock: big.NewInt(0),
+		TIPNativeLendingBlock: big.NewInt(0),
+		TIP2021Block:          big.NewInt(0),
+		ConstantinopleBlock:   big.NewInt(0),
+		PetersburgBlock:       big.NewInt(0),
+		IstanbulBlock:         big.NewInt(0),
+		MuirGlacierBlock:      big.NewInt(0),
+		SaigonBlock:           big.NewInt(0),
+		AtlasBlock:            big.NewInt(0),
+		PostAtlasBlock:        big.NewInt(0),
+		BerlinBlock:           big.NewInt(0),
+		LondonBlock:           big.NewInt(0),
+		Ethash:                nil,
+		Posv:                  &PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 	}
 
 	TestChainConfig = &ChainConfig{
@@ -437,19 +437,19 @@ type ChainConfig struct {
 	CatalystBlock *big.Int `json:"catalystBlock,omitempty"` // Catalyst switch block (nil = no fork, 0 = already on catalyst)
 
 	// Viction network upgrades
-	TIP2019Block           *big.Int `json:"tip2019Block,omitempty"`
-	TIPSigningBlock        *big.Int `json:"tipSigningBlock,omitempty"`
-	TIPRandomizeBlock      *big.Int `json:"tipRandomizeBlock,omitempty"`
-	TIPBlacklistBlock      *big.Int `json:"tipBlacklistBlock,omitempty"`
-	TIPTRC21FeeBlock       *big.Int `json:"tipTRC21FeeBlock,omitempty"`
-	TIPFixSignerCheckBlock *big.Int `json:"tipFixSignerCheckBlock,omitempty"`
-	TIPTomoXBlock          *big.Int `json:"tipTomoXBlock,omitempty"`
-	TIPTomoXLendingBlock   *big.Int `json:"tipTomoXLendingBlock,omitempty"`
-	TIPTomoXCancelFeeBlock *big.Int `json:"tipTomoXCancelFeeBlock,omitempty"`
+	TIP2019Block          *big.Int `json:"tip2019Block,omitempty"`
+	TIPSigningBlock       *big.Int `json:"tipSigningBlock,omitempty"`
+	TIPRandomizeBlock     *big.Int `json:"tipRandomizeBlock,omitempty"`
+	TIPBlacklistBlock     *big.Int `json:"tipBlacklistBlock,omitempty"`
+	TIPGasPriceBlock      *big.Int `json:"tipGasPriceBlock,omitempty"`
+	TIPSignerCheckBlock   *big.Int `json:"tipSignerCheckBlock,omitempty"`
+	TIPNativeTradingBlock *big.Int `json:"tipNativeTradingBlock,omitempty"`
+	TIPNativeLendingBlock *big.Int `json:"tipNativeLendingBlock,omitempty"`
+	TIP2021Block          *big.Int `json:"tip2021Block,omitempty"`
 
-	SaigonBlock        *big.Int `json:"saigonBlock,omitempty"`
-	AtlasBlock         *big.Int `json:"atlasBlock,omitempty"`
-	PrePrometheusBlock *big.Int `json:"prePrometheusBlock,omitempty"`
+	SaigonBlock    *big.Int `json:"saigonBlock,omitempty"`
+	AtlasBlock     *big.Int `json:"atlasBlock,omitempty"`
+	PostAtlasBlock *big.Int `json:"postAtlasBlock,omitempty"`
 
 	// Various consensus engines
 	Ethash  *EthashConfig  `json:"ethash,omitempty"`
@@ -494,6 +494,16 @@ func (c *PosvConfig) BlocksPerYear() uint64 {
 	return 31536000 / c.Period
 }
 
+// Check if given block number is checkpoint block.
+func (c *PosvConfig) IsCheckpointBlock(number uint64) bool {
+	return number%c.Epoch == 0
+}
+
+// Check if given block number is gap block.
+func (c *PosvConfig) IsGapBlock(number uint64) bool {
+	return number%c.Epoch == c.Epoch-c.Gap
+}
+
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
 	var engine interface{}
@@ -507,7 +517,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v PostAtlas: %v Berlin: %v London: %v Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -516,10 +526,20 @@ func (c *ChainConfig) String() string {
 		c.EIP155Block,
 		c.EIP158Block,
 		c.ByzantiumBlock,
+		c.TIP2019Block,
+		c.TIPSigningBlock,
+		c.TIPRandomizeBlock,
+		c.TIPGasPriceBlock,
+		c.TIPNativeTradingBlock,
+		c.TIPNativeLendingBlock,
+		c.TIP2021Block,
 		c.ConstantinopleBlock,
 		c.PetersburgBlock,
 		c.IstanbulBlock,
 		c.MuirGlacierBlock,
+		c.SaigonBlock,
+		c.AtlasBlock,
+		c.PostAtlasBlock,
 		c.BerlinBlock,
 		c.LondonBlock,
 		engine,
@@ -576,44 +596,44 @@ func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
 	return isForked(c.TIPBlacklistBlock, num)
 }
 
-// IsTIPTRC21Fee returns whether num is either equal to the TIPTRC21Fee fork block or greater.
-func (c *ChainConfig) IsTIPTRC21Fee(num *big.Int) bool {
-	return isForked(c.TIPTRC21FeeBlock, num)
+// IsTIPGasPrice returns whether num is either equal to the TIPGasPrice fork block or greater.
+func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
+	return isForked(c.TIPGasPriceBlock, num)
 }
 
-// IsTIPFixSignerCheck returns whether num is either equal to the TIPFixSignerCheck fork block or greater.
-func (c *ChainConfig) IsTIPFixSignerCheck(num *big.Int) bool {
-	return isForked(c.TIPFixSignerCheckBlock, num)
+// IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
+func (c *ChainConfig) IsTIPSignerCheck(num *big.Int) bool {
+	return isForked(c.TIPSignerCheckBlock, num)
 }
 
-// IsTIPTomoX returns whether num is either equal to the TIPTomoX fork block or greater.
-func (c *ChainConfig) IsTIPTomoX(num *big.Int) bool {
-	return isForked(c.TIPTomoXBlock, num)
+// IsTIPNativeTrading returns whether num is either equal to the TIPNativeTrading fork block or greater.
+func (c *ChainConfig) IsTIPNativeTrading(num *big.Int) bool {
+	return isForked(c.TIPNativeTradingBlock, num)
 }
 
-// IsTIPTomoXLending returns whether num is either equal to the TIPTomoXLending fork block or greater.
-func (c *ChainConfig) IsTIPTomoXLending(num *big.Int) bool {
-	return isForked(c.TIPTomoXLendingBlock, num)
+// IsTIPNativeLending returns whether num is either equal to the TIPNativeLending fork block or greater.
+func (c *ChainConfig) IsTIPNativeLending(num *big.Int) bool {
+	return isForked(c.TIPNativeLendingBlock, num)
 }
 
 // IsZeroGasEnabled returns true when TomoXTrading or Atlas is active.
 func (c *ChainConfig) IsZeroGasEnabled(num *big.Int) bool {
-	return isForked(c.TIPTomoXBlock, num) || isForked(c.AtlasBlock, num)
+	return isForked(c.TIPNativeTradingBlock, num) || isForked(c.AtlasBlock, num)
 }
 
 // IsNativeTradingEnabled returns true when TomoXTrading order processing is active: after TIPTomoX and before Atlas.
 func (c *ChainConfig) IsNativeTradingEnabled(num *big.Int) bool {
-	return isForked(c.TIPTomoXBlock, num) && !isForked(c.AtlasBlock, num)
+	return isForked(c.TIPNativeTradingBlock, num) && !isForked(c.AtlasBlock, num)
 }
 
 // IsNativeLendingEnabled returns true when TomoXLending order processing is active: after TIPTomoXLending and before Atlas.
 func (c *ChainConfig) IsNativeLendingEnabled(num *big.Int) bool {
-	return isForked(c.TIPTomoXLendingBlock, num) && !isForked(c.AtlasBlock, num)
+	return isForked(c.TIPNativeLendingBlock, num) && !isForked(c.AtlasBlock, num)
 }
 
-// IsTIPTomoXCancelFee returns whether num is either equal to the TIPTomoXCancelFee fork block or greater.
-func (c *ChainConfig) IsTIPTomoXCancelFee(num *big.Int) bool {
-	return isForked(c.TIPTomoXCancelFeeBlock, num)
+// IsTIP2021 returns whether num is either equal to the TIP2021 fork block or greater.
+func (c *ChainConfig) IsTIP2021(num *big.Int) bool {
+	return isForked(c.TIP2021Block, num)
 }
 
 // IsConstantinople returns whether num is either equal to the Constantinople fork block or greater.
@@ -648,9 +668,9 @@ func (c *ChainConfig) IsAtlas(num *big.Int) bool {
 	return isForked(c.AtlasBlock, num)
 }
 
-// IsPrePrometheus returns whether num is either equal to the PrePrometheus fork block or greater.
-func (c *ChainConfig) IsPrePrometheus(num *big.Int) bool {
-	return isForked(c.PrePrometheusBlock, num)
+// IsPostAtlas returns whether num is either equal to the PostAtlas fork block or greater.
+func (c *ChainConfig) IsPostAtlas(num *big.Int) bool {
+	return isForked(c.PostAtlasBlock, num)
 }
 
 // IsBerlin returns whether num is either equal to the Berlin fork block or greater.
@@ -705,19 +725,19 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "tip2019Block", block: c.TIP2019Block},
 		{name: "tipSigningBlock", block: c.TIPSigningBlock},
 		{name: "tipRandomizeBlock", block: c.TIPRandomizeBlock},
-		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock},
-		{name: "tipTRC21FeeBlock", block: c.TIPTRC21FeeBlock},
-		{name: "tipFixSignerCheckBlock", block: c.TIPFixSignerCheckBlock},
-		{name: "tipTomoXBlock", block: c.TIPTomoXBlock, optional: true},
-		{name: "tipTomoXLendingBlock", block: c.TIPTomoXLendingBlock, optional: true},
-		{name: "tipTomoXCancelFeeBlock", block: c.TIPTomoXCancelFeeBlock, optional: true},
+		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock, optional: true},
+		{name: "tipGasPriceBlock", block: c.TIPGasPriceBlock},
+		{name: "tipSignerCheckBlock", block: c.TIPSignerCheckBlock, optional: true},
+		{name: "tipNativeTradingBlock", block: c.TIPNativeTradingBlock, optional: true},
+		{name: "tipNativeLendingBlock", block: c.TIPNativeLendingBlock, optional: true},
+		{name: "tip2021Block", block: c.TIP2021Block, optional: true},
 		{name: "constantinopleBlock", block: c.ConstantinopleBlock},
 		{name: "petersburgBlock", block: c.PetersburgBlock},
 		{name: "istanbulBlock", block: c.IstanbulBlock},
 		{name: "muirGlacierBlock", block: c.MuirGlacierBlock, optional: true},
 		{name: "saigonBlock", block: c.SaigonBlock},
 		{name: "atlasBlock", block: c.AtlasBlock},
-		{name: "prePrometheusBlock", block: c.PrePrometheusBlock},
+		{name: "postAtlasBlock", block: c.PostAtlasBlock},
 		{name: "berlinBlock", block: c.BerlinBlock},
 		{name: "londonBlock", block: c.LondonBlock},
 	} {
@@ -783,20 +803,20 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock, head) {
 		return newCompatError("TIPBlacklist fork block", c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock)
 	}
-	if isForkIncompatible(c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock, head) {
-		return newCompatError("TIPTRC21Fee fork block", c.TIPTRC21FeeBlock, newcfg.TIPTRC21FeeBlock)
+	if isForkIncompatible(c.TIPGasPriceBlock, newcfg.TIPGasPriceBlock, head) {
+		return newCompatError("TIPGasPrice fork block", c.TIPGasPriceBlock, newcfg.TIPGasPriceBlock)
 	}
-	if isForkIncompatible(c.TIPFixSignerCheckBlock, newcfg.TIPFixSignerCheckBlock, head) {
-		return newCompatError("TIPFixSignerCheck fork block", c.TIPFixSignerCheckBlock, newcfg.TIPFixSignerCheckBlock)
+	if isForkIncompatible(c.TIPSignerCheckBlock, newcfg.TIPSignerCheckBlock, head) {
+		return newCompatError("TIPSignerCheck fork block", c.TIPSignerCheckBlock, newcfg.TIPSignerCheckBlock)
 	}
-	if isForkIncompatible(c.TIPTomoXBlock, newcfg.TIPTomoXBlock, head) {
-		return newCompatError("TIPTomoX fork block", c.TIPTomoXBlock, newcfg.TIPTomoXBlock)
+	if isForkIncompatible(c.TIPNativeTradingBlock, newcfg.TIPNativeTradingBlock, head) {
+		return newCompatError("TIPNativeTrading fork block", c.TIPNativeTradingBlock, newcfg.TIPNativeTradingBlock)
 	}
-	if isForkIncompatible(c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock, head) {
-		return newCompatError("TIPTomoXLending fork block", c.TIPTomoXLendingBlock, newcfg.TIPTomoXLendingBlock)
+	if isForkIncompatible(c.TIPNativeLendingBlock, newcfg.TIPNativeLendingBlock, head) {
+		return newCompatError("TIPNativeLending fork block", c.TIPNativeLendingBlock, newcfg.TIPNativeLendingBlock)
 	}
-	if isForkIncompatible(c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock, head) {
-		return newCompatError("TIPTomoXCancelFee fork block", c.TIPTomoXCancelFeeBlock, newcfg.TIPTomoXCancelFeeBlock)
+	if isForkIncompatible(c.TIP2021Block, newcfg.TIP2021Block, head) {
+		return newCompatError("TIP2021 fork block", c.TIP2021Block, newcfg.TIP2021Block)
 	}
 	if isForkIncompatible(c.ConstantinopleBlock, newcfg.ConstantinopleBlock, head) {
 		return newCompatError("Constantinople fork block", c.ConstantinopleBlock, newcfg.ConstantinopleBlock)
@@ -820,8 +840,8 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.AtlasBlock, newcfg.AtlasBlock, head) {
 		return newCompatError("Atlas fork block", c.AtlasBlock, newcfg.AtlasBlock)
 	}
-	if isForkIncompatible(c.PrePrometheusBlock, newcfg.PrePrometheusBlock, head) {
-		return newCompatError("PrePrometheus fork block", c.PrePrometheusBlock, newcfg.PrePrometheusBlock)
+	if isForkIncompatible(c.PostAtlasBlock, newcfg.PostAtlasBlock, head) {
+		return newCompatError("PostAtlas fork block", c.PostAtlasBlock, newcfg.PostAtlasBlock)
 	}
 	if isForkIncompatible(c.BerlinBlock, newcfg.BerlinBlock, head) {
 		return newCompatError("Berlin fork block", c.BerlinBlock, newcfg.BerlinBlock)
@@ -898,11 +918,11 @@ type Rules struct {
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsCatalyst                          bool
 
-	IsTIP2019, IsTIPSigning, IsTIPRandomize            bool
-	IsTIPBlacklist, IsTIPTRC21Fee, IsTIPFixSignerCheck bool
-	IsTIPTomoX, IsTIPTomoXLending, IsTIPTomoXCancelFee bool
+	IsTIP2019, IsTIPSigning, IsTIPRandomize           bool
+	IsTIPBlacklist, IsTIPGasPrice, IsTIPSignerCheck   bool
+	IsTIPNativeTrading, IsTIPNativeLending, IsTIP2021 bool
 
-	IsSaigon, IsAtlas, IsPrePrometheus bool
+	IsSaigon, IsAtlas, IsPostAtlas bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -925,17 +945,18 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsLondon:         c.IsLondon(num),
 		IsCatalyst:       c.IsCatalyst(num),
 
-		IsTIP2019:           c.IsTIP2019(num),
-		IsTIPSigning:        c.IsTIPSigning(num),
-		IsTIPRandomize:      c.IsTIPRandomize(num),
-		IsTIPBlacklist:      c.IsTIPBlacklist(num),
-		IsTIPTRC21Fee:       c.IsTIPTRC21Fee(num),
-		IsTIPFixSignerCheck: c.IsTIPFixSignerCheck(num),
-		IsTIPTomoX:          c.IsTIPTomoX(num),
-		IsTIPTomoXLending:   c.IsTIPTomoXLending(num),
-		IsTIPTomoXCancelFee: c.IsTIPTomoXCancelFee(num),
-		IsSaigon:            c.IsSaigon(num),
-		IsAtlas:             c.IsAtlas(num),
-		IsPrePrometheus:     c.IsPrePrometheus(num),
+		IsTIP2019:          c.IsTIP2019(num),
+		IsTIPSigning:       c.IsTIPSigning(num),
+		IsTIPRandomize:     c.IsTIPRandomize(num),
+		IsTIPBlacklist:     c.IsTIPBlacklist(num),
+		IsTIPGasPrice:      c.IsTIPGasPrice(num),
+		IsTIPSignerCheck:   c.IsTIPSignerCheck(num),
+		IsTIPNativeTrading: c.IsTIPNativeTrading(num),
+		IsTIPNativeLending: c.IsTIPNativeLending(num),
+		IsTIP2021:          c.IsTIP2021(num),
+
+		IsSaigon:    c.IsSaigon(num),
+		IsAtlas:     c.IsAtlas(num),
+		IsPostAtlas: c.IsPostAtlas(num),
 	}
 }
