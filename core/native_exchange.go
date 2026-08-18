@@ -25,8 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
-	"github.com/ethereum/go-ethereum/legacy/tomoxlending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 )
 
 // LendingEngine is the interface of native decentralized lending platform.

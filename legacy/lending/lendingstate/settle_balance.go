@@ -6,7 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	tradingstate "github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 )
 

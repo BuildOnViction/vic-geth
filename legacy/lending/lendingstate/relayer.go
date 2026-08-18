@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/crypto"
-	tradingstate "github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/pkg/errors"
 )
