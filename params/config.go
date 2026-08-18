@@ -17,9 +17,7 @@
 package params
 
 import (
-	"embed"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math/big"
 
@@ -262,9 +260,6 @@ var (
 
 	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, new(EthashConfig), nil, nil, nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int))
-
-	// StoreRewardFolder is the folder name to store epoch reward data.
-	StoreRewardFolder string
 )
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
@@ -360,7 +355,26 @@ type ChainConfig struct {
 	Viction *VictionConfig `json:"viction,omitempty"`
 }
 
-// CliqueConfig is the consensus engine configs for proof-of-stake based sealing.
+// EthashConfig is the consensus engine configs for proof-of-work based sealing.
+type EthashConfig struct{}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *EthashConfig) String() string {
+	return "ethash"
+}
+
+// CliqueConfig is the consensus engine configs for proof-of-authority based sealing.
+type CliqueConfig struct {
+	Period uint64 `json:"period"` // Number of seconds between blocks to enforce
+	Epoch  uint64 `json:"epoch"`  // Epoch length to reset votes and checkpoint
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *CliqueConfig) String() string {
+	return "clique"
+}
+
+// PosvConfig is the consensus engine configs for proof-of-stake based sealing.
 type PosvConfig struct {
 	Period uint64 `json:"period"` // Number of seconds between blocks to enforce
 	Epoch  uint64 `json:"epoch"`  // Epoch length to reset votes and checkpoint
@@ -387,25 +401,6 @@ func (c *PosvConfig) IsGapBlock(number uint64) bool {
 	return number%c.Epoch == c.Epoch-c.Gap
 }
 
-// EthashConfig is the consensus engine configs for proof-of-work based sealing.
-type EthashConfig struct{}
-
-// String implements the stringer interface, returning the consensus engine details.
-func (c *EthashConfig) String() string {
-	return "ethash"
-}
-
-// CliqueConfig is the consensus engine configs for proof-of-authority based sealing.
-type CliqueConfig struct {
-	Period uint64 `json:"period"` // Number of seconds between blocks to enforce
-	Epoch  uint64 `json:"epoch"`  // Epoch length to reset votes and checkpoint
-}
-
-// String implements the stringer interface, returning the consensus engine details.
-func (c *CliqueConfig) String() string {
-	return "clique"
-}
-
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
 	var engine interface{}
@@ -419,7 +414,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, YOLO v2: %v, TIP2019: %v, TIPSigning: %v, TIPRandomize: %v, TIPGasPrice: %v, TIPNativeTrading: %v, TIPNativeLending: %v, TIP2021: %v, Saigon: %v, Atlas: %v, PostAtlas: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v PostAtlas: %v YOLO v2: %v Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -428,11 +423,6 @@ func (c *ChainConfig) String() string {
 		c.EIP155Block,
 		c.EIP158Block,
 		c.ByzantiumBlock,
-		c.ConstantinopleBlock,
-		c.PetersburgBlock,
-		c.IstanbulBlock,
-		c.MuirGlacierBlock,
-		c.YoloV2Block,
 		c.TIP2019Block,
 		c.TIPSigningBlock,
 		c.TIPRandomizeBlock,
@@ -440,9 +430,14 @@ func (c *ChainConfig) String() string {
 		c.TIPNativeTradingBlock,
 		c.TIPNativeLendingBlock,
 		c.TIP2021Block,
+		c.ConstantinopleBlock,
+		c.PetersburgBlock,
+		c.IstanbulBlock,
+		c.MuirGlacierBlock,
 		c.SaigonBlock,
 		c.AtlasBlock,
 		c.PostAtlasBlock,
+		c.YoloV2Block,
 		engine,
 	)
 }
@@ -475,6 +470,66 @@ func (c *ChainConfig) IsEIP158(num *big.Int) bool {
 // IsByzantium returns whether num is either equal to the Byzantium fork block or greater.
 func (c *ChainConfig) IsByzantium(num *big.Int) bool {
 	return isForked(c.ByzantiumBlock, num)
+}
+
+// IsTIP2019 returns whether num is either equal to the TIP2019 fork block or greater.
+func (c *ChainConfig) IsTIP2019(num *big.Int) bool {
+	return isForked(c.TIP2019Block, num)
+}
+
+// IsTIPSigning returns whether num is either equal to the TIPSigning fork block or greater.
+func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
+	return isForked(c.TIPSigningBlock, num)
+}
+
+// IsTIPRandomize returns whether num is either equal to the TIPRandomize fork block or greater.
+func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
+	return isForked(c.TIPRandomizeBlock, num)
+}
+
+// IsTIPBlacklist returns whether num is either equal to the TIPBlacklist fork block or greater.
+func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
+	return isForked(c.TIPBlacklistBlock, num)
+}
+
+// IsTIPGasPrice returns whether num is either equal to the TIPGasPrice fork block or greater.
+func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
+	return isForked(c.TIPGasPriceBlock, num)
+}
+
+// IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
+func (c *ChainConfig) IsTIPSignerCheck(num *big.Int) bool {
+	return isForked(c.TIPSignerCheckBlock, num)
+}
+
+// IsTIPNativeTrading returns whether num is either equal to the TIPNativeTrading fork block or greater.
+func (c *ChainConfig) IsTIPNativeTrading(num *big.Int) bool {
+	return isForked(c.TIPNativeTradingBlock, num)
+}
+
+// IsTIPNativeLending returns whether num is either equal to the TIPNativeLending fork block or greater.
+func (c *ChainConfig) IsTIPNativeLending(num *big.Int) bool {
+	return isForked(c.TIPNativeLendingBlock, num)
+}
+
+// IsZeroGasEnabled returns true when TomoXTrading or Atlas is active.
+func (c *ChainConfig) IsZeroGasEnabled(num *big.Int) bool {
+	return isForked(c.TIPNativeTradingBlock, num) || isForked(c.AtlasBlock, num)
+}
+
+// IsNativeTradingEnabled returns true when TomoXTrading order processing is active: after TIPTomoX and before Atlas.
+func (c *ChainConfig) IsNativeTradingEnabled(num *big.Int) bool {
+	return isForked(c.TIPNativeTradingBlock, num) && !isForked(c.AtlasBlock, num)
+}
+
+// IsNativeLendingEnabled returns true when TomoXLending order processing is active: after TIPTomoXLending and before Atlas.
+func (c *ChainConfig) IsNativeLendingEnabled(num *big.Int) bool {
+	return isForked(c.TIPNativeLendingBlock, num) && !isForked(c.AtlasBlock, num)
+}
+
+// IsTIP2021 returns whether num is either equal to the TIP2021 fork block or greater.
+func (c *ChainConfig) IsTIP2021(num *big.Int) bool {
+	return isForked(c.TIP2021Block, num)
 }
 
 // IsConstantinople returns whether num is either equal to the Constantinople fork block or greater.
@@ -522,63 +577,6 @@ func (c *ChainConfig) IsYoloV2(num *big.Int) bool {
 // IsEWASM returns whether num represents a block number after the EWASM fork
 func (c *ChainConfig) IsEWASM(num *big.Int) bool {
 	return isForked(c.EWASMBlock, num)
-}
-
-// IsTIP2019 returns whether num is either equal to the TIP2019 fork block or greater.
-func (c *ChainConfig) IsTIP2019(num *big.Int) bool {
-	return isForked(c.TIP2019Block, num)
-}
-
-// IsTIPSigning returns whether num is either equal to the TIPSigning fork block or greater.
-func (c *ChainConfig) IsTIPSigning(num *big.Int) bool {
-	return isForked(c.TIPSigningBlock, num)
-}
-
-// IsTIPRandomize returns whether num is either equal to the TIPRandomize fork block or greater.
-func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
-	return isForked(c.TIPRandomizeBlock, num)
-}
-
-// IsTIPBlacklist returns whether num is either equal to the TIPBlacklist fork block or greater.
-func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
-	return isForked(c.TIPBlacklistBlock, num)
-}
-
-// IsTIPGasPrice returns whether num is either equal to the TIPGasPrice fork block or greater.
-func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
-	return isForked(c.TIPGasPriceBlock, num)
-}
-
-// IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
-func (c *ChainConfig) IsTIPSignerCheck(num *big.Int) bool {
-	return isForked(c.TIPSignerCheckBlock, num)
-}
-
-// IsTIPNativeTrading returns whether num is either equal to the TIPNativeTrading fork block or greater.
-func (c *ChainConfig) IsTIPNativeTrading(num *big.Int) bool {
-	return isForked(c.TIPNativeTradingBlock, num)
-}
-
-// IsTIPNativeLending returns whether num is either equal to the TIPNativeLending fork block or greater.
-func (c *ChainConfig) IsTIPNativeLending(num *big.Int) bool {
-	return isForked(c.TIPNativeLendingBlock, num)
-}
-
-// IsNativeTradingEnabled returns true when TomoX order processing is active: after TIPNativeTrading
-// and before Atlas (matching victionchain's IsNativeTradingEnabled semantics exactly).
-func (c *ChainConfig) IsNativeTradingEnabled(num *big.Int) bool {
-	return isForked(c.TIPNativeTradingBlock, num) && !isForked(c.AtlasBlock, num)
-}
-
-// IsNativeLendingEnabled returns true when TomoZ lending order processing is active:
-// after TIPNativeLending and before Atlas.
-func (c *ChainConfig) IsNativeLendingEnabled(num *big.Int) bool {
-	return isForked(c.TIPNativeLendingBlock, num) && !isForked(c.AtlasBlock, num)
-}
-
-// IsTIP2021 returns whether num is either equal to the TIP2021 fork block or greater.
-func (c *ChainConfig) IsTIP2021(num *big.Int) bool {
-	return isForked(c.TIP2021Block, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -725,12 +723,6 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.MuirGlacierBlock, newcfg.MuirGlacierBlock, head) {
 		return newCompatError("Muir Glacier fork block", c.MuirGlacierBlock, newcfg.MuirGlacierBlock)
 	}
-	if isForkIncompatible(c.YoloV2Block, newcfg.YoloV2Block, head) {
-		return newCompatError("YOLOv2 fork block", c.YoloV2Block, newcfg.YoloV2Block)
-	}
-	if isForkIncompatible(c.EWASMBlock, newcfg.EWASMBlock, head) {
-		return newCompatError("ewasm fork block", c.EWASMBlock, newcfg.EWASMBlock)
-	}
 	if isForkIncompatible(c.SaigonBlock, newcfg.SaigonBlock, head) {
 		return newCompatError("Saigon fork block", c.SaigonBlock, newcfg.SaigonBlock)
 	}
@@ -739,6 +731,12 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	}
 	if isForkIncompatible(c.PostAtlasBlock, newcfg.PostAtlasBlock, head) {
 		return newCompatError("PostAtlas fork block", c.PostAtlasBlock, newcfg.PostAtlasBlock)
+	}
+	if isForkIncompatible(c.YoloV2Block, newcfg.YoloV2Block, head) {
+		return newCompatError("YOLOv2 fork block", c.YoloV2Block, newcfg.YoloV2Block)
+	}
+	if isForkIncompatible(c.EWASMBlock, newcfg.EWASMBlock, head) {
+		return newCompatError("ewasm fork block", c.EWASMBlock, newcfg.EWASMBlock)
 	}
 	return nil
 }
@@ -808,10 +806,12 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsYoloV2                                                bool
-	IsTIP2019, IsTIPSigning, IsTIPRandomize                 bool
-	IsTIPBlacklist, IsTIPGasPrice, IsTIPSignerCheck         bool
-	IsTIPNativeTrading, IsTIPNativeLending, IsTIP2021       bool
-	IsSaigon, IsAtlas, IsPostAtlas                          bool // Atlas also marks TomoX deprecation
+
+	IsTIP2019, IsTIPSigning, IsTIPRandomize           bool
+	IsTIPBlacklist, IsTIPGasPrice, IsTIPSignerCheck   bool
+	IsTIPNativeTrading, IsTIPNativeLending, IsTIP2021 bool
+
+	IsSaigon, IsAtlas, IsPostAtlas bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -841,28 +841,9 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsTIPNativeTrading: c.IsTIPNativeTrading(num),
 		IsTIPNativeLending: c.IsTIPNativeLending(num),
 		IsTIP2021:          c.IsTIP2021(num),
-		IsSaigon:           c.IsSaigon(num),
-		IsAtlas:            c.IsAtlas(num), // Atlas also marks TomoX deprecation
-		IsPostAtlas:        c.IsPostAtlas(num),
+
+		IsSaigon:    c.IsSaigon(num),
+		IsAtlas:     c.IsAtlas(num),
+		IsPostAtlas: c.IsPostAtlas(num),
 	}
-}
-
-//go:embed chainspecs/*.json
-var chainspecs embed.FS
-
-func readChainSpec(filename string) *ChainConfig {
-	f, err := chainspecs.Open(filename)
-	if err != nil {
-		panic(fmt.Sprintf("Could not open chainspec for %s: %v", filename, err))
-	}
-	defer f.Close()
-
-	decoder := json.NewDecoder(f)
-	spec := &ChainConfig{}
-	err = decoder.Decode(&spec)
-	if err != nil {
-		panic(fmt.Sprintf("Could not parse chainspec for %s: %v", filename, err))
-	}
-
-	return spec
 }
