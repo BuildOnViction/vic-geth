@@ -105,7 +105,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 
 		if !handled {
-			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, p.viction.FeePool())
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, p.viction.ZeroGasPool())
 			if err != nil {
 				return nil, nil, 0, err
 			}

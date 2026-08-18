@@ -210,7 +210,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 				blockCtx := core.NewEVMBlockContext(task.block.Header(), api.eth.blockchain, nil)
 				// Seed the running VRC25 fee pool from the block's opening state so
 				// sponsored transactions are reproduced during the chain trace.
-				feePool := core.NewTxVictionProcessor(api.eth.blockchain.Config(), task.statedb, task.block.Number()).FeePool()
+				feePool := core.NewTxVictionProcessor(api.eth.blockchain.Config(), task.statedb, task.block.Number()).ZeroGasPool()
 				// Trace all the transactions contained within
 				for i, tx := range task.block.Transactions() {
 					msg, _ := tx.AsMessage(signer)
@@ -498,7 +498,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	// state, and the driver decrements it as it advances the shared state — so a
 	// task sees the capacities as they stood just before its own transaction.
 	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
-	feePool := vp.FeePool()
+	feePool := vp.ZeroGasPool()
 	var failed error
 	for i, tx := range txs {
 		msg, _ := tx.AsMessage(signer)
@@ -509,7 +509,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			break
 		}
 		// Send the trace task over for execution
-		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, feePool: vp.Copy().FeePool()}
+		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, feePool: vp.Copy().ZeroGasPool()}
 
 		// Generate the next state snapshot fast without tracing
 		txContext := core.NewEVMTxContext(msg)
@@ -522,7 +522,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		}
 		// Decrement the running fee pool exactly as block import does, so the next
 		// task's copy starts from post-drain capacities.
-		vp.ProcessFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
+		vp.ProcessZeroGas(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		// Finalize the state so any modifications are written to the trie
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
@@ -602,7 +602,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 	// Running VRC25 fee pool for the block, decremented per tx as execution
 	// advances, so sponsored transactions are reproduced with correct capacities.
 	vp := core.NewTxVictionProcessor(chainConfig, statedb, block.Number())
-	feePool := vp.FeePool()
+	feePool := vp.ZeroGasPool()
 	for i, tx := range block.Transactions() {
 		// Prepare the trasaction for un-traced execution
 		var (
@@ -651,7 +651,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		}
 		if err == nil {
 			// Decrement the running fee pool exactly as block import does.
-			vp.ProcessFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
+			vp.ProcessZeroGas(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		}
 		if err != nil {
 			return dumps, err
@@ -902,7 +902,7 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 	// Running fee pool, decremented per replayed tx so the target tx sees the
 	// capacities as they stood just before it.
 	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
-	feePool := vp.FeePool()
+	feePool := vp.ZeroGasPool()
 
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
@@ -924,7 +924,7 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Decrement the running fee pool exactly as block import does.
-		vp.ProcessFee(statedb, tx, msg.From(), res.UsedGas, res.Failed())
+		vp.ProcessZeroGas(statedb, tx, msg.From(), res.UsedGas, res.Failed())
 		// Ensure any modifications are committed to the state
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))

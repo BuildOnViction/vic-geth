@@ -39,9 +39,11 @@ type VictionProcessor struct {
 	config *params.ChainConfig // Chain configuration
 	chain  *BlockChain         // Canonical block chain, nil for tx-only consumers
 	engine consensus.Engine    // Consensus engine, nil disables author-dependent paths
-	fee    *FeeProcessor       // Zero-gas fee processor.
 
-	blockNumber *big.Int // Cached block number for synchronizing between BeforeProcess and AfterProcess.
+	blockNumber                *big.Int         // Cached block number for synchronizing between BeforeProcess and AfterProcess.
+	originalZeroGasCapacities  types.BalanceMap // Capacities snapshot at block start.
+	usedZeroGasCapacities      types.BalanceMap // Capacities used during block processing.
+	totalUsedZeroGasCapacities *big.Int         // Sum of capacities used during block processing.
 
 	lendingEngine        LendingEngine
 	lendingStateDB       *lendingstate.LendingStateDB
@@ -63,12 +65,12 @@ func NewVictionProcessor(config *params.ChainConfig, chain *BlockChain, engine c
 
 // Return new Processor instance for old block execution.
 func NewTxVictionProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNum *big.Int) *VictionProcessor {
-	return &VictionProcessor{
-		config: config,
-		fee:    NewFeeProcessor(config, statedb, blockNum),
-
+	p := &VictionProcessor{
+		config:      config,
 		blockNumber: new(big.Int).Set(blockNum),
 	}
+	p.snapshotCapacities(statedb, blockNum)
+	return p
 }
 
 // Return a deep copy of Processor.
@@ -77,21 +79,30 @@ func (p *VictionProcessor) Copy() *VictionProcessor {
 		return nil
 	}
 	cp := &VictionProcessor{
-		config: p.config,
+		config:                     p.config,
+		usedZeroGasCapacities:      make(types.BalanceMap),
+		totalUsedZeroGasCapacities: new(big.Int),
 	}
 	if p.blockNumber != nil {
 		cp.blockNumber = new(big.Int).Set(p.blockNumber)
 	}
-	cp.fee = p.fee.Copy()
+	if p.originalZeroGasCapacities != nil {
+		cp.originalZeroGasCapacities = make(types.BalanceMap, len(p.originalZeroGasCapacities))
+		for k, v := range p.originalZeroGasCapacities {
+			if v != nil {
+				cp.originalZeroGasCapacities[k] = new(big.Int).Set(v)
+			}
+		}
+	}
 	return cp
 }
 
 // Return original balances snapshot.
-func (p *VictionProcessor) FeePool() types.BalanceMap {
+func (p *VictionProcessor) ZeroGasPool() types.BalanceMap {
 	if p == nil {
 		return nil
 	}
-	return p.fee.FeePool()
+	return p.originalZeroGasCapacities
 }
 
 // Pre block processing: - Prepare internal state for block processing - Active Viction-specific hard forks.
@@ -101,8 +112,8 @@ func (p *VictionProcessor) BeforeBlockProcess(block *types.Block, statedb *state
 	}
 
 	header := block.Header()
-	p.fee = NewFeeProcessor(p.config, statedb, header.Number)
 	p.blockNumber = new(big.Int).Set(header.Number)
+	p.snapshotCapacities(statedb, header.Number)
 
 	p.lendingStateDB = nil
 	p.lendingCommittedRoot = common.Hash{}
@@ -158,11 +169,11 @@ func (p *VictionProcessor) BeforeBlockProcess(block *types.Block, statedb *state
 }
 
 // Process fee for given transaction.
-func (p *VictionProcessor) ProcessFee(statedb *state.StateDB, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
+func (p *VictionProcessor) ProcessZeroGas(statedb *state.StateDB, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
 	if !p.isSupported() {
 		return
 	}
-	p.fee.Process(statedb, p.blockNumber, tx, from, usedGas, failed)
+	p.processZeroGas(statedb, tx, from, usedGas, failed)
 }
 
 // Post block processing: - Commit Trading/Lending/ZeroGas journal to database.
@@ -171,7 +182,7 @@ func (p *VictionProcessor) AfterProcess(block *types.Block, statedb *state.State
 		return nil
 	}
 
-	p.fee.Flush(statedb)
+	p.flushRemainCapacities(statedb)
 
 	// IMPORTANT: tradingStateDB.Commit() must be called BEFORE IntermediateRoot().
 	// IntermediateRoot calls trie.Hash() which collapses in-memory dirty nodes into hash nodes.
@@ -298,7 +309,7 @@ func (p *VictionProcessor) AfterApplyTransaction(tx *types.Transaction, msg type
 	}
 
 	failed := receipt.Status == types.ReceiptStatusFailed
-	p.fee.Process(statedb, p.blockNumber, tx, msg.From(), usedGas, failed)
+	p.processZeroGas(statedb, tx, msg.From(), usedGas, failed)
 
 	return nil
 }
@@ -474,14 +485,17 @@ func (p *VictionProcessor) isSupported() bool {
 
 // ----------------------------- Native Lending --------------------------------
 
+// Return LendingEngine instance.
 func (p *VictionProcessor) LendingEngine() LendingEngine {
 	return p.lendingEngine
 }
 
+// Set LendingEngine instance.
 func (p *VictionProcessor) SetLendingEngine(engine LendingEngine) {
 	p.lendingEngine = engine
 }
 
+// Return if Lending platform is ready to handle transactions.
 func (p *VictionProcessor) IsLendingInitialized() bool {
 	return p.lendingEngine != nil && p.lendingStateDB != nil && p.tradingStateDB != nil
 }
@@ -505,126 +519,6 @@ func GetLendingStateRoot(block *types.Block, tradingStateAddr common.Address, au
 
 func (p *VictionProcessor) CommittedLendingRoot() common.Hash {
 	return p.lendingCommittedRoot
-}
-
-// ----------------------------- Native Trading --------------------------------
-
-func (p *VictionProcessor) TradingEngine() TradingEngine {
-	return p.tradingEngine
-}
-
-func (p *VictionProcessor) SetTradingEngine(engine TradingEngine) {
-	p.tradingEngine = engine
-}
-
-func (p *VictionProcessor) IsTradingInitialized() bool {
-	return p.tradingEngine != nil && p.tradingStateDB != nil
-}
-
-func GetTradingStateRoot(block *types.Block, tradingStateAddr common.Address, author common.Address, config *params.ChainConfig) common.Hash {
-	signer := types.MakeSigner(config, block.Number())
-	for _, tx := range block.Transactions() {
-		if tx.To() == nil || *tx.To() != tradingStateAddr {
-			continue
-		}
-		from, err := types.Sender(signer, tx)
-		if err != nil || from != author {
-			continue
-		}
-		if len(tx.Data()) >= 32 {
-			return common.BytesToHash(tx.Data()[:32])
-		}
-	}
-	return tradingstate.EmptyRoot
-}
-
-func (p *VictionProcessor) CommittedTradingRoot() common.Hash {
-	return p.tradingCommittedRoot
-}
-
-// FeeProcessor applies zero-gas logic for sponsoring transactions.
-type FeeProcessor struct {
-	config           *params.ChainConfig // Chain configuration
-	originalBalances types.BalanceMap    // Capacities snapshot during initialization of FeeProcessor.
-	updatedBalances  types.BalanceMap    // Capacities changed during block processing.
-	totalChange      *big.Int            // Sum of fee incurred during block processing.
-}
-
-// Return new FeeProcessor instance.
-func NewFeeProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNum *big.Int) *FeeProcessor {
-	p := &FeeProcessor{
-		config:          config,
-		updatedBalances: make(types.BalanceMap),
-		totalChange:     new(big.Int),
-	}
-	if !config.IsAtlas(blockNum) && config.Viction != nil &&
-		config.Viction.VRC25Contract != (common.Address{}) {
-		p.originalBalances = statedb.VicGetZeroGasCapacities(config.Viction.VRC25Contract)
-	}
-	return p
-}
-
-// Return a deep copy of FeeProcessor.
-func (p *FeeProcessor) Copy() *FeeProcessor {
-	if p == nil {
-		return nil
-	}
-	cp := &FeeProcessor{
-		config:          p.config,
-		updatedBalances: make(types.BalanceMap),
-		totalChange:     new(big.Int),
-	}
-	if p.originalBalances != nil {
-		cp.originalBalances = make(types.BalanceMap, len(p.originalBalances))
-		for k, v := range p.originalBalances {
-			if v != nil {
-				cp.originalBalances[k] = new(big.Int).Set(v)
-			}
-		}
-	}
-	return cp
-}
-
-// Return original balances snapshot.
-func (p *FeeProcessor) FeePool() types.BalanceMap {
-	if p == nil {
-		return nil
-	}
-	return p.originalBalances
-}
-
-// Process fee for given transaction.
-func (p *FeeProcessor) Process(statedb *state.StateDB, blockNum *big.Int, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
-	if p == nil || p.originalBalances == nil || tx.To() == nil || p.config.IsAtlas(blockNum) {
-		return
-	}
-	token := *tx.To()
-	runningCap, ok := p.originalBalances[token]
-	if !ok || runningCap == nil {
-		return
-	}
-	vicCfg := p.config.Viction
-	fee := new(big.Int).SetUint64(usedGas)
-	if p.config.TIPGasPriceBlock != nil && blockNum.Cmp(p.config.TIPGasPriceBlock) > 0 && vicCfg != nil && vicCfg.TRC21NewGasPrice != nil {
-		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.TRC21NewGasPrice))
-	}
-	if runningCap.Cmp(fee) > 0 {
-		newCap := new(big.Int).Sub(runningCap, fee)
-		p.originalBalances[token] = newCap
-		p.updatedBalances[token] = newCap
-		p.totalChange.Add(p.totalChange, fee)
-		if failed {
-			PayTxFeeUsingToken(statedb, from, token)
-		}
-	}
-}
-
-// Persist the `updatedBalances` and `totalChange` to database.
-func (p *FeeProcessor) Flush(statedb *state.StateDB) {
-	if p == nil || p.originalBalances == nil || len(p.updatedBalances) == 0 || p.config.Viction == nil {
-		return
-	}
-	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25Contract, p.updatedBalances, p.totalChange)
 }
 
 // Flush current block Lending State Trie to LevelDB.
@@ -692,6 +586,44 @@ func (p *StateProcessor) FlushLendingStateGCCache() {
 	}
 }
 
+// ----------------------------- Native Trading --------------------------------
+
+// Return TradingEngine instance.
+func (p *VictionProcessor) TradingEngine() TradingEngine {
+	return p.tradingEngine
+}
+
+// Set TradingEngine instance.
+func (p *VictionProcessor) SetTradingEngine(engine TradingEngine) {
+	p.tradingEngine = engine
+}
+
+// Return if Trading platform is ready to handle transactions.
+func (p *VictionProcessor) IsTradingInitialized() bool {
+	return p.tradingEngine != nil && p.tradingStateDB != nil
+}
+
+func GetTradingStateRoot(block *types.Block, tradingStateAddr common.Address, author common.Address, config *params.ChainConfig) common.Hash {
+	signer := types.MakeSigner(config, block.Number())
+	for _, tx := range block.Transactions() {
+		if tx.To() == nil || *tx.To() != tradingStateAddr {
+			continue
+		}
+		from, err := types.Sender(signer, tx)
+		if err != nil || from != author {
+			continue
+		}
+		if len(tx.Data()) >= 32 {
+			return common.BytesToHash(tx.Data()[:32])
+		}
+	}
+	return tradingstate.EmptyRoot
+}
+
+func (p *VictionProcessor) CommittedTradingRoot() common.Hash {
+	return p.tradingCommittedRoot
+}
+
 // Flush current block Trading State Trie to LevelDB.
 func (p *StateProcessor) CommitTradingState(block *types.Block) error {
 	if !p.viction.IsTradingInitialized() {
@@ -755,4 +687,51 @@ func (p *StateProcessor) FlushTradingStateGCCache() {
 		}
 		tradingTrieDB.Dereference(root.(common.Hash))
 	}
+}
+
+// ----------------------------- ZeroGas ---------------------------------------
+
+// Create a snapshot of ZeroGas capacities.
+func (p *VictionProcessor) snapshotCapacities(statedb *state.StateDB, blockNum *big.Int) {
+	p.originalZeroGasCapacities = nil
+	if !p.config.IsAtlas(blockNum) && p.config.Viction != nil &&
+		p.config.Viction.VRC25Contract != (common.Address{}) {
+		p.originalZeroGasCapacities = statedb.VicGetZeroGasCapacities(p.config.Viction.VRC25Contract)
+	}
+	p.usedZeroGasCapacities = make(types.BalanceMap)
+	p.totalUsedZeroGasCapacities = new(big.Int)
+}
+
+// Handle ZeroGas fee for sponsored transactions.
+func (p *VictionProcessor) processZeroGas(statedb *state.StateDB, tx *types.Transaction, from common.Address, usedGas uint64, failed bool) {
+	if p.originalZeroGasCapacities == nil || tx.To() == nil || p.config.IsAtlas(p.blockNumber) {
+		return
+	}
+	token := *tx.To()
+	runningCap, ok := p.originalZeroGasCapacities[token]
+	if !ok || runningCap == nil {
+		return
+	}
+	vicCfg := p.config.Viction
+	fee := new(big.Int).SetUint64(usedGas)
+	if p.config.TIPGasPriceBlock != nil && p.blockNumber.Cmp(p.config.TIPGasPriceBlock) > 0 && vicCfg != nil && vicCfg.TRC21NewGasPrice != nil {
+		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.TRC21NewGasPrice))
+	}
+	if runningCap.Cmp(fee) > 0 {
+		newCap := new(big.Int).Sub(runningCap, fee)
+		p.originalZeroGasCapacities[token] = newCap
+		p.usedZeroGasCapacities[token] = newCap
+		p.totalUsedZeroGasCapacities.Add(p.totalUsedZeroGasCapacities, fee)
+		if failed {
+			PayTxFeeUsingToken(statedb, from, token)
+		}
+	}
+}
+
+// Persist remaining ZeroGas capacities to database.
+func (p *VictionProcessor) flushRemainCapacities(statedb *state.StateDB) {
+	if p.originalZeroGasCapacities == nil || len(p.usedZeroGasCapacities) == 0 || p.config.Viction == nil {
+		return
+	}
+	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25Contract, p.usedZeroGasCapacities, p.totalUsedZeroGasCapacities)
 }
