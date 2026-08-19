@@ -2,26 +2,28 @@
 
 ABIGEN = ../build/bin/abigen
 
-.PHONY: all blocksigner validator checkpointoracle zerogas randomize multisigwallet tomox
+.PHONY: all blocksigner checkpointoracle multisig randomize token trading validator zerogas
 
-all: blocksigner validator checkpointoracle zerogas randomize multisigwallet tomox
+all: blocksigner checkpointoracle multisig randomize token trading validator zerogas
 
 blocksigner:
 	$(ABIGEN) --bin=blocksigner/contract/build/BlockSigner.bin --abi=blocksigner/contract/build/BlockSigner.abi --pkg=contract --type=BlockSigner --out=blocksigner/contract/viction_block_signer.go
+
+multisig:
+	$(ABIGEN) --bin=multisig/contract/build/MultisigWallet.bin --abi=multisig/contract/build/MultisigWallet.abi --pkg=contract --type=Multisig --out=multisig/contract/viction_multisig_wallet.go
+
+randomize:
+	$(ABIGEN) --bin=randomize/contract/build/Randomize.bin --abi=randomize/contract/build/Randomize.abi --pkg=contract --type=Randomize --out=randomize/contract/viction_randomize.go
+
+token:
+	$(ABIGEN) --bin=token/contract/build/FungibleToken.bin --abi=token/contract/build/FungibleToken.abi --pkg=contract --type=FungibleToken --out=token/contract/fungible_token.go
+
+trading:
+	$(ABIGEN) --bin=trading/contract/build/TradingListing.bin --abi=trading/contract/build/TradingListing.abi --pkg=contract --type=TradingListing --out=trading/contract/viction_trading_listing.go
+	$(ABIGEN) --bin=trading/contract/build/RelayerRegistration.bin --abi=trading/contract/build/RelayerRegistration.abi --pkg=contract --type=RelayerRegistration --out=trading/contract/viction_relayer_registration.go
 
 validator:
 	$(ABIGEN) --bin=validator/contract/build/Validator.bin --abi=validator/contract/build/Validator.abi --pkg=contract --type=Validator --out=validator/contract/viction_validator.go
 
 zerogas:
 	$(ABIGEN) --bin=zerogas/contract/build/ZeroGas.bin --abi=zerogas/contract/build/ZeroGas.abi --pkg=contract --type=ZeroGas --out=zerogas/contract/viction_zero_gas.go
-
-randomize:
-	$(ABIGEN) --bin=randomize/contract/build/Randomize.bin --abi=randomize/contract/build/Randomize.abi --pkg=contract --type=Randomize --out=randomize/contract/viction_randomize.go
-
-multisigwallet:
-	$(ABIGEN) --bin=multisigwallet/contract/build/MultiSigWallet.bin --abi=multisigwallet/contract/build/MultiSigWallet.abi --pkg=contract --type=MultiSigWallet --out=multisigwallet/contract/viction_multisig_wallet.go
-
-tomox:
-	$(ABIGEN) --bin=tomox/contract/build/TRC21.bin --abi=tomox/contract/build/TRC21.abi --pkg=contract --type=TRC21 --out=tomox/contract/TRC21.go
-	$(ABIGEN) --bin=tomox/contract/build/TOMOXListing.bin --abi=tomox/contract/build/TOMOXListing.abi --pkg=contract --type=TOMOXListing --out=tomox/contract/TOMOXListing.go
-	$(ABIGEN) --bin=tomox/contract/build/RelayerRegistration.bin --abi=tomox/contract/build/RelayerRegistration.abi --pkg=contract --type=RelayerRegistration --out=tomox/contract/RelayerRegistration.go
