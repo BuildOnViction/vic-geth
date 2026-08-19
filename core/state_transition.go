@@ -258,8 +258,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
 	// TODO: On Viction, EIP-2028 migration is incomplete, this will be active next hard fork.
-	nonViction := st.evm.ChainConfig().Viction == nil
-	gas, err := IntrinsicGas(st.data, contractCreation, homestead, istanbul && nonViction)
+	viction := st.evm.ChainConfig().IsViction()
+	prometheus := st.evm.ChainConfig().IsPrometheus(st.evm.Context.BlockNumber)
+	gas, err := IntrinsicGas(st.data, contractCreation, homestead, (prometheus && viction) || (istanbul && !viction))
 	if err != nil {
 		return nil, err
 	}

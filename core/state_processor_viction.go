@@ -227,7 +227,7 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 
 	header := block.Header()
 	if header.Number.BitLen() <= 64 && header.Number.Uint64() <= 9147459 {
-		if val := p.config.Viction.GetVictionBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
+		if val := p.config.Viction.GetBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
 			statedb.SetBalance(msg.From(), val)
 		}
 	}

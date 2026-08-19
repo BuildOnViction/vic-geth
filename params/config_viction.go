@@ -1,3 +1,22 @@
+// Copyright 2016 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package params
 
 import (
@@ -7,16 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 )
-
-// Uint64ToHash converts a uint64 to a Hash.
-func Uint64ToHash(n uint64) common.Hash {
-	return common.BigToHash(new(big.Int).SetUint64(n))
-}
-
-// EmptyHash checks if a hash is the zero hash.
-func EmptyHash(h common.Hash) bool {
-	return h == common.Hash{}
-}
 
 type VictionConfig struct {
 	AtlasVRC25MinCap *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
@@ -80,7 +89,36 @@ type VictionConfig struct {
 	VRC25Contract common.Address   `json:"vrc25Contract,omitempty"`
 }
 
-var blacklists = map[common.Address]bool{
+func (c *VictionConfig) GetBypassBalance(blockNum uint64, addr common.Address) *big.Int {
+	if bypassAddrHex, ok := victionBypassBlocks[blockNum]; ok {
+		if strings.EqualFold(bypassAddrHex, addr.Hex()) {
+			if balanceStr, ok := victionBypassBalances[bypassAddrHex]; ok {
+				val := new(big.Int)
+				val.SetString(balanceStr+"000000000000000000", 10)
+				return val
+			}
+		}
+	}
+	return nil
+}
+
+func (c *VictionConfig) IsBlacklisted(addr common.Address) bool {
+	if blocked, exists := victionBlacklists[addr]; exists {
+		return blocked
+	}
+	return false
+}
+
+func (c *ChainConfig) IsPosv() bool {
+	return c.Posv != nil
+}
+
+func (c *ChainConfig) IsViction() bool {
+	return c.Viction != nil
+}
+
+// Viction Mainnet only
+var victionBlacklists = map[common.Address]bool{
 	common.HexToAddress("0x5248bfb72fd4f234e062d3e9bb76f08643004fcd"): true,
 	common.HexToAddress("0x5ac26105b35ea8935be382863a70281ec7a985e9"): true,
 	common.HexToAddress("0x09c4f991a41e7ca0645d7dfbfee160b55e562ea4"): true,
@@ -143,6 +181,7 @@ var blacklists = map[common.Address]bool{
 	common.HexToAddress("0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f"): true,
 }
 
+// Viction Mainnet only
 var victionBypassBalances = map[string]string{
 	"0x5248bfb72fd4f234e062d3e9bb76f08643004fcd": "29410",
 	"0x5ac26105b35ea8935be382863a70281ec7a985e9": "23551",
@@ -206,6 +245,7 @@ var victionBypassBalances = map[string]string{
 	"0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f": "23734",
 }
 
+// Viction Mainnet only
 var victionBypassBlocks = map[uint64]string{
 	9073579: "0x5248bfb72fd4f234e062d3e9bb76f08643004fcd",
 	9147130: "0x5ac26105b35ea8935be382863a70281ec7a985e9",
@@ -269,26 +309,6 @@ var victionBypassBlocks = map[uint64]string{
 	9147459: "0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f",
 }
 
-func (c *VictionConfig) IsBlacklisted(addr common.Address) bool {
-	if blocked, exists := blacklists[addr]; exists {
-		return blocked
-	}
-	return false
-}
-
-func (c *VictionConfig) GetVictionBypassBalance(blockNum uint64, addr common.Address) *big.Int {
-	if bypassAddrHex, ok := victionBypassBlocks[blockNum]; ok {
-		if strings.EqualFold(bypassAddrHex, addr.Hex()) {
-			if balanceStr, ok := victionBypassBalances[bypassAddrHex]; ok {
-				val := new(big.Int)
-				val.SetString(balanceStr+"000000000000000000", 10)
-				return val
-			}
-		}
-	}
-	return nil
-}
-
 var victionHardforks = map[string]bool{
 	"tip2019Block":          true,
 	"tipSigningBlock":       true,
@@ -300,9 +320,10 @@ var victionHardforks = map[string]bool{
 	"tipNativeLendingBlock": true,
 	"tip2021Block":          true,
 
-	"saigonBlock":    true,
-	"atlasBlock":     true,
-	"postAtlasBlock": true,
+	"saigonBlock":       true,
+	"atlasBlock":        true,
+	"atlasRefreshBlock": true,
+	"prometheusBlock":   true,
 }
 
 func isVictionHardfork(name string) bool {
