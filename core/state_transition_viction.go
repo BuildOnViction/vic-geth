@@ -94,7 +94,7 @@ func (st *StateTransition) refundGasZG(remaining *big.Int) bool {
 			zgCap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, addr)
 			if zgCap != nil {
 				gasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionConfig.VRC25GasPrice))
-				statedb.VicSetVrc25Balance(victionConfig.VRC25Contract, *addr, new(big.Int).Sub(zgCap, gasFee))
+				statedb.VicSetZeroGasCapacity(victionConfig.VRC25Contract, *addr, new(big.Int).Sub(zgCap, gasFee))
 			}
 			statedb.AddBalance(st.payer, remaining)
 		}
