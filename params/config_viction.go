@@ -109,6 +109,15 @@ func (c *VictionConfig) IsBlacklisted(addr common.Address) bool {
 	return false
 }
 
+func (c *ChainConfig) IsPosv() bool {
+	return c.Posv != nil
+}
+
+func (c *ChainConfig) IsViction() bool {
+	return c.Viction != nil
+}
+
+// Viction Mainnet only
 var victionBlacklists = map[common.Address]bool{
 	common.HexToAddress("0x5248bfb72fd4f234e062d3e9bb76f08643004fcd"): true,
 	common.HexToAddress("0x5ac26105b35ea8935be382863a70281ec7a985e9"): true,
@@ -172,6 +181,7 @@ var victionBlacklists = map[common.Address]bool{
 	common.HexToAddress("0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f"): true,
 }
 
+// Viction Mainnet only
 var victionBypassBalances = map[string]string{
 	"0x5248bfb72fd4f234e062d3e9bb76f08643004fcd": "29410",
 	"0x5ac26105b35ea8935be382863a70281ec7a985e9": "23551",
@@ -235,6 +245,7 @@ var victionBypassBalances = map[string]string{
 	"0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f": "23734",
 }
 
+// Viction Mainnet only
 var victionBypassBlocks = map[uint64]string{
 	9073579: "0x5248bfb72fd4f234e062d3e9bb76f08643004fcd",
 	9147130: "0x5ac26105b35ea8935be382863a70281ec7a985e9",
@@ -309,9 +320,10 @@ var victionHardforks = map[string]bool{
 	"tipNativeLendingBlock": true,
 	"tip2021Block":          true,
 
-	"saigonBlock":    true,
-	"atlasBlock":     true,
-	"postAtlasBlock": true,
+	"saigonBlock":       true,
+	"atlasBlock":        true,
+	"atlasRefreshBlock": true,
+	"prometheusBlock":   true,
 }
 
 func isVictionHardfork(name string) bool {

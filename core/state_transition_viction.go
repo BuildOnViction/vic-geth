@@ -102,8 +102,8 @@ func (st *StateTransition) refundGasZG(remaining *big.Int) bool {
 		return true
 	} else {
 		// Atlas: Regular transaction is not refunded. This is to keep compatibility with old data.
-		// PostAtlas: Regular transaction is refunded to the coinbase.
-		if !chainConfig.IsPostAtlas(number) && chainConfig.IsAtlas(number) {
+		// AtlasRefresh: Regular transaction is refunded to the coinbase.
+		if !chainConfig.IsAtlasRefresh(number) && chainConfig.IsAtlas(number) {
 			return true
 		}
 	}

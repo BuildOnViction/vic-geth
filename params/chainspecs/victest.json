@@ -21,7 +21,7 @@
   "istanbulBlock": 0,
   "saigonBlock": 10004200,
   "atlasBlock": 24697500,
-  "postAtlasBlock": 36911450,
+  "atlasRefreshBlock": 36911450,
   "posv": {
     "period": 2,
     "epoch": 900,

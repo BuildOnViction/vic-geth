@@ -327,7 +327,8 @@ var (
 		MuirGlacierBlock:      big.NewInt(0),
 		SaigonBlock:           big.NewInt(0),
 		AtlasBlock:            big.NewInt(0),
-		PostAtlasBlock:        big.NewInt(0),
+		AtlasRefreshBlock:     big.NewInt(0),
+		PrometheusBlock:       big.NewInt(0),
 		BerlinBlock:           big.NewInt(0),
 		LondonBlock:           big.NewInt(0),
 		Ethash:                nil,
@@ -447,9 +448,10 @@ type ChainConfig struct {
 	TIPNativeLendingBlock *big.Int `json:"tipNativeLendingBlock,omitempty"`
 	TIP2021Block          *big.Int `json:"tip2021Block,omitempty"`
 
-	SaigonBlock    *big.Int `json:"saigonBlock,omitempty"`
-	AtlasBlock     *big.Int `json:"atlasBlock,omitempty"`
-	PostAtlasBlock *big.Int `json:"postAtlasBlock,omitempty"`
+	SaigonBlock       *big.Int `json:"saigonBlock,omitempty"`
+	AtlasBlock        *big.Int `json:"atlasBlock,omitempty"`
+	AtlasRefreshBlock *big.Int `json:"atlasRefreshBlock,omitempty"`
+	PrometheusBlock   *big.Int `json:"prometheusBlock,omitempty"`
 
 	// Various consensus engines
 	Ethash  *EthashConfig  `json:"ethash,omitempty"`
@@ -517,7 +519,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v PostAtlas: %v Berlin: %v London: %v Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v AtlasRefresh: %v Prometheus: %v Berlin: %v London: %v Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -539,7 +541,8 @@ func (c *ChainConfig) String() string {
 		c.MuirGlacierBlock,
 		c.SaigonBlock,
 		c.AtlasBlock,
-		c.PostAtlasBlock,
+		c.AtlasRefreshBlock,
+		c.PrometheusBlock,
 		c.BerlinBlock,
 		c.LondonBlock,
 		engine,
@@ -616,19 +619,19 @@ func (c *ChainConfig) IsTIPNativeLending(num *big.Int) bool {
 	return isForked(c.TIPNativeLendingBlock, num)
 }
 
-// IsZeroGasEnabled returns true when TomoXTrading or Atlas is active.
+// IsZeroGasEnabled returns true when TIPNativeTradingBlock or Atlas is active.
 func (c *ChainConfig) IsZeroGasEnabled(num *big.Int) bool {
-	return isForked(c.TIPNativeTradingBlock, num) || isForked(c.AtlasBlock, num)
+	return isForked(c.AtlasBlock, num) || isForked(c.TIPNativeTradingBlock, num)
 }
 
-// IsNativeTradingEnabled returns true when TomoXTrading order processing is active: after TIPTomoX and before Atlas.
+// IsNativeTradingEnabled returns true when native trading is active: after TIPNativeTradingBlock and before Atlas.
 func (c *ChainConfig) IsNativeTradingEnabled(num *big.Int) bool {
-	return isForked(c.TIPNativeTradingBlock, num) && !isForked(c.AtlasBlock, num)
+	return !isForked(c.AtlasBlock, num) && isForked(c.TIPNativeTradingBlock, num)
 }
 
-// IsNativeLendingEnabled returns true when TomoXLending order processing is active: after TIPTomoXLending and before Atlas.
+// IsNativeLendingEnabled returns true when native lending is active: after TIPNativeLendingBlock and before Atlas.
 func (c *ChainConfig) IsNativeLendingEnabled(num *big.Int) bool {
-	return isForked(c.TIPNativeLendingBlock, num) && !isForked(c.AtlasBlock, num)
+	return !isForked(c.AtlasBlock, num) && isForked(c.TIPNativeLendingBlock, num)
 }
 
 // IsTIP2021 returns whether num is either equal to the TIP2021 fork block or greater.
@@ -668,9 +671,14 @@ func (c *ChainConfig) IsAtlas(num *big.Int) bool {
 	return isForked(c.AtlasBlock, num)
 }
 
-// IsPostAtlas returns whether num is either equal to the PostAtlas fork block or greater.
-func (c *ChainConfig) IsPostAtlas(num *big.Int) bool {
-	return isForked(c.PostAtlasBlock, num)
+// IsAtlasRefresh returns whether num is either equal to the AtlasRefresh fork block or greater.
+func (c *ChainConfig) IsAtlasRefresh(num *big.Int) bool {
+	return isForked(c.AtlasRefreshBlock, num)
+}
+
+// IsPrometheus returns whether num is either equal to the Prometheus fork block or greater.
+func (c *ChainConfig) IsPrometheus(num *big.Int) bool {
+	return isForked(c.PrometheusBlock, num)
 }
 
 // IsBerlin returns whether num is either equal to the Berlin fork block or greater.
@@ -737,7 +745,8 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "muirGlacierBlock", block: c.MuirGlacierBlock, optional: true},
 		{name: "saigonBlock", block: c.SaigonBlock},
 		{name: "atlasBlock", block: c.AtlasBlock},
-		{name: "postAtlasBlock", block: c.PostAtlasBlock},
+		{name: "atlasRefreshBlock", block: c.AtlasRefreshBlock},
+		{name: "prometheusBlock", block: c.PrometheusBlock},
 		{name: "berlinBlock", block: c.BerlinBlock},
 		{name: "londonBlock", block: c.LondonBlock},
 	} {
@@ -840,8 +849,11 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.AtlasBlock, newcfg.AtlasBlock, head) {
 		return newCompatError("Atlas fork block", c.AtlasBlock, newcfg.AtlasBlock)
 	}
-	if isForkIncompatible(c.PostAtlasBlock, newcfg.PostAtlasBlock, head) {
-		return newCompatError("PostAtlas fork block", c.PostAtlasBlock, newcfg.PostAtlasBlock)
+	if isForkIncompatible(c.AtlasRefreshBlock, newcfg.AtlasRefreshBlock, head) {
+		return newCompatError("AtlasRefresh fork block", c.AtlasRefreshBlock, newcfg.AtlasRefreshBlock)
+	}
+	if isForkIncompatible(c.PrometheusBlock, newcfg.PrometheusBlock, head) {
+		return newCompatError("Prometheus fork block", c.PrometheusBlock, newcfg.PrometheusBlock)
 	}
 	if isForkIncompatible(c.BerlinBlock, newcfg.BerlinBlock, head) {
 		return newCompatError("Berlin fork block", c.BerlinBlock, newcfg.BerlinBlock)
@@ -930,7 +942,7 @@ type Rules struct {
 	IsTIPBlacklist, IsTIPGasPrice, IsTIPSignerCheck   bool
 	IsTIPNativeTrading, IsTIPNativeLending, IsTIP2021 bool
 
-	IsSaigon, IsAtlas, IsPostAtlas bool
+	IsSaigon, IsAtlas, IsAtlasRefresh, IsPrometheus bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -963,8 +975,9 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsTIPNativeLending: c.IsTIPNativeLending(num),
 		IsTIP2021:          c.IsTIP2021(num),
 
-		IsSaigon:    c.IsSaigon(num),
-		IsAtlas:     c.IsAtlas(num),
-		IsPostAtlas: c.IsPostAtlas(num),
+		IsSaigon:       c.IsSaigon(num),
+		IsAtlas:        c.IsAtlas(num),
+		IsAtlasRefresh: c.IsAtlasRefresh(num),
+		IsPrometheus:   c.IsPrometheus(num),
 	}
 }
