@@ -517,7 +517,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v PostAtlas: %v Berlin: %v London: %v Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v TIP2019: %v TIPSigning: %v TIPRandomize: %v TIPGasPrice: %v TIPNativeTrading: %v TIPNativeLending: %v TIP2021: %v Constantinople: %v Petersburg: %v Istanbul: %v Muir Glacier: %v Saigon: %v Atlas: %v PostAtlas: %v Berlin: %v London: %v Engine: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -596,9 +596,9 @@ func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
 	return isForked(c.TIPBlacklistBlock, num)
 }
 
-// IsTIPGasPrice returns whether num is either equal to the TIPGasPrice fork block or greater.
+// IsTIPGasPrice returns whether num is greater than the TIPGasPrice fork block.
 func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
-	return isForked(c.TIPGasPriceBlock, num)
+	return isForkedExclusive(c.TIPGasPriceBlock, num)
 }
 
 // IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
@@ -864,6 +864,14 @@ func isForked(s, head *big.Int) bool {
 		return false
 	}
 	return s.Cmp(head) <= 0
+}
+
+// isForkedExclusive returns whether a fork scheduled at block s is active at the given head block + 1.
+func isForkedExclusive(s, head *big.Int) bool {
+	if s == nil || head == nil {
+		return false
+	}
+	return s.Cmp(head) < 0
 }
 
 func configNumEqual(x, y *big.Int) bool {
