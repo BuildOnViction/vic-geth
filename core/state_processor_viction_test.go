@@ -157,7 +157,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 		tradingStateDB: newEmptyTradingStateDB(t), // IntermediateRoot = EmptyRoot ≠ fakeRoot
 	}
 
-	afterErr := vp.AfterProcess(block, nil)
+	afterErr := vp.PostBlockProcess(block, nil)
 	require.Error(t, afterErr, "AfterProcess must return non-nil error on root mismatch")
 	require.Contains(t, afterErr.Error(), "trading state root mismatch")
 }
@@ -191,13 +191,13 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	// ApplyVictionTransaction must return handled=false for a non-JSON 0x91 tx
 	// so it falls through to the normal EVM path.
 	var usedGas uint64
-	handled, _, _, err, _ := vp.ApplyNativeTransaction(statedb, tx, header, &usedGas)
+	handled, _, _, err, _ := vp.ApplyNativeTransaction(tx, header, statedb, &usedGas)
 	require.False(t, handled, "non-JSON 0x91 tx must not be intercepted by viction dispatch")
 	require.NoError(t, err)
 
 	// applyTomoXTx itself (called directly) should produce an empty receipt on
 	// unexpected decode failure — no error, no state mutation.
-	handled, receipt, _, err, _ := vp.applyTradingTransaction(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
+	handled, receipt, _, err, _ := vp.applyTradingTransaction(tx, header, statedb, &usedGas, tradingstate.TxMatchBatch{})
 	require.True(t, handled)
 	require.NoError(t, err, "applyTomoXTx fallthrough must not return an error")
 	require.NotNil(t, receipt)
@@ -218,7 +218,7 @@ func TestBeforeProcessPreTIPNativeTradingNilDB(t *testing.T) {
 		tradingEngine: &mockTradingEngine{},
 	}
 
-	err := vp.BeforeBlockProcess(block, statedb)
+	err := vp.PreBlockProcess(block, statedb)
 	require.NoError(t, err)
 	require.Nil(t, vp.tradingStateDB, "tradingStateDB must be nil before TIPNativeTrading activation")
 }
