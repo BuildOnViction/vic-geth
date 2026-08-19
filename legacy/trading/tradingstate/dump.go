@@ -22,7 +22,6 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -57,7 +56,7 @@ func (self *TradingStateDB) DumpAskTrie(orderBook common.Hash) (map[*big.Int]Dum
 	it := trie.NewIterator(exhangeObject.getAsksTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(priceHash) {
+		if priceHash.IsZero() {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -100,7 +99,7 @@ func (self *TradingStateDB) DumpBidTrie(orderBook common.Hash) (map[*big.Int]Dum
 	it := trie.NewIterator(exhangeObject.getBidsTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(priceHash) {
+		if priceHash.IsZero() {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -143,7 +142,7 @@ func (self *TradingStateDB) GetBids(orderBook common.Hash) (map[*big.Int]*big.In
 	it := trie.NewIterator(exhangeObject.getBidsTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(priceHash) {
+		if priceHash.IsZero() {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -186,7 +185,7 @@ func (self *TradingStateDB) GetAsks(orderBook common.Hash) (map[*big.Int]*big.In
 	it := trie.NewIterator(exhangeObject.getAsksTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(priceHash) {
+		if priceHash.IsZero() {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())
@@ -224,7 +223,7 @@ func (self *stateOrderList) DumpOrderList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if params.EmptyHash(keyHash) {
+		if keyHash.IsZero() {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -235,7 +234,7 @@ func (self *stateOrderList) DumpOrderList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !params.EmptyHash(value) {
+		if !value.IsZero() {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -277,7 +276,7 @@ func (self *stateLendingBook) DumpOrderList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if params.EmptyHash(keyHash) {
+		if keyHash.IsZero() {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -288,7 +287,7 @@ func (self *stateLendingBook) DumpOrderList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !params.EmptyHash(value) {
+		if !value.IsZero() {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -311,7 +310,7 @@ func (self *liquidationPriceState) DumpLendingBook(db Database) (DumpLendingBook
 	it := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for it.Next() {
 		lendingBook := common.BytesToHash(it.Key)
-		if params.EmptyHash(lendingBook) {
+		if lendingBook.IsZero() {
 			continue
 		}
 		if _, exist := self.stateLendingBooks[lendingBook]; exist {
@@ -326,7 +325,7 @@ func (self *liquidationPriceState) DumpLendingBook(db Database) (DumpLendingBook
 		}
 	}
 	for lendingBook, stateLendingBook := range self.stateLendingBooks {
-		if !params.EmptyHash(lendingBook) {
+		if !lendingBook.IsZero() {
 			result.LendingBooks[lendingBook] = stateLendingBook.DumpOrderList(db)
 		}
 	}
@@ -342,7 +341,7 @@ func (self *TradingStateDB) DumpLiquidationPriceTrie(orderBook common.Hash) (map
 	it := trie.NewIterator(exhangeObject.getLiquidationPriceTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		priceHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(priceHash) {
+		if priceHash.IsZero() {
 			continue
 		}
 		price := new(big.Int).SetBytes(priceHash.Bytes())

@@ -79,7 +79,7 @@ func (c *itemListState) getTrie(db Database) Trie {
 		var err error
 		c.trie, err = db.OpenStorageTrie(c.key, c.data.Root)
 		if err != nil {
-			c.trie, _ = db.OpenStorageTrie(c.key, EmptyHash)
+			c.trie, _ = db.OpenStorageTrie(c.key, common.ZeroHash)
 			c.setError(fmt.Errorf("can't create storage trie: %v", err))
 		}
 	}
@@ -95,7 +95,7 @@ func (self *itemListState) GetOrderAmount(db Database, orderId common.Hash) comm
 	enc, err := self.getTrie(db).TryGet(orderId[:])
 	if err != nil {
 		self.setError(err)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(enc) > 0 {
 		_, content, _, err := rlp.Split(enc)
@@ -118,7 +118,7 @@ func (self *itemListState) insertLendingItem(db Database, orderId common.Hash, a
 func (self *itemListState) removeOrderItem(db Database, orderId common.Hash) {
 	tr := self.getTrie(db)
 	self.setError(tr.TryDelete(orderId[:]))
-	self.setOrderItem(orderId, EmptyHash)
+	self.setOrderItem(orderId, common.ZeroHash)
 }
 
 func (self *itemListState) setOrderItem(orderId common.Hash, amount common.Hash) {
@@ -136,7 +136,7 @@ func (self *itemListState) updateTrie(db Database) Trie {
 	tr := self.getTrie(db)
 	for orderId, amount := range self.dirtyStorage {
 		delete(self.dirtyStorage, orderId)
-		if amount == EmptyHash {
+		if amount == common.ZeroHash {
 			self.setError(tr.TryDelete(orderId[:]))
 			continue
 		}

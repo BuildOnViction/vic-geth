@@ -22,7 +22,6 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -49,7 +48,7 @@ func (self *LendingStateDB) DumpInvestingTrie(orderBook common.Hash) (map[*big.I
 	it := trie.NewIterator(exhangeObject.getInvestingTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		interestHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(interestHash) {
+		if interestHash.IsZero() {
 			continue
 		}
 		interest := new(big.Int).SetBytes(interestHash.Bytes())
@@ -92,7 +91,7 @@ func (self *LendingStateDB) DumpBorrowingTrie(orderBook common.Hash) (map[*big.I
 	it := trie.NewIterator(exhangeObject.getBorrowingTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		interestHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(interestHash) {
+		if interestHash.IsZero() {
 			continue
 		}
 		interest := new(big.Int).SetBytes(interestHash.Bytes())
@@ -135,7 +134,7 @@ func (self *LendingStateDB) GetInvestings(orderBook common.Hash) (map[*big.Int]*
 	it := trie.NewIterator(exhangeObject.getInvestingTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		interestHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(interestHash) {
+		if interestHash.IsZero() {
 			continue
 		}
 		interest := new(big.Int).SetBytes(interestHash.Bytes())
@@ -178,7 +177,7 @@ func (self *LendingStateDB) GetBorrowings(orderBook common.Hash) (map[*big.Int]*
 	it := trie.NewIterator(exhangeObject.getBorrowingTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		interestHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(interestHash) {
+		if interestHash.IsZero() {
 			continue
 		}
 		interest := new(big.Int).SetBytes(interestHash.Bytes())
@@ -217,7 +216,7 @@ func (self *itemListState) DumpItemList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if params.EmptyHash(keyHash) {
+		if keyHash.IsZero() {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -228,7 +227,7 @@ func (self *itemListState) DumpItemList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !params.EmptyHash(value) {
+		if !value.IsZero() {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -266,7 +265,7 @@ func (self *liquidationTimeState) DumpItemList(db Database) DumpOrderList {
 	orderListIt := trie.NewIterator(self.getTrie(db).NodeIterator(nil))
 	for orderListIt.Next() {
 		keyHash := common.BytesToHash(orderListIt.Key)
-		if params.EmptyHash(keyHash) {
+		if keyHash.IsZero() {
 			continue
 		}
 		if _, exist := self.cachedStorage[keyHash]; exist {
@@ -277,7 +276,7 @@ func (self *liquidationTimeState) DumpItemList(db Database) DumpOrderList {
 		}
 	}
 	for key, value := range self.cachedStorage {
-		if !params.EmptyHash(value) {
+		if !value.IsZero() {
 			mapResult.Orders[new(big.Int).SetBytes(key.Bytes())] = new(big.Int).SetBytes(value.Bytes())
 		}
 	}
@@ -303,7 +302,7 @@ func (self *LendingStateDB) DumpLiquidationTimeTrie(orderBook common.Hash) (map[
 	it := trie.NewIterator(exhangeObject.getLiquidationTimeTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		unixTimeHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(unixTimeHash) {
+		if unixTimeHash.IsZero() {
 			continue
 		}
 		unixTime := new(big.Int).SetBytes(unixTimeHash.Bytes())
@@ -346,7 +345,7 @@ func (self *LendingStateDB) DumpLendingOrderTrie(orderBook common.Hash) (map[*bi
 	it := trie.NewIterator(exhangeObject.getLendingItemTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		orderIdHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(orderIdHash) {
+		if orderIdHash.IsZero() {
 			continue
 		}
 		orderId := new(big.Int).SetBytes(orderIdHash.Bytes())
@@ -386,7 +385,7 @@ func (self *LendingStateDB) DumpLendingTradeTrie(orderBook common.Hash) (map[*bi
 	it := trie.NewIterator(exhangeObject.getLendingTradeTrie(self.db).NodeIterator(nil))
 	for it.Next() {
 		tradeIdHash := common.BytesToHash(it.Key)
-		if params.EmptyHash(tradeIdHash) {
+		if tradeIdHash.IsZero() {
 			continue
 		}
 		tradeId := new(big.Int).SetBytes(tradeIdHash.Bytes())

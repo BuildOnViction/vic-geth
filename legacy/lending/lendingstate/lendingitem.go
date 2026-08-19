@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
-	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -216,7 +215,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 	switch orderType {
 	case TopUp:
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
-		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
+		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, common.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
 			return fmt.Errorf("VerifyBalance: process deposit for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}
@@ -228,7 +227,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 		}
 	case Repay:
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
-		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
+		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, common.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
 			return fmt.Errorf("VerifyBalance: process payment for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}

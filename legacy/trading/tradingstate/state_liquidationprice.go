@@ -88,7 +88,7 @@ func (self *liquidationPriceState) MarkStateLendingBookDirty(price common.Hash) 
 }
 
 func (self *liquidationPriceState) createLendingBook(db Database, lendingBook common.Hash) (newobj *stateLendingBook) {
-	newobj = newStateLendingBook(self.orderBook, self.liquidationPrice, lendingBook, orderList{Volume: Zero}, self.MarkStateLendingBookDirty)
+	newobj = newStateLendingBook(self.orderBook, self.liquidationPrice, lendingBook, orderList{Volume: common.Big0}, self.MarkStateLendingBookDirty)
 	self.stateLendingBooks[lendingBook] = newobj
 	self.stateLendingBooksDirty[lendingBook] = struct{}{}
 	if self.onDirty != nil {
@@ -103,7 +103,7 @@ func (self *liquidationPriceState) getTrie(db Database) Trie {
 		var err error
 		self.trie, err = db.OpenStorageTrie(self.liquidationPrice, self.data.Root)
 		if err != nil {
-			self.trie, _ = db.OpenStorageTrie(self.liquidationPrice, EmptyHash)
+			self.trie, _ = db.OpenStorageTrie(self.liquidationPrice, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create storage trie: %v", err))
 		}
 	}

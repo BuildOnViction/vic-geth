@@ -47,21 +47,17 @@ var (
 	OrderNew  = "NEW"
 )
 
-var EmptyHash = common.Hash{}
-var Zero = big.NewInt(0)
-var One = big.NewInt(1)
-
 var EmptyOrderList = orderList{
 	Volume: nil,
-	Root:   EmptyHash,
+	Root:   common.ZeroHash,
 }
 var EmptyExchangeOnject = tradingExchangeObject{
 	Nonce:   0,
-	AskRoot: EmptyHash,
-	BidRoot: EmptyHash,
+	AskRoot: common.ZeroHash,
+	BidRoot: common.ZeroHash,
 }
 var EmptyOrder = OrderItem{
-	Quantity: Zero,
+	Quantity: common.Big0,
 }
 
 var (

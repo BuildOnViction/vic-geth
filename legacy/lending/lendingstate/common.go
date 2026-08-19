@@ -7,17 +7,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
 	EmptyAddress = "0x0000000000000000000000000000000000000000"
 	EmptyRoot    = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 )
-
-var EmptyHash = common.Hash{}
-var Zero = big.NewInt(0)
-var One = big.NewInt(1)
 
 // RelayerLendingFee is the minimum lending fee threshold (0.01 TOMO = 1e16 wei).
 var RelayerLendingFee = big.NewInt(10000000000000000)
@@ -41,7 +36,7 @@ const OneYear = uint64(31536000)
 // BaseLendingInterest is the precision base for lending interest rates (1e8).
 var BaseLendingInterest = big.NewInt(100000000)
 var EmptyLendingOrder = LendingItem{
-	Quantity: Zero,
+	Quantity: common.Big0,
 }
 
 var EmptyLendingTrade = LendingTrade{
@@ -202,7 +197,7 @@ func Max(a, b *big.Int) *big.Int {
 }
 
 func GetLendingOrderBookHash(lendingToken common.Address, term uint64) common.Hash {
-	return crypto.Keccak256Hash(append(params.Uint64ToHash(term).Bytes(), lendingToken.Bytes()...))
+	return crypto.Keccak256Hash(append(common.Uint64ToHash(term).Bytes(), lendingToken.Bytes()...))
 }
 
 func EncodeTxLendingBatch(batch TxLendingBatch) ([]byte, error) {

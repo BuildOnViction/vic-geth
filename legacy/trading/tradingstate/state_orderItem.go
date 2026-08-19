@@ -39,7 +39,7 @@ type stateOrderItem struct {
 
 // empty returns whether the orderId is considered empty.
 func (s *stateOrderItem) empty() bool {
-	return s.data.Quantity == nil || s.data.Quantity.Cmp(Zero) == 0
+	return s.data.Quantity == nil || s.data.Quantity.Cmp(common.Big0) == 0
 }
 
 // newObject creates a state object.

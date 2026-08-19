@@ -57,7 +57,7 @@ type stateOrderList struct {
 
 // empty returns whether the orderId is considered empty.
 func (s *stateOrderList) empty() bool {
-	return s.data.Volume == nil || s.data.Volume.Cmp(Zero) == 0
+	return s.data.Volume == nil || s.data.Volume.Cmp(common.Big0) == 0
 }
 
 // newObject creates a state object.
@@ -91,7 +91,7 @@ func (c *stateOrderList) getTrie(db Database) Trie {
 		var err error
 		c.trie, err = db.OpenStorageTrie(c.price, c.data.Root)
 		if err != nil {
-			c.trie, _ = db.OpenStorageTrie(c.price, EmptyHash)
+			c.trie, _ = db.OpenStorageTrie(c.price, common.ZeroHash)
 			c.setError(fmt.Errorf("can't create storage trie: %v", err))
 		}
 	}
@@ -108,7 +108,7 @@ func (self *stateOrderList) GetOrderAmount(db Database, orderId common.Hash) com
 	enc, err := self.getTrie(db).TryGet(orderId[:])
 	if err != nil {
 		self.setError(err)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(enc) > 0 {
 		_, content, _, err := rlp.Split(enc)
@@ -133,7 +133,7 @@ func (self *stateOrderList) insertOrderItem(db Database, orderId common.Hash, am
 func (self *stateOrderList) removeOrderItem(db Database, orderId common.Hash) {
 	tr := self.getTrie(db)
 	self.setError(tr.TryDelete(orderId[:]))
-	self.setOrderItem(orderId, EmptyHash)
+	self.setOrderItem(orderId, common.ZeroHash)
 }
 
 func (self *stateOrderList) setOrderItem(orderId common.Hash, amount common.Hash) {
@@ -151,7 +151,7 @@ func (self *stateOrderList) updateTrie(db Database) Trie {
 	tr := self.getTrie(db)
 	for orderId, amount := range self.dirtyStorage {
 		delete(self.dirtyStorage, orderId)
-		if amount == EmptyHash {
+		if amount == common.ZeroHash {
 			self.setError(tr.TryDelete(orderId[:]))
 			continue
 		}
