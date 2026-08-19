@@ -306,7 +306,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	contractCreation := msg.To() == nil
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, istanbul)
+	viction := st.evm.ChainConfig().IsViction()
+	prometheus := st.evm.ChainConfig().IsPrometheus(st.evm.Context.BlockNumber)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, (prometheus && viction) || (istanbul && !viction))
 	if err != nil {
 		return nil, err
 	}
