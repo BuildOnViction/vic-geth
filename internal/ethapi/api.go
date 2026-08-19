@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -920,7 +923,8 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	result, err := core.ApplyMessage(evm, msg, gp, nil)
+	zp := core.NewTxVictionProcessor(evm.ChainConfig(), state, header.Number).ZeroGasPool()
+	result, err := core.ApplyMessage(evm, msg, gp, zp)
 	if err := vmError(); err != nil {
 		return nil, err
 	}

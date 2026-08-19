@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -38,14 +41,17 @@ type StateProcessor struct {
 	config *params.ChainConfig // Chain configuration options
 	bc     *BlockChain         // Canonical block chain
 	engine consensus.Engine    // Consensus engine used for block rewards
+
+	viction *VictionProcessor
 }
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config: config,
-		bc:     bc,
-		engine: engine,
+		config:  config,
+		bc:      bc,
+		engine:  engine,
+		viction: NewVictionProcessor(config, bc, engine),
 	}
 }
 
@@ -57,6 +63,10 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
+	// Viction hooks
+	if err := p.viction.PreBlockProcess(block, statedb); err != nil {
+		return nil, nil, 0, err
+	}
 	var (
 		receipts    types.Receipts
 		usedGas     = new(uint64)
@@ -78,16 +88,38 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
+		if err := p.viction.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			return nil, nil, 0, err
+		}
 		statedb.Prepare(tx.Hash(), i)
-		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, nil, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+
+		handled, receipt, _, err, _ := p.viction.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, nil, 0, err
+		}
+
+		if !handled {
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, p.viction.ZeroGasPool(), statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+			if err != nil {
+				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			}
+		}
+
+		// Execute Viction-specific post-transaction logic.
+		failed := receipt.Status == types.ReceiptStatusFailed
+		if err := p.viction.PostApplyTransaction(tx, msg, statedb, receipt.GasUsed, failed); err != nil {
+			return nil, nil, 0, err
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
+
+	// Execute Viction-specific post-processing logic.
+	if err := p.viction.PostBlockProcess(block, statedb); err != nil {
+		return nil, nil, 0, err
+	}
 
 	return receipts, allLogs, *usedGas, nil
 }
@@ -142,6 +174,10 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	if handled, receipt, _, err, _ := (&VictionProcessor{config: config}).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
+		return receipt, err
+	}
+
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number), header.BaseFee)
 	if err != nil {
 		return nil, err

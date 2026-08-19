@@ -209,7 +209,7 @@ func (statedb *StateDB) VicSetVrc25Balance(contractAddress common.Address, addre
 // Return remaining sponsoring capacity for a given token.
 func (statedb *StateDB) VicGetZeroGasCapacity(contractAddress common.Address, token *common.Address) *big.Int {
 	if token == nil {
-		return new(big.Int)
+		return nil
 	}
 	tokenCapacityMappingSlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokensState"])
 	tokenCapacitySlot := StorageLocationOfMappingElement(tokenCapacityMappingSlot, token.Hash().Bytes())

@@ -102,4 +102,6 @@ var (
 	ErrNoValidatorContract = errors.New("validator contract address is not set in chain config")
 
 	ErrPosvRequired = errors.New("posv engine is required")
+
+	ErrBlacklistedAddress = errors.New("blacklisted address")
 )
