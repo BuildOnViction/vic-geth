@@ -33,7 +33,7 @@ type Lending struct {
 	lendingStateCache lendingstate.Database
 	trieCacheLimit    int
 	triegc            *prque.Prque
-	tomox             *trading.TomoX
+	trading           *trading.Trading
 
 	// config is needed to derive the correct transaction signer (EIP155 vs Homestead)
 	// when extracting the lending state root from the 0x92 system transaction.
@@ -41,16 +41,16 @@ type Lending struct {
 }
 
 // New creates a Lending engine.
-// db is the ethdb passed directly - legacy/trading.TomoX does not expose its DB.
+// db is the ethdb passed directly - legacy/trading.Trading does not expose its DB.
 // tomox is required for token decimal lookups and price conversions.
 // config is the chain configuration, required for correct EIP155 signer derivation.
-func New(db ethdb.Database, tomox *trading.TomoX, config *params.ChainConfig) *Lending {
+func New(db ethdb.Database, tomox *trading.Trading, config *params.ChainConfig) *Lending {
 	return &Lending{
 		db:                db,
 		lendingStateCache: lendingstate.NewDatabase(db),
 		trieCacheLimit:    100,
 		triegc:            prque.New(nil),
-		tomox:             tomox,
+		trading:           tomox,
 		config:            config,
 	}
 }
@@ -80,7 +80,7 @@ func (l *Lending) GetLendingStateRoot(block *types.Block, author common.Address)
 	// since block 3). Using HomesteadSigner would fail to recover the sender for any post-EIP155 tx.
 	signer := types.MakeSigner(l.config, block.Number())
 	for _, tx := range block.Transactions() {
-		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateAddr {
+		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateContract {
 			continue
 		}
 		from, err := types.Sender(signer, tx)

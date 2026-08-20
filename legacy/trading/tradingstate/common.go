@@ -15,26 +15,17 @@ const (
 )
 
 const (
-	// TradingStateAddr is the system address for 0x92 trading-state-root transactions.
-	// IMPORTANT: This must always equal params.VictionConfig.TradingStateContract
-	// (the authoritative runtime value). Full elimination of this duplicate requires
-	// passing the address through the TomoX constructor — tracked as future work.
-	TradingStateAddr  = "0x0000000000000000000000000000000000000092"
-	TomoNativeAddress = "0x0000000000000000000000000000000000000001"
+	TradingStateContract = "0x0000000000000000000000000000000000000092"
+	NativeTokenAddress   = "0x0000000000000000000000000000000000000001"
 )
 
-// Legacy TomoX constants and helpers.
-//
-// Some of these share names with VictionConfig struct fields. They coexist
-// because legacy tradingstate utility functions are pure helpers without access
-// to a VictionConfig instance - they use these package-level defaults directly.
 var (
-	BasePrice          = big.NewInt(1000000000000000000)                     // 1e18
-	RelayerLockedFund  = big.NewInt(20000)                                   // 20000 VIC
-	TomoXBaseFee       = big.NewInt(10000)                                   // 1 / TomoXBaseFee
-	RelayerFee         = big.NewInt(1000000000000000)                        // 0.001 VIC
-	RelayerCancelFee   = big.NewInt(100000000000000)                         // 0.0001 VIC
-	TomoXBaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (TomoXBaseFee * 10)
+	BasePrice         = big.NewInt(1000000000000000000)                     // 1e18
+	BaseFee           = big.NewInt(10000)                                   // 1 / BaseFee
+	BaseCancelFee     = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (BaseFee * 10)
+	RelayerFee        = big.NewInt(1000000000000000)                        // 0.001 ETH
+	RelayerLockedFund = big.NewInt(20000)                                   // 20000 ETH
+	RelayerCancelFee  = big.NewInt(100000000000000)                         // 0.0001 ETH
 )
 
 var (

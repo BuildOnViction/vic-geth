@@ -277,17 +277,17 @@ func (l *Lending) processOrderList(header *types.Header, coinbase common.Address
 			return nil, nil, nil, fmt.Errorf("invalid recallRate %v", recallRate)
 		}
 
-		lendTokenTOMOPrice, collateralPrice, err := l.GetCollateralPrices(header, chain, statedb, tradingStateDb, collateralToken, order.LendingToken)
+		lendTokenETHPrice, collateralPrice, err := l.GetCollateralPrices(header, chain, statedb, tradingStateDb, collateralToken, order.LendingToken)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if lendTokenTOMOPrice == nil || lendTokenTOMOPrice.Sign() <= 0 {
+		if lendTokenETHPrice == nil || lendTokenETHPrice.Sign() <= 0 {
 			return nil, nil, nil, fmt.Errorf("invalid lendToken price")
 		}
 		if collateralPrice == nil || collateralPrice.Sign() <= 0 {
 			return nil, nil, nil, fmt.Errorf("invalid collateral price")
 		}
-		tradedQuantity, collateralLockedAmount, rejectMaker, settleBalanceResult, err := l.getLendQuantity(lendTokenTOMOPrice, collateralPrice, depositRate, borrowFee, coinbase, chain, header, statedb, order, &oldestOrder, maxTradedQuantity)
+		tradedQuantity, collateralLockedAmount, rejectMaker, settleBalanceResult, err := l.getLendQuantity(lendTokenETHPrice, collateralPrice, depositRate, borrowFee, coinbase, chain, header, statedb, order, &oldestOrder, maxTradedQuantity)
 		if err != nil && err == lendingstate.ErrQuantityTradeTooSmall && tradedQuantity != nil && tradedQuantity.Sign() >= 0 {
 			if tradedQuantity.Cmp(maxTradedQuantity) == 0 {
 				if quantityToTrade.Cmp(amount) == 0 { // reject Taker & maker
@@ -419,7 +419,7 @@ func (l *Lending) processOrderList(header *types.Header, coinbase common.Address
 }
 
 func (l *Lending) getLendQuantity(
-	lendTokenTOMOPrice,
+	lendTokenETHPrice,
 	collateralPrice,
 	depositRate,
 	borrowFee *big.Int,
@@ -433,7 +433,7 @@ func (l *Lending) getLendQuantity(
 			return common.Big0, common.Big0, true, nil, nil
 		}
 	}
-	LendingTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, makerOrder.LendingToken)
+	LendingTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, makerOrder.LendingToken)
 	if err != nil || LendingTokenDecimal.Sign() == 0 {
 		return common.Big0, common.Big0, false, nil, fmt.Errorf("Fail to get tokenDecimal. Token: %v . Err: %v", makerOrder.LendingToken.String(), err)
 	}
@@ -441,7 +441,7 @@ func (l *Lending) getLendQuantity(
 	if takerOrder.Side == lendingstate.Borrowing {
 		collateralToken = takerOrder.CollateralToken
 	}
-	collateralTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, collateralToken)
+	collateralTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, collateralToken)
 	if err != nil || collateralTokenDecimal.Sign() == 0 {
 		return common.Big0, common.Big0, false, nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", collateralToken.String(), err)
 	}
@@ -480,7 +480,7 @@ func (l *Lending) getLendQuantity(
 	if quantity.Sign() > 0 {
 		// Apply Match Order
 		isNativeLendingFork := chain.Config().IsTIPNativeLending(header.Number)
-		settleBalanceResult, err := lendingstate.GetSettleBalance(isNativeLendingFork, takerOrder.Side, lendTokenTOMOPrice, collateralPrice, depositRate, borrowFee, lendToken, collateralToken, LendingTokenDecimal, collateralTokenDecimal, quantity)
+		settleBalanceResult, err := lendingstate.GetSettleBalance(isNativeLendingFork, takerOrder.Side, lendTokenETHPrice, collateralPrice, depositRate, borrowFee, lendToken, collateralToken, LendingTokenDecimal, collateralTokenDecimal, quantity)
 		log.Debug("GetSettleBalance", "settleBalanceResult", settleBalanceResult, "err", err)
 		if err == nil {
 			err = DoSettleBalance(l.config.Viction.RelayerRegistrationContract, l.config.Viction.ValidatorContract, coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
@@ -692,7 +692,7 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 		log.Debug("Relayer not enough fee when cancel order", "err", err)
 		return nil, true
 	}
-	lendTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, originOrder.LendingToken)
+	lendTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, originOrder.LendingToken)
 	if err != nil || lendTokenDecimal == nil || lendTokenDecimal.Sign() <= 0 {
 		log.Debug("Fail to get tokenDecimal ", "Token", originOrder.LendingToken.String(), "err", err)
 		return err, false
@@ -715,18 +715,18 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 		if err != nil || collateralPrice == nil || collateralPrice.Sign() <= 0 {
 			return err, false
 		}
-		collateralTokenDecimal, err = l.tomox.GetTokenDecimal(chain, statedb, originOrder.CollateralToken)
+		collateralTokenDecimal, err = l.trading.GetTokenDecimal(chain, statedb, originOrder.CollateralToken)
 		if err != nil || collateralTokenDecimal == nil || collateralTokenDecimal.Sign() <= 0 {
 			log.Debug("Fail to get tokenDecimal ", "Token", originOrder.LendingToken.String(), "err", err)
 			return err, false
 		}
 	}
 	feeRate := lendingstate.GetFee(l.config.Viction.LendingRegistrationContract, statedb, originOrder.Relayer)
-	tokenCancelFee, tokenPriceInTOMO := common.Big0, common.Big0
+	tokenCancelFee, tokenPriceInETH := common.Big0, common.Big0
 	if !chain.Config().IsTIP2021(header.Number) {
 		tokenCancelFee = getCancelFeeV1(collateralTokenDecimal, collateralPrice, feeRate, &originOrder)
 	} else {
-		tokenCancelFee, tokenPriceInTOMO = l.getCancelFee(chain, statedb, tradingStateDb, &originOrder, feeRate)
+		tokenCancelFee, tokenPriceInETH = l.getCancelFee(chain, statedb, tradingStateDb, &originOrder, feeRate)
 	}
 
 	if tokenBalance.Cmp(tokenCancelFee) < 0 {
@@ -738,7 +738,7 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 		log.Debug("Error when cancel order", "order", &originOrder)
 		return err, false
 	}
-	// relayers pay TOMO for masternode
+	// relayers pay ETH for masternode
 	lendingstate.SubRelayerFee(l.config.Viction.RelayerRegistrationContract, originOrder.Relayer, lendingstate.RelayerLendingCancelFee, statedb)
 	masternodeOwner, _ := statedb.VicGetValidatorInfo(l.config.Viction.ValidatorContract, coinbase)
 	log.Debug("ProcessCancelOrder masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "cancelFee", lendingstate.RelayerLendingCancelFee)
@@ -756,11 +756,11 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 	default:
 	}
 	extraData, _ := json.Marshal(struct {
-		CancelFee        string
-		TokenPriceInTOMO string
+		CancelFee       string
+		TokenPriceInETH string
 	}{
-		CancelFee:        tokenCancelFee.Text(10),
-		TokenPriceInTOMO: tokenPriceInTOMO.Text(10),
+		CancelFee:       tokenCancelFee.Text(10),
+		TokenPriceInETH: tokenPriceInETH.Text(10),
 	})
 	order.ExtraData = string(extraData)
 
@@ -901,33 +901,33 @@ func getCancelFeeV1(collateralTokenDecimal *big.Int, collateralPrice, borrowFee 
 	if order.Side == lendingstate.Investing {
 		// cancel fee = quantityToLend*borrowFee/LendingCancelFee
 		cancelFee = new(big.Int).Mul(order.Quantity, borrowFee)
-		cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
+		cancelFee = new(big.Int).Div(cancelFee, tradingstate.BaseCancelFee)
 	} else {
 		//Fee = quantityToLend * collateralTokenDecimal/collateralPrice *borrowFee/LendingCancelFee
 		cancelFee = new(big.Int).Mul(order.Quantity, collateralTokenDecimal)
 		cancelFee = new(big.Int).Mul(cancelFee, borrowFee)
 		cancelFee = new(big.Int).Div(cancelFee, collateralPrice)
-		cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
+		cancelFee = new(big.Int).Div(cancelFee, tradingstate.BaseCancelFee)
 	}
 	return cancelFee
 }
 
-// return tokenQuantity, tokenPriceInTOMO
+// return tokenQuantity, tokenPriceInETH
 func (l *Lending) getCancelFee(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, order *lendingstate.LendingItem, feeRate *big.Int) (*big.Int, *big.Int) {
 	if feeRate == nil || feeRate.Sign() == 0 {
 		return common.Big0, common.Big0
 	}
-	cancelFee, tokenPriceInTOMO := common.Big0, common.Big0
+	cancelFee, tokenPriceInETH := common.Big0, common.Big0
 	var err error
 	if order.Side == lendingstate.Investing {
-		cancelFee, tokenPriceInTOMO, err = l.tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.LendingToken, lendingstate.RelayerLendingCancelFee)
+		cancelFee, tokenPriceInETH, err = l.trading.ConvertETHToToken(chain, statedb, tradingStateDb, order.LendingToken, lendingstate.RelayerLendingCancelFee)
 	} else {
-		cancelFee, tokenPriceInTOMO, err = l.tomox.ConvertTOMOToToken(chain, statedb, tradingStateDb, order.CollateralToken, lendingstate.RelayerLendingCancelFee)
+		cancelFee, tokenPriceInETH, err = l.trading.ConvertETHToToken(chain, statedb, tradingStateDb, order.CollateralToken, lendingstate.RelayerLendingCancelFee)
 	}
 	if err != nil {
 		return common.Big0, common.Big0
 	}
-	return cancelFee, tokenPriceInTOMO
+	return cancelFee, tokenPriceInETH
 }
 
 func (l *Lending) GetMediumTradePriceBeforeEpoch(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, baseToken common.Address, quoteToken common.Address) (*big.Int, error) {
@@ -939,11 +939,11 @@ func (l *Lending) GetMediumTradePriceBeforeEpoch(chain tradingstate.ChainContext
 		inversePrice := tradingStateDb.GetMediumPriceBeforeEpoch(tradingstate.GetTradingOrderBookHash(quoteToken, baseToken))
 		log.Debug("getMediumTradePriceBeforeEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "inversePrice", inversePrice)
 		if inversePrice != nil && inversePrice.Sign() > 0 {
-			quoteTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, quoteToken)
+			quoteTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, quoteToken)
 			if err != nil || quoteTokenDecimal.Sign() == 0 {
 				return nil, fmt.Errorf("Fail to get tokenDecimal. Token: %v . Err: %v", quoteToken.String(), err)
 			}
-			baseTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, baseToken)
+			baseTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, baseToken)
 			if err != nil || baseTokenDecimal.Sign() == 0 {
 				return nil, fmt.Errorf("Fail to get tokenDecimal. Token: %v . Err: %v", baseToken, err)
 			}
@@ -957,32 +957,32 @@ func (l *Lending) GetMediumTradePriceBeforeEpoch(chain tradingstate.ChainContext
 }
 
 // LendToken and CollateralToken must meet at least one of following conditions
-// - Have direct pair in TomoX: lendToken/CollateralToken or CollateralToken/LendToken
-// - Have pairs with TOMO:
-// -  lendToken/TOMO and CollateralToken/TOMO
-// -  TOMO/lendToken and TOMO/CollateralToken
+// - Have direct pair in Trading: lendToken/CollateralToken or CollateralToken/LendToken
+// - Have pairs with ETH:
+// -  lendToken/ETH and CollateralToken/ETH
+// -  ETH/lendToken and ETH/CollateralToken
 func (l *Lending) GetCollateralPrices(header *types.Header, chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, collateralToken common.Address, lendingToken common.Address) (*big.Int, *big.Int, error) {
-	// lendTokenTOMOPrice: price of ticker lendToken/TOMO
-	// collateralTOMOPrice: price of ticker collateralToken/TOMO
+	// lendTokenETHPrice: price of ticker lendToken/ETH
+	// collateralETHPrice: price of ticker collateralToken/ETH
 	// collateralPrice: price of ticker collateralToken/lendToken
 
 	collateralPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, collateralToken, lendingToken)
 	collateralPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 
-	lendTokenTOMOPrice, err := l.GetTOMOBasePrices(header, chain, statedb, tradingStateDb, lendingToken)
+	lendTokenETHPrice, err := l.GetETHBasePrices(header, chain, statedb, tradingStateDb, lendingToken)
 	if err != nil {
 		return nil, nil, err
 	}
 	if collateralPriceUpdatedFromContract {
 		log.Debug("Getting collateral/lending token price from contract", "price", collateralPriceFromContract)
-		return lendTokenTOMOPrice, collateralPriceFromContract, nil
+		return lendTokenETHPrice, collateralPriceFromContract, nil
 	}
-	lendingTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, lendingToken)
+	lendingTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, lendingToken)
 	log.Debug("GetTokenDecimal", "lendingToken", lendingToken, "err", err)
 	if err != nil || lendingTokenDecimal == nil || lendingTokenDecimal.Sign() == 0 {
 		return nil, nil, err
 	}
-	collateralTokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, collateralToken)
+	collateralTokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, collateralToken)
 	log.Debug("GetTokenDecimal", "collateralToken", collateralToken, "err", err)
 	if err != nil || collateralTokenDecimal == nil || collateralTokenDecimal.Sign() == 0 {
 		return nil, nil, err
@@ -994,53 +994,53 @@ func (l *Lending) GetCollateralPrices(header *types.Header, chain tradingstate.C
 		log.Debug("Getting lending/collateral token price from contract", "price", inverseCollateralPriceFromContract)
 		collateralPrice = new(big.Int).Mul(lendingTokenDecimal, collateralTokenDecimal)
 		collateralPrice = new(big.Int).Div(collateralPrice, inverseCollateralPriceFromContract)
-		return lendTokenTOMOPrice, collateralPrice, nil
+		return lendTokenETHPrice, collateralPrice, nil
 	}
 	// if contract doesn't provide any price information
-	// getting price from pair in tomox
+	// getting price from pair in Trading
 	lastAveragePrice, err := l.GetMediumTradePriceBeforeEpoch(chain, statedb, tradingStateDb, collateralToken, lendingToken)
 	if err != nil {
 		return nil, nil, err
 	}
 	if lastAveragePrice != nil && lastAveragePrice.Sign() > 0 {
-		log.Debug("Getting collateral/lending from direct pair in tomox", "lendToken", lendingToken.Hex(), "collateralToken", collateralToken.Hex(), "price", lastAveragePrice)
-		return lendTokenTOMOPrice, lastAveragePrice, nil
+		log.Debug("Getting collateral/lending from direct pair in Trading", "lendToken", lendingToken.Hex(), "collateralToken", collateralToken.Hex(), "price", lastAveragePrice)
+		return lendTokenETHPrice, lastAveragePrice, nil
 	}
-	collateralTOMOPrice, err := l.GetTOMOBasePrices(header, chain, statedb, tradingStateDb, collateralToken)
+	collateralETHPrice, err := l.GetETHBasePrices(header, chain, statedb, tradingStateDb, collateralToken)
 	if err != nil {
 		return nil, nil, err
 	}
-	if collateralTOMOPrice == nil || lendTokenTOMOPrice == nil {
+	if collateralETHPrice == nil || lendTokenETHPrice == nil {
 		return common.Big0, common.Big0, nil
 	}
-	// Calculate collateral/LendToken price from collateral/TOMO, lendToken/TOMO
-	collateralPrice = new(big.Int).Mul(collateralTOMOPrice, lendingTokenDecimal)
-	collateralPrice = new(big.Int).Div(collateralPrice, lendTokenTOMOPrice)
-	log.Debug("GetCollateralPrices: Calculate collateral/LendToken price from collateral/TOMO, lendToken/TOMO", "collateralPrice", collateralPrice,
-		"collateralTOMOPrice", collateralTOMOPrice, "lendingTokenDecimal", lendingTokenDecimal, "lendTokenTOMOPrice", lendTokenTOMOPrice)
-	return lendTokenTOMOPrice, collateralPrice, nil
+	// Calculate collateral/LendToken price from collateral/ETH, lendToken/ETH
+	collateralPrice = new(big.Int).Mul(collateralETHPrice, lendingTokenDecimal)
+	collateralPrice = new(big.Int).Div(collateralPrice, lendTokenETHPrice)
+	log.Debug("GetCollateralPrices: Calculate collateral/LendToken price from collateral/ETH, lendToken/ETH", "collateralPrice", collateralPrice,
+		"collateralETHPrice", collateralETHPrice, "lendingTokenDecimal", lendingTokenDecimal, "lendTokenETHPrice", lendTokenETHPrice)
+	return lendTokenETHPrice, collateralPrice, nil
 }
 
-func (l *Lending) GetTOMOBasePrices(header *types.Header, chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address) (*big.Int, error) {
+func (l *Lending) GetETHBasePrices(header *types.Header, chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address) (*big.Int, error) {
 
-	tokenTOMOPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, token, common.HexToAddress(tradingstate.TomoNativeAddress))
-	tokenTOMOPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
+	tokenETHPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
+	tokenETHPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 
-	if token == common.HexToAddress(tradingstate.TomoNativeAddress) {
+	if token == common.HexToAddress(tradingstate.NativeTokenAddress) {
 		return tradingstate.BasePrice, nil
-	} else if tokenTOMOPriceUpdatedFromContract {
+	} else if tokenETHPriceUpdatedFromContract {
 		// getting lendToken price from contract first
-		// otherwise, getting from tomox lendToken/TOMO
-		log.Debug("Getting token/TOMO price from contract", "price", tokenTOMOPriceFromContract)
-		return tokenTOMOPriceFromContract, nil
+		// otherwise, getting from Trading lendToken/ETH
+		log.Debug("Getting token/ETH price from contract", "price", tokenETHPriceFromContract)
+		return tokenETHPriceFromContract, nil
 	} else {
-		tomoTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, common.HexToAddress(tradingstate.TomoNativeAddress), token)
+		tomoTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, common.HexToAddress(tradingstate.NativeTokenAddress), token)
 		tomoTokenPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
 		if tomoTokenPriceUpdatedFromContract && tomoTokenPriceFromContract != nil && tomoTokenPriceFromContract.Sign() > 0 {
 			// getting lendToken price from contract first
-			// otherwise, getting from tomox lendToken/TOMO
-			log.Debug("Getting TOMO/token from contract", "price", tomoTokenPriceFromContract)
-			tokenDecimal, err := l.tomox.GetTokenDecimal(chain, statedb, token)
+			// otherwise, getting from Trading lendToken/ETH
+			log.Debug("Getting ETH/token from contract", "price", tomoTokenPriceFromContract)
+			tokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, token)
 			log.Debug("GetTokenDecimal", "token", token.Hex(), "err", err)
 			if err != nil || tokenDecimal == nil || tokenDecimal.Sign() == 0 {
 				return nil, err
@@ -1049,16 +1049,16 @@ func (l *Lending) GetTOMOBasePrices(header *types.Header, chain tradingstate.Cha
 			tokenTomoPrice = new(big.Int).Div(tokenTomoPrice, tomoTokenPriceFromContract)
 			return tokenTomoPrice, nil
 		}
-		tokenTOMOPrice, err := l.GetMediumTradePriceBeforeEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.TomoNativeAddress))
+		tokenETHPrice, err := l.GetMediumTradePriceBeforeEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
 		if err != nil {
 			return nil, err
 		}
-		if tokenTOMOPrice != nil && tokenTOMOPrice.Sign() > 0 {
-			log.Debug("Getting token/TOMO from tomox", "price", tokenTOMOPrice, "err", err)
-			return tokenTOMOPrice, nil
+		if tokenETHPrice != nil && tokenETHPrice.Sign() > 0 {
+			log.Debug("Getting token/ETH from Trading", "price", tokenETHPrice, "err", err)
+			return tokenETHPrice, nil
 		}
 	}
-	log.Debug("Can't getting tokenTOMOPrice ", "token", token.Hex())
+	log.Debug("Can't getting tokenETHPrice ", "token", token.Hex())
 	return nil, nil
 }
 

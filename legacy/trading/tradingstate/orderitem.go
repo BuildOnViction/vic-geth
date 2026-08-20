@@ -217,16 +217,16 @@ func VerifyPair(relayerSMC common.Address, statedb *state.StateDB, exchangeAddre
 
 func VerifyBalance(relayerSMC common.Address, statedb *state.StateDB, tomoxStateDb *TradingStateDB, order *types.OrderTransaction, baseDecimal, quoteDecimal *big.Int) error {
 	var quotePrice *big.Int
-	if order.QuoteToken().String() != TomoNativeAddress {
-		quotePrice = tomoxStateDb.GetLastPrice(GetTradingOrderBookHash(order.QuoteToken(), common.HexToAddress(TomoNativeAddress)))
-		log.Debug("TryGet quotePrice QuoteToken/TOMO", "quotePrice", quotePrice)
+	if order.QuoteToken().String() != NativeTokenAddress {
+		quotePrice = tomoxStateDb.GetLastPrice(GetTradingOrderBookHash(order.QuoteToken(), common.HexToAddress(NativeTokenAddress)))
+		log.Debug("TryGet quotePrice QuoteToken/ETH", "quotePrice", quotePrice)
 		if quotePrice == nil || quotePrice.Sign() == 0 {
-			inversePrice := tomoxStateDb.GetLastPrice(GetTradingOrderBookHash(common.HexToAddress(TomoNativeAddress), order.QuoteToken()))
-			log.Debug("TryGet inversePrice TOMO/QuoteToken", "inversePrice", inversePrice)
+			inversePrice := tomoxStateDb.GetLastPrice(GetTradingOrderBookHash(common.HexToAddress(NativeTokenAddress), order.QuoteToken()))
+			log.Debug("TryGet inversePrice ETH/QuoteToken", "inversePrice", inversePrice)
 			if inversePrice != nil && inversePrice.Sign() > 0 {
 				quotePrice = new(big.Int).Mul(BasePrice, quoteDecimal)
 				quotePrice = new(big.Int).Div(quotePrice, inversePrice)
-				log.Debug("TryGet quotePrice after get inversePrice TOMO/QuoteToken", "quotePrice", quotePrice, "quoteTokenDecimal", quoteDecimal)
+				log.Debug("TryGet quotePrice after get inversePrice ETH/QuoteToken", "quotePrice", quotePrice, "quoteTokenDecimal", quoteDecimal)
 			}
 		}
 	} else {

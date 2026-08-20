@@ -42,9 +42,8 @@ var DefaultConfig = Config{
 	DataDir: "",
 }
 
-type TomoX struct {
+type Trading struct {
 	// Order related
-	db         TomoXDAO
 	Triegc     *prque.Prque          // Priority queue mapping block numbers to tries to gc
 	StateCache tradingstate.Database // State database to reuse between imports (contains state cache)    *tomox_state.TradingStateDB
 
@@ -59,37 +58,37 @@ type TomoX struct {
 	orderCache        *lru.Cache
 }
 
-func NewWithDB(db ethdb.Database, config *params.ChainConfig) *TomoX {
+func NewWithDB(db ethdb.Database, config *params.ChainConfig) *Trading {
 	tokenDecimalCache, _ := lru.New(defaultCacheLimit)
 	orderCache, _ := lru.New(tradingstate.OrderCacheLimit)
-	tomoX := &TomoX{
+	t := &Trading{
 		config:            config,
 		orderNonce:        make(map[common.Address]*big.Int),
 		Triegc:            prque.New(nil),
 		tokenDecimalCache: tokenDecimalCache,
 		orderCache:        orderCache,
 	}
-	tomoX.StateCache = tradingstate.NewDatabase(db)
-	tomoX.settings.Store(overflowIdx, false)
+	t.StateCache = tradingstate.NewDatabase(db)
+	t.settings.Store(overflowIdx, false)
 
-	return tomoX
+	return t
 }
 
-func (tomox *TomoX) GetTradingState(block *types.Block, author common.Address) (*tradingstate.TradingStateDB, error) {
-	root, err := tomox.GetTradingStateRoot(block, author)
+func (t *Trading) GetTradingState(block *types.Block, author common.Address) (*tradingstate.TradingStateDB, error) {
+	root, err := t.GetTradingStateRoot(block, author)
 	if err != nil {
 		return nil, err
 	}
-	if tomox.StateCache == nil {
+	if t.StateCache == nil {
 		return nil, errors.New("Not initialized tomox")
 	}
-	return tradingstate.New(root, tomox.StateCache)
+	return tradingstate.New(root, t.StateCache)
 }
 
-func (tomox *TomoX) GetTradingStateRoot(block *types.Block, author common.Address) (common.Hash, error) {
-	signer := types.MakeSigner(tomox.config, block.Number())
+func (t *Trading) GetTradingStateRoot(block *types.Block, author common.Address) (common.Hash, error) {
+	signer := types.MakeSigner(t.config, block.Number())
 	for _, tx := range block.Transactions() {
-		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateAddr {
+		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateContract {
 			continue
 		}
 		from, err := types.Sender(signer, tx)
@@ -104,7 +103,7 @@ func (tomox *TomoX) GetTradingStateRoot(block *types.Block, author common.Addres
 }
 
 // return average price of the given pair in the last epoch
-func (tomox *TomoX) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, baseToken common.Address, quoteToken common.Address) (*big.Int, error) {
+func (t *Trading) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, baseToken common.Address, quoteToken common.Address) (*big.Int, error) {
 	price := tradingStateDb.GetMediumPriceBeforeEpoch(tradingstate.GetTradingOrderBookHash(baseToken, quoteToken))
 	if price != nil && price.Sign() > 0 {
 		log.Debug("GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "price", price)
@@ -113,11 +112,11 @@ func (tomox *TomoX) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, st
 		inversePrice := tradingStateDb.GetMediumPriceBeforeEpoch(tradingstate.GetTradingOrderBookHash(quoteToken, baseToken))
 		log.Debug("GetAveragePriceLastEpoch", "baseToken", baseToken.Hex(), "quoteToken", quoteToken.Hex(), "inversePrice", inversePrice)
 		if inversePrice != nil && inversePrice.Sign() > 0 {
-			quoteTokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, quoteToken)
+			quoteTokenDecimal, err := t.GetTokenDecimal(chain, statedb, quoteToken)
 			if err != nil || quoteTokenDecimal.Sign() == 0 {
 				return nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", quoteToken.String(), err)
 			}
-			baseTokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, baseToken)
+			baseTokenDecimal, err := t.GetTokenDecimal(chain, statedb, baseToken)
 			if err != nil || baseTokenDecimal.Sign() == 0 {
 				return nil, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", baseToken.String(), err)
 			}
@@ -131,26 +130,26 @@ func (tomox *TomoX) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, st
 }
 
 // GetStateCache returns the trie-node cache backed by the tomox LevelDB.
-func (tomox *TomoX) GetStateCache() tradingstate.Database {
-	return tomox.StateCache
+func (t *Trading) GetStateCache() tradingstate.Database {
+	return t.StateCache
 }
 
 // GetTriegc returns the garbage-collection priority queue for the trading trie.
-func (tomox *TomoX) GetTriegc() *prque.Prque {
-	return tomox.Triegc
+func (t *Trading) GetTriegc() *prque.Prque {
+	return t.Triegc
 }
 
-// return tokenQuantity (after convert from TOMO to token), tokenPriceInTOMO, error
-func (tomox *TomoX) ConvertTOMOToToken(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address, quantity *big.Int) (*big.Int, *big.Int, error) {
-	if token.String() == tradingstate.TomoNativeAddress {
+// return tokenQuantity (after convert from ETH to token), tokenPriceInETH, error
+func (t *Trading) ConvertETHToToken(chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDb *tradingstate.TradingStateDB, token common.Address, quantity *big.Int) (*big.Int, *big.Int, error) {
+	if token.String() == tradingstate.NativeTokenAddress {
 		return quantity, tradingstate.BasePrice, nil
 	}
-	tokenPriceInTomo, err := tomox.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.TomoNativeAddress))
+	tokenPriceInTomo, err := t.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
 	if err != nil || tokenPriceInTomo == nil || tokenPriceInTomo.Sign() <= 0 {
 		return common.Big0, common.Big0, err
 	}
 
-	tokenDecimal, err := tomox.GetTokenDecimal(chain, statedb, token)
+	tokenDecimal, err := t.GetTokenDecimal(chain, statedb, token)
 	if err != nil || tokenDecimal.Sign() == 0 {
 		return common.Big0, common.Big0, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", token.String(), err)
 	}

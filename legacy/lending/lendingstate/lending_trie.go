@@ -26,24 +26,24 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-// TomoXTrie wraps a trie with key hashing. In a secure trie, all
+// LendingTrie wraps a trie with key hashing. In a secure trie, all
 // access operations hash the key using keccak256. This prevents
 // calling code from creating long chains of nodes that
 // increase the access time.
 //
-// Contrary to a regular trie, a TomoXTrie can only be created with
+// Contrary to a regular trie, a LendingTrie can only be created with
 // New and must have an attached database. The database also stores
 // the preimage of each key.
 //
-// TomoXTrie is not safe for concurrent use.
-type TomoXTrie struct {
+// LendingTrie is not safe for concurrent use.
+type LendingTrie struct {
 	trie             trie.Trie
 	hashKeyBuf       [common.HashLength]byte
 	secKeyCache      map[string][]byte
-	secKeyCacheOwner *TomoXTrie // Pointer to self, replace the key cache on mismatch
+	secKeyCacheOwner *LendingTrie // Pointer to self, replace the key cache on mismatch
 }
 
-// NewTomoXTrie creates a trie with an existing root node from a backing database
+// NewLendingTrie creates a trie with an existing root node from a backing database
 // and optional intermediate in-memory node pool.
 //
 // If root is the zero hash or the sha3 hash of an empty string, the
@@ -54,20 +54,20 @@ type TomoXTrie struct {
 // Loaded nodes are kept around until their 'cache generation' expires.
 // A new cache generation is created by each call to Commit.
 // cachelimit sets the number of past cache generations to keep.
-func NewTomoXTrie(root common.Hash, db *trie.Database) (*TomoXTrie, error) {
+func NewLendingTrie(root common.Hash, db *trie.Database) (*LendingTrie, error) {
 	if db == nil {
-		panic("trie.NewTomoXTrie called without a database")
+		panic("trie.NewLendingTrie called without a database")
 	}
 	trie, err := trie.New(root, db)
 	if err != nil {
 		return nil, err
 	}
-	return &TomoXTrie{trie: *trie}, nil
+	return &LendingTrie{trie: *trie}, nil
 }
 
 // Get returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
-func (t *TomoXTrie) Get(key []byte) []byte {
+func (t *LendingTrie) Get(key []byte) []byte {
 	res, err := t.TryGet(key)
 	if err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
@@ -78,24 +78,24 @@ func (t *TomoXTrie) Get(key []byte) []byte {
 // TryGet returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *TomoXTrie) TryGet(key []byte) ([]byte, error) {
+func (t *LendingTrie) TryGet(key []byte) ([]byte, error) {
 	return t.trie.TryGet(key)
 }
 
 // TryGetBestLeftKeyAndValue returns the value of max left leaf
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *TomoXTrie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
+func (t *LendingTrie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
 	return t.trie.TryGetBestLeftKeyAndValue()
 }
 
 // TryGetAllLeftKeyAndValue returns all leaves whose key is strictly less than limit.
-func (t *TomoXTrie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error) {
+func (t *LendingTrie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error) {
 	return t.trie.TryGetAllLeftKeyAndValue(limit)
 }
 
 // TryGetBestRightKeyAndValue returns the value of max right leaf
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *TomoXTrie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
+func (t *LendingTrie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
 	return t.trie.TryGetBestRightKeyAndValue()
 }
 
@@ -105,7 +105,7 @@ func (t *TomoXTrie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
 //
 // The value bytes must not be modified by the caller while they are
 // stored in the trie.
-func (t *TomoXTrie) Update(key, value []byte) {
+func (t *LendingTrie) Update(key, value []byte) {
 	if err := t.TryUpdate(key, value); err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
@@ -119,7 +119,7 @@ func (t *TomoXTrie) Update(key, value []byte) {
 // stored in the trie.
 //
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *TomoXTrie) TryUpdate(key, value []byte) error {
+func (t *LendingTrie) TryUpdate(key, value []byte) error {
 	err := t.trie.TryUpdate(key, value)
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func (t *TomoXTrie) TryUpdate(key, value []byte) error {
 }
 
 // Delete removes any existing value for key from the trie.
-func (t *TomoXTrie) Delete(key []byte) {
+func (t *LendingTrie) Delete(key []byte) {
 	if err := t.TryDelete(key); err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
@@ -137,14 +137,14 @@ func (t *TomoXTrie) Delete(key []byte) {
 
 // TryDelete removes any existing value for key from the trie.
 // If a node was not found in the database, a MissingNodeError is returned.
-func (t *TomoXTrie) TryDelete(key []byte) error {
+func (t *LendingTrie) TryDelete(key []byte) error {
 	delete(t.getSecKeyCache(), string(key))
 	return t.trie.TryDelete(key)
 }
 
 // GetKey returns the sha3 preimage of a hashed key that was
 // previously used to store a value.
-func (t *TomoXTrie) GetKey(shaKey []byte) []byte {
+func (t *LendingTrie) GetKey(shaKey []byte) []byte {
 	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
 		return key
 	}
@@ -157,7 +157,7 @@ func (t *TomoXTrie) GetKey(shaKey []byte) []byte {
 //
 // Committing flushes nodes from memory. Subsequent Get calls will load nodes
 // from the database.
-func (t *TomoXTrie) Commit(onleaf trie.LeafCallback) (common.Hash, int, error) {
+func (t *LendingTrie) Commit(onleaf trie.LeafCallback) (common.Hash, int, error) {
 	// Write all the pre-images to the actual disk database
 	if len(t.getSecKeyCache()) > 0 {
 		t.trie.Database().GetLock().Lock()
@@ -173,25 +173,25 @@ func (t *TomoXTrie) Commit(onleaf trie.LeafCallback) (common.Hash, int, error) {
 	return hash, 0, err
 }
 
-func (t *TomoXTrie) Hash() common.Hash {
+func (t *LendingTrie) Hash() common.Hash {
 	return t.trie.Hash()
 }
 
-func (t *TomoXTrie) Copy() *TomoXTrie {
+func (t *LendingTrie) Copy() *LendingTrie {
 	cpy := *t
 	return &cpy
 }
 
 // NodeIterator returns an iterator that returns nodes of the underlying trie. Iteration
 // starts at the key after the given start key.
-func (t *TomoXTrie) NodeIterator(start []byte) trie.NodeIterator {
+func (t *LendingTrie) NodeIterator(start []byte) trie.NodeIterator {
 	return t.trie.NodeIterator(start)
 }
 
 // getSecKeyCache returns the current secure key cache, creating a new one if
 // ownership changed (i.e. the current secure trie is a copy of another owning
 // the actual cache).
-func (t *TomoXTrie) getSecKeyCache() map[string][]byte {
+func (t *LendingTrie) getSecKeyCache() map[string][]byte {
 	if t != t.secKeyCacheOwner {
 		t.secKeyCacheOwner = t
 		t.secKeyCache = make(map[string][]byte)
@@ -206,6 +206,6 @@ func (t *TomoXTrie) getSecKeyCache() map[string][]byte {
 // If the trie does not contain a value for key, the returned proof contains all
 // nodes of the longest existing prefix of the key (at least the root node), ending
 // with the node that proves the absence of the key.
-func (t *TomoXTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
+func (t *LendingTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
 	return t.trie.Prove(key, fromLevel, proofDb)
 }

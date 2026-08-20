@@ -14,10 +14,10 @@ var (
 	EmptyRoot    = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 )
 
-// RelayerLendingFee is the minimum lending fee threshold (0.01 TOMO = 1e16 wei).
+// RelayerLendingFee is the minimum lending fee threshold (0.01 ETH = 1e16 wei).
 var RelayerLendingFee = big.NewInt(10000000000000000)
 
-// RelayerLendingCancelFee is the fee charged when cancelling a lending order (0.001 TOMO = 1e15 wei).
+// RelayerLendingCancelFee is the fee charged when cancelling a lending order (0.001 ETH = 1e15 wei).
 var RelayerLendingCancelFee = big.NewInt(1000000000000000)
 
 // LendingLockAddress is the system address that holds locked collateral for lending trades.
@@ -38,7 +38,6 @@ var BaseLendingInterest = big.NewInt(100000000)
 var EmptyLendingOrder = LendingItem{
 	Quantity: common.Big0,
 }
-
 var EmptyLendingTrade = LendingTrade{
 	Amount: big.NewInt(0),
 }
