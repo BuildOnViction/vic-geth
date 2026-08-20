@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -25,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/viction"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -41,13 +43,13 @@ type StateProcessor struct {
 	engine consensus.Engine    // Consensus engine used for block rewards
 
 	// viction owns all Viction-specific processing hooks (hardfork activation,
-	// system transactions, VRC25 fees, TomoX/TomoZ replay). See viction.Processor.
-	viction *viction.Processor
+	// system transactions, VRC25 fees, native trading/lending replay). See viction.Processor.
+	viction *VictionProcessor
 
-	// Deferred trie GC fields for TomoX/TomoZ (full-node path).
+	// Deferred trie GC fields for native trading/lending (full-node path).
 	// These are managed entirely by blockchain_viction.go / commitVictionState.
-	tradingTriegc *prque.Prque // deferred GC queue for TomoX trading trie roots
-	lendingTriegc *prque.Prque // deferred GC queue for TomoZ lending trie roots
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
@@ -56,7 +58,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 		config:        config,
 		bc:            bc,
 		engine:        engine,
-		viction:       viction.NewProcessor(config, bc, engine),
+		viction:       NewVictionProcessor(config, bc, engine),
 		tradingTriegc: prque.New(nil),
 		lendingTriegc: prque.New(nil),
 	}
@@ -71,7 +73,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 	// Viction hooks
-	if err := p.viction.BeforeProcess(block, statedb); err != nil {
+	if err := p.viction.BeforeBlockProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 	var (
@@ -98,7 +100,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
-		// Apply Viction-specific system transactions (BlockSigner, TomoX).
+		// Apply Viction-specific system transactions (BlockSigner, native trading/lending).
 		handled, receipt, _, err, _ := p.applyVictionTransaction(statedb, tx, header, usedGas)
 		if err != nil {
 			return nil, nil, 0, err
@@ -129,7 +131,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool viction.FeePool) (*types.Receipt, error) {
+func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM, feePool types.BalanceMap) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment
 	txContext := NewEVMTxContext(msg)
 	// Add addresses to access list if applicable
@@ -222,7 +224,7 @@ func (p *StateProcessor) applyVictionTransaction(statedb *state.StateDB, tx *typ
 		p.config.IsTIPSigning(header.Number) {
 		return ApplySignTransaction(p.config, statedb, tx, header, usedGas)
 	}
-	return p.viction.ApplyVictionTransaction(statedb, tx, header, usedGas)
+	return p.viction.ApplyNativeTransaction(statedb, tx, header, usedGas)
 }
 
 // ApplySignTransaction processes a BlockSigner special transaction (0x89)

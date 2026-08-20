@@ -1,4 +1,23 @@
-package viction
+// Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
+package core
 
 import (
 	"math/big"
@@ -25,6 +44,7 @@ func testChainConfig() *params.ChainConfig {
 		ChainID:       big.NewInt(88),
 		TIPTomoXBlock: big.NewInt(20_581_700),
 		AtlasBlock:    big.NewInt(97_705_094),
+		Posv:          &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			TradingStateContract: common.HexToAddress("0x0000000000000000000000000000000000000092"),
 		},
@@ -130,7 +150,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 	header := &types.Header{Number: big.NewInt(100)}
 	block := types.NewBlock(header, []*types.Transaction{signedTx}, nil, nil, new(trie.Trie))
 
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:         cfg,
 		tradingEngine:  &mockTradingEngine{},
 		engine:         &mockConsensusEngine{authorAddr: authorAddr},
@@ -151,6 +171,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	cfg := testChainConfig()
 	tomoXAddr := common.HexToAddress("0x0000000000000000000000000000000000000091")
+	cfg.Viction.TradingContract = tomoXAddr
 	header := &types.Header{
 		Number:   big.NewInt(20_582_000),
 		Coinbase: common.Address{},
@@ -159,8 +180,9 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
 	tdb := newEmptyTradingStateDB(t)
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:         cfg,
+		engine:         &mockConsensusEngine{},
 		tradingEngine:  &mockTradingEngine{},
 		tradingStateDB: tdb,
 	}
@@ -169,13 +191,13 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 	// ApplyVictionTransaction must return handled=false for a non-JSON 0x91 tx
 	// so it falls through to the normal EVM path.
 	var usedGas uint64
-	handled, _, _, err, _ := vp.ApplyVictionTransaction(statedb, tx, header, &usedGas)
+	handled, _, _, err, _ := vp.ApplyNativeTransaction(statedb, tx, header, &usedGas)
 	require.False(t, handled, "non-JSON 0x91 tx must not be intercepted by viction dispatch")
 	require.NoError(t, err)
 
 	// applyTomoXTx itself (called directly) should produce an empty receipt on
 	// unexpected decode failure — no error, no state mutation.
-	handled, receipt, _, err, _ := vp.applyTomoXTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
+	handled, receipt, _, err, _ := vp.applyTradingTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
 	require.True(t, handled)
 	require.NoError(t, err, "applyTomoXTx fallthrough must not return an error")
 	require.NotNil(t, receipt)
@@ -191,12 +213,12 @@ func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
 	block := types.NewBlock(header, nil, nil, nil, new(trie.Trie))
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
-	vp := &Processor{
+	vp := &VictionProcessor{
 		config:        cfg,
 		tradingEngine: &mockTradingEngine{},
 	}
 
-	err := vp.BeforeProcess(block, statedb)
+	err := vp.BeforeBlockProcess(block, statedb)
 	require.NoError(t, err)
 	require.Nil(t, vp.tradingStateDB,
 		"tradingStateDB must be nil before TIPTomoX activation")

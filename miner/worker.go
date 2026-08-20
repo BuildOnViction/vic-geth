@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -1043,10 +1046,10 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	// [POSV] Fork-specific state mutations.
 	if isPosv {
 		if w.chainConfig.TIPSigningBlock != nil && w.chainConfig.TIPSigningBlock.Cmp(header.Number) == 0 {
-			env.state.DeleteAddress(w.chainConfig.Viction.ValidatorBlockSignContract)
+			env.state.RemoveState(w.chainConfig.Viction.ValidatorBlockSignContract)
 		}
 		if w.chainConfig.AtlasBlock != nil && w.chainConfig.AtlasBlock.Cmp(header.Number) >= 0 {
-			misc.ApplyVIPVRC25Upgrade(env.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
+			misc.ApplyAtlasHardFork(env.state, w.chainConfig.Viction, w.chainConfig.AtlasBlock, header.Number)
 		}
 		if w.chainConfig.SaigonBlock != nil && w.chainConfig.SaigonBlock.Cmp(header.Number) <= 0 {
 			misc.ApplySaigonHardFork(env.state, w.chainConfig.Viction, w.chainConfig.SaigonBlock, header.Number)

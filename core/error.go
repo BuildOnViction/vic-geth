@@ -64,3 +64,7 @@ var (
 	// than required to start the invocation.
 	ErrIntrinsicGas = errors.New("intrinsic gas too low")
 )
+
+var (
+	ErrBlacklistedAddress = errors.New("blacklisted address")
+)

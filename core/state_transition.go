@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -56,7 +59,7 @@ type StateTransition struct {
 	state      vm.StateDB
 	evm        *vm.EVM
 	payer      common.Address
-	feePool   map[common.Address]*big.Int
+	feePool    map[common.Address]*big.Int
 }
 
 // Message represents a message sent to a contract.

@@ -1,4 +1,22 @@
-// Copyright 2026 The Vic-geth Authors
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package core
 
 import (
@@ -6,7 +24,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/vrc25"
 )
 
 // vrc25BuyGas checks VRC25 sponsorship eligibility and adjusts payer/gasPrice.
@@ -60,7 +77,8 @@ func (st *StateTransition) vrc25BuyGas() error {
 	}
 
 	// Post-Atlas: read capacity from statedb (each tx writes back via vrc25RefundGas).
-	feeCap := vrc25.GetFeeCapacity(st.state, victionConfig.VRC25Contract, st.msg.To())
+	stateDb := st.state.(*state.StateDB)
+	feeCap := stateDb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, st.msg.To())
 	if feeCap == nil || feeCap.Sign() == 0 {
 		return nil
 	}
@@ -83,6 +101,7 @@ func (st *StateTransition) isVRC25Transaction() bool {
 // vrc25RefundGas handles gas refund for sponsored transactions.
 func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 	blockNum := st.evm.Context.BlockNumber
+	stateDb := st.state.(*state.StateDB)
 
 	if st.isVRC25Transaction() {
 		if !st.evm.ChainConfig().IsAtlas(blockNum) {
@@ -94,13 +113,13 @@ func (st *StateTransition) vrc25RefundGas(remaining *big.Int) {
 		addr := st.msg.To()
 		victionConfig := st.evm.ChainConfig().Viction
 		vrc25Contract := victionConfig.VRC25Contract
-		feeCap := vrc25.GetFeeCapacity(st.state, vrc25Contract, addr)
+		feeCap := stateDb.VicGetZeroGasCapacity(vrc25Contract, addr)
 		if feeCap != nil {
 			gasUsedFee := new(big.Int).Mul(
 				new(big.Int).SetUint64(st.gasUsed()),
 				(*big.Int)(victionConfig.VRC25GasPrice),
 			)
-			vrc25.SetFeeCapacity(st.state, vrc25Contract, *addr, new(big.Int).Sub(feeCap, gasUsedFee))
+			stateDb.VicSetVrc25Balance(vrc25Contract, *addr, new(big.Int).Sub(feeCap, gasUsedFee))
 		}
 		// Refund remaining native balance to the VRC25 issuer contract.
 		st.state.AddBalance(st.payer, remaining)
