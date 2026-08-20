@@ -207,7 +207,7 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 		}
 		// recall trades
 		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(l.config.Viction.LendingRegistrationContract, statedb, lendingPair.CollateralToken)
-		recalLiquidatePrice := new(big.Int).Mul(collateralPrice, lendingstate.BaseRecall)
+		recalLiquidatePrice := new(big.Int).Mul(collateralPrice, lendingstate.RecallBase)
 		recalLiquidatePrice = new(big.Int).Div(recalLiquidatePrice, recallRate)
 		newLiquidatePrice := new(big.Int).Mul(collateralPrice, liquidationRate)
 		newLiquidatePrice = new(big.Int).Div(newLiquidatePrice, depositRate)

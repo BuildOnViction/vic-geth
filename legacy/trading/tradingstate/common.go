@@ -20,12 +20,23 @@ const (
 )
 
 var (
-	BasePrice         = big.NewInt(1000000000000000000)                     // 1e18
-	BaseFee           = big.NewInt(10000)                                   // 1 / BaseFee
-	BaseCancelFee     = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (BaseFee * 10)
-	RelayerFee        = big.NewInt(1000000000000000)                        // 0.001 ETH
-	RelayerLockedFund = big.NewInt(20000)                                   // 20000 ETH
-	RelayerCancelFee  = big.NewInt(100000000000000)                         // 0.0001 ETH
+	// Multipler that is equal to 1 ETH for using with price that is list in ETH.
+	BasePrice = big.NewInt(1000000000000000000) // 1 ETH
+
+	// Precision base for fee calculation.
+	BaseFee = big.NewInt(10000) // 10000 wei
+
+	// Precision base for cancellation fee calculation.
+	BaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 100000 wei
+
+	// Fixed fee for creating trading order in the relayer.
+	RelayerTradingFee = big.NewInt(1000000000000000) // 0.001 ETH
+
+	// Fixed fee for cancelling trading order in the relayer.
+	RelayerTradingCancelFee = big.NewInt(100000000000000) // 0.0001 ETH
+
+	// Minimum of ETH that is locked in the relayer contract.
+	RelayerLockedFund = big.NewInt(20000) // 20000 ETH
 )
 
 var (

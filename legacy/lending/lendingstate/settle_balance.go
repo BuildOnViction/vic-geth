@@ -250,7 +250,7 @@ func CalculateTotalRepayValue(finalizeTime, liquidationTime, term uint64, apr ui
 	// interest 10%
 	// user should send: 10 * BaseLendingInterest
 	// decimal = BaseLendingInterest * 100
-	baseInterestDecimal := new(big.Int).Mul(BaseLendingInterest, new(big.Int).SetUint64(100))
+	baseInterestDecimal := new(big.Int).Mul(InterestBase, new(big.Int).SetUint64(100))
 	paymentBalance := new(big.Int).Mul(tradeAmount, new(big.Int).Add(baseInterestDecimal, interestRate))
 	paymentBalance = new(big.Int).Div(paymentBalance, baseInterestDecimal)
 	return paymentBalance

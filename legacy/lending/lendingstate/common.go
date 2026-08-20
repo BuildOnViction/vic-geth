@@ -12,29 +12,32 @@ import (
 var (
 	EmptyAddress = "0x0000000000000000000000000000000000000000"
 	EmptyRoot    = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+	LockAddress  = "0x0000000000000000000000000000000000000011"
 )
 
-// RelayerLendingFee is the minimum lending fee threshold (0.01 ETH = 1e16 wei).
-var RelayerLendingFee = big.NewInt(10000000000000000)
+var (
+	// Precision base for interest rates.
+	InterestBase = big.NewInt(100000000)
 
-// RelayerLendingCancelFee is the fee charged when cancelling a lending order (0.001 ETH = 1e15 wei).
-var RelayerLendingCancelFee = big.NewInt(1000000000000000)
+	// Precision base for recall rate calculation.
+	RecallBase = big.NewInt(100)
 
-// LendingLockAddress is the system address that holds locked collateral for lending trades.
-const LendingLockAddress = "0x0000000000000000000000000000000000000011"
+	// Fixed fee for creating lending order in the relayer.
+	RelayerLendingFee = big.NewInt(10000000000000000) // 0.01 ETH
 
-// RateTopUp and BaseTopUp define the top-up rate: newLiquidationPrice = currentPrice * RateTopUp / BaseTopUp = 90%.
-var RateTopUp = big.NewInt(90)
-var BaseTopUp = big.NewInt(100)
+	// Fixed fee for cancelling lending order in the relayer.
+	RelayerLendingCancelFee = big.NewInt(1000000000000000) // 0.001 ETH
 
-// BaseRecall is the precision base for the recall rate calculation.
-var BaseRecall = big.NewInt(100)
+	// Precision base for topup rate calculation.
+	TopupBase = big.NewInt(100)
+
+	// Rate for topup fee calculate.
+	TopupRate = big.NewInt(90)
+)
 
 // OneYear is the number of seconds in one year (365 days).
 const OneYear = uint64(31536000)
 
-// BaseLendingInterest is the precision base for lending interest rates (1e8).
-var BaseLendingInterest = big.NewInt(100000000)
 var EmptyLendingOrder = LendingItem{
 	Quantity: common.Big0,
 }

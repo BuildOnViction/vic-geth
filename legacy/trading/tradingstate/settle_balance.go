@@ -59,24 +59,24 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 
 			exMakerReceivedFee := new(big.Int).Mul(makerFee, quotePrice)
 			exMakerReceivedFee = new(big.Int).Div(exMakerReceivedFee, quoteTokenDecimal)
-			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerFee) <= 0 {
+			if (exMakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInETH", defaultFeeInETH)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := new(big.Int).Mul(takerFee, quotePrice)
 			exTakerReceivedFee = new(big.Int).Div(exTakerReceivedFee, quoteTokenDecimal)
-			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerFee) <= 0 {
+			if (exTakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInETH", defaultFeeInETH)
 				return result, ErrQuantityTradeTooSmall
 			}
 		} else if quoteToken.String() == NativeTokenAddress {
 			exMakerReceivedFee := makerFee
-			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
+			if (exMakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := takerFee
-			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
+			if (exTakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
@@ -116,24 +116,24 @@ func GetSettleBalance(quotePrice *big.Int, takerSide string, takerFeeRate *big.I
 			exMakerReceivedFee := new(big.Int).Mul(makerFee, quotePrice)
 			exMakerReceivedFee = new(big.Int).Div(exMakerReceivedFee, quoteTokenDecimal)
 			log.Debug("exMakerReceivedFee", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice)
-			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerFee) <= 0 {
+			if (exMakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("makerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "quotePrice", quotePrice, "defaultMakerFeeInETH", defaultFeeInETH)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := new(big.Int).Mul(takerFee, quotePrice)
 			exTakerReceivedFee = new(big.Int).Div(exTakerReceivedFee, quoteTokenDecimal)
-			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerFee) <= 0 {
+			if (exTakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFeeInETH.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("takerFee too small", "quoteTokenQuantity", quoteTokenQuantity, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "quotePrice", quotePrice, "defaultFeeInETH", defaultFeeInETH)
 				return result, ErrQuantityTradeTooSmall
 			}
 		} else if quoteToken.String() == NativeTokenAddress {
 			exMakerReceivedFee := makerFee
-			if (exMakerReceivedFee.Cmp(RelayerFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
+			if (exMakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exMakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("makerFee too small", "quantityToTrade", quantityToTrade, "makerFee", makerFee, "exMakerReceivedFee", exMakerReceivedFee, "makerFeeRate", makerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}
 			exTakerReceivedFee := takerFee
-			if (exTakerReceivedFee.Cmp(RelayerFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerFee) <= 0 {
+			if (exTakerReceivedFee.Cmp(RelayerTradingFee) <= 0 && exTakerReceivedFee.Sign() > 0) || defaultFee.Cmp(RelayerTradingFee) <= 0 {
 				log.Debug("takerFee too small", "quantityToTrade", quantityToTrade, "takerFee", takerFee, "exTakerReceivedFee", exTakerReceivedFee, "takerFeeRate", takerFeeRate, "defaultFee", defaultFee)
 				return result, ErrQuantityTradeTooSmall
 			}

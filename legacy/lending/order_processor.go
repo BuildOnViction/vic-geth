@@ -619,11 +619,11 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 		}
 		mapBalances[settleBalance.Taker.InToken][takerExOwner] = newTakerFee
 
-		newCollateralTokenLock, err := lendingstate.CheckAddTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), settleBalance.Taker.OutTotal, settleBalance.Taker.OutToken, statedb, mapBalances)
+		newCollateralTokenLock, err := lendingstate.CheckAddTokenBalance(common.HexToAddress(lendingstate.LockAddress), settleBalance.Taker.OutTotal, settleBalance.Taker.OutToken, statedb, mapBalances)
 		if err != nil {
 			return err
 		}
-		mapBalances[settleBalance.Taker.OutToken][common.HexToAddress(lendingstate.LendingLockAddress)] = newCollateralTokenLock
+		mapBalances[settleBalance.Taker.OutToken][common.HexToAddress(lendingstate.LockAddress)] = newCollateralTokenLock
 	} else {
 		relayerFee, err := lendingstate.CheckSubRelayerFee(relayerSMC, makerOrder.Relayer, lendingstate.RelayerLendingFee, statedb, map[common.Address]*big.Int{})
 		if err != nil {
@@ -660,11 +660,11 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 		}
 		mapBalances[settleBalance.Maker.InToken][makerExOwner] = newMakerFee
 
-		newCollateralTokenLock, err := lendingstate.CheckAddTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), settleBalance.Maker.OutTotal, settleBalance.Maker.OutToken, statedb, mapBalances)
+		newCollateralTokenLock, err := lendingstate.CheckAddTokenBalance(common.HexToAddress(lendingstate.LockAddress), settleBalance.Maker.OutTotal, settleBalance.Maker.OutToken, statedb, mapBalances)
 		if err != nil {
 			return err
 		}
-		mapBalances[settleBalance.Maker.OutToken][common.HexToAddress(lendingstate.LendingLockAddress)] = newCollateralTokenLock
+		mapBalances[settleBalance.Maker.OutToken][common.HexToAddress(lendingstate.LockAddress)] = newCollateralTokenLock
 	}
 	masternodeOwner, _ := statedb.VicGetValidatorInfo(validatorSMC, coinbase)
 	log.Debug("DoSettleBalance masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "matchingFee", matchingFee)
@@ -836,7 +836,7 @@ func (l *Lending) LiquidationExpiredTrade(header *types.Header, chain tradingsta
 	} else {
 		repayAmount = lendingTrade.CollateralLockedAmount
 	}
-	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
+	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
 	lendingstate.AddTokenBalance(lendingTrade.Investor, repayAmount, lendingTrade.CollateralToken, statedb)
 
 	err = lendingStateDB.RemoveLiquidationTime(lendingBook, lendingTradeId, lendingTrade.LiquidationTime)
@@ -873,7 +873,7 @@ func (l *Lending) LiquidationTrade(lendingStateDB *lendingstate.LendingStateDB, 
 	if lendingTrade.TradeId != lendingTradeId {
 		return nil, fmt.Errorf("Lending Trade Id not found : %d ", lendingTradeId)
 	}
-	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
+	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
 	lendingstate.AddTokenBalance(lendingTrade.Investor, lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
 
 	err := lendingStateDB.RemoveLiquidationTime(lendingBook, lendingTradeId, lendingTrade.LiquidationTime)
@@ -1034,20 +1034,20 @@ func (l *Lending) GetETHBasePrices(header *types.Header, chain tradingstate.Chai
 		log.Debug("Getting token/ETH price from contract", "price", tokenETHPriceFromContract)
 		return tokenETHPriceFromContract, nil
 	} else {
-		tomoTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, common.HexToAddress(tradingstate.NativeTokenAddress), token)
-		tomoTokenPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
-		if tomoTokenPriceUpdatedFromContract && tomoTokenPriceFromContract != nil && tomoTokenPriceFromContract.Sign() > 0 {
+		ethTokenPriceFromContract, updatedBlock := lendingstate.GetCollateralPrice(l.config.Viction.LendingRegistrationContract, statedb, common.HexToAddress(tradingstate.NativeTokenAddress), token)
+		ethTokenPriceUpdatedFromContract := updatedBlock.Uint64()/chain.Config().Posv.Epoch == header.Number.Uint64()/chain.Config().Posv.Epoch
+		if ethTokenPriceUpdatedFromContract && ethTokenPriceFromContract != nil && ethTokenPriceFromContract.Sign() > 0 {
 			// getting lendToken price from contract first
 			// otherwise, getting from Trading lendToken/ETH
-			log.Debug("Getting ETH/token from contract", "price", tomoTokenPriceFromContract)
+			log.Debug("Getting ETH/token from contract", "price", ethTokenPriceFromContract)
 			tokenDecimal, err := l.trading.GetTokenDecimal(chain, statedb, token)
 			log.Debug("GetTokenDecimal", "token", token.Hex(), "err", err)
 			if err != nil || tokenDecimal == nil || tokenDecimal.Sign() == 0 {
 				return nil, err
 			}
-			tokenTomoPrice := new(big.Int).Mul(tradingstate.BasePrice, tokenDecimal)
-			tokenTomoPrice = new(big.Int).Div(tokenTomoPrice, tomoTokenPriceFromContract)
-			return tokenTomoPrice, nil
+			tokenEthPrice := new(big.Int).Mul(tradingstate.BasePrice, tokenDecimal)
+			tokenEthPrice = new(big.Int).Div(tokenEthPrice, ethTokenPriceFromContract)
+			return tokenEthPrice, nil
 		}
 		tokenETHPrice, err := l.GetMediumTradePriceBeforeEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
 		if err != nil {
@@ -1071,8 +1071,8 @@ func (l *Lending) AutoTopUp(statedb *state.StateDB, tradingState *tradingstate.T
 		return nil, fmt.Errorf("CurrentPrice is still higher than or equal to LiquidationPrice. current price: %v  , liquidation price : %v  ", currentPrice, lendingTrade.LiquidationPrice)
 	}
 	// newLiquidationPrice = currentPrice * 90%
-	newLiquidationPrice := new(big.Int).Mul(currentPrice, lendingstate.RateTopUp)
-	newLiquidationPrice = new(big.Int).Div(newLiquidationPrice, lendingstate.BaseTopUp)
+	newLiquidationPrice := new(big.Int).Mul(currentPrice, lendingstate.TopupRate)
+	newLiquidationPrice = new(big.Int).Div(newLiquidationPrice, lendingstate.TopupBase)
 	// newLockedAmount = CollateralLockedAmount *  LiquidationPrice / newLiquidationPrice
 	newLockedAmount := new(big.Int).Mul(lendingTrade.CollateralLockedAmount, lendingTrade.LiquidationPrice)
 	newLockedAmount = new(big.Int).Div(newLockedAmount, newLiquidationPrice)
@@ -1101,7 +1101,7 @@ func (l *Lending) ProcessTopUpLendingTrade(lendingStateDB *lendingstate.LendingS
 		return err, true, nil
 	}
 	lendingstate.SubTokenBalance(lendingTrade.Borrower, quantity, lendingTrade.CollateralToken, statedb)
-	lendingstate.AddTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), quantity, lendingTrade.CollateralToken, statedb)
+	lendingstate.AddTokenBalance(common.HexToAddress(lendingstate.LockAddress), quantity, lendingTrade.CollateralToken, statedb)
 	oldLockedAmount := lendingTrade.CollateralLockedAmount
 	newLockedAmount := new(big.Int).Add(quantity, oldLockedAmount)
 	newLiquidationPrice := new(big.Int).Mul(lendingTrade.LiquidationPrice, oldLockedAmount)
@@ -1159,7 +1159,7 @@ func (l *Lending) ProcessRepayLendingTrade(header *types.Header, chain tradingst
 		lendingstate.SubTokenBalance(lendingTrade.Borrower, paymentBalance, lendingTrade.LendingToken, statedb)
 		lendingstate.AddTokenBalance(lendingTrade.Investor, paymentBalance, lendingTrade.LendingToken, statedb)
 
-		lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
+		lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LockAddress), lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
 		lendingstate.AddTokenBalance(lendingTrade.Borrower, lendingTrade.CollateralLockedAmount, lendingTrade.CollateralToken, statedb)
 
 		err = lendingStateDB.RemoveLiquidationTime(lendingBook, lendingTradeId, lendingTrade.LiquidationTime)
@@ -1206,7 +1206,7 @@ func (l *Lending) ProcessRecallLendingTrade(lendingStateDB *lendingstate.Lending
 		return err, true, nil
 	}
 	lendingstate.AddTokenBalance(lendingTrade.Borrower, recallAmount, lendingTrade.CollateralToken, statedb)
-	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LendingLockAddress), recallAmount, lendingTrade.CollateralToken, statedb)
+	lendingstate.SubTokenBalance(common.HexToAddress(lendingstate.LockAddress), recallAmount, lendingTrade.CollateralToken, statedb)
 
 	lendingStateDB.UpdateLiquidationPrice(lendingBook, lendingTrade.TradeId, newLiquidationPrice)
 	lendingStateDB.UpdateCollateralLockedAmount(lendingBook, lendingTrade.TradeId, newLockedAmount)

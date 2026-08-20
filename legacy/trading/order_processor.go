@@ -372,16 +372,16 @@ func (t *Trading) getTradeQuantity(quotePrice *big.Int, coinbase common.Address,
 		quotePrice = quoteTokenDecimal
 	}
 	if takerOrder.ExchangeAddress.String() == makerOrder.ExchangeAddress.String() {
-		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, takerOrder.ExchangeAddress, new(big.Int).Mul(tradingstate.RelayerFee, big.NewInt(2)), statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, takerOrder.ExchangeAddress, new(big.Int).Mul(tradingstate.RelayerTradingFee, big.NewInt(2)), statedb); err != nil {
 			log.Debug("Reject order Taker Exchnage = Maker Exchange , relayer not enough fee ", "err", err)
 			return common.Big0, false, nil, nil
 		}
 	} else {
-		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, takerOrder.ExchangeAddress, tradingstate.RelayerTradingFee, statedb); err != nil {
 			log.Debug("Reject order Taker , relayer not enough fee ", "err", err)
 			return common.Big0, false, nil, nil
 		}
-		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb); err != nil {
+		if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, makerOrder.ExchangeAddress, tradingstate.RelayerTradingFee, statedb); err != nil {
 			log.Debug("Reject order maker , relayer not enough fee ", "err", err)
 			return common.Big0, true, nil, nil
 		}
@@ -516,8 +516,8 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 	makerExOwner := tradingstate.GetRelayerOwner(relayerSMC, makerOrder.ExchangeAddress, statedb)
 	matchingFee := big.NewInt(0)
 	// masternodes charges fee of both 2 relayers. If maker and Taker are on same relayer, that relayer is charged fee twice
-	matchingFee = new(big.Int).Add(matchingFee, tradingstate.RelayerFee)
-	matchingFee = new(big.Int).Add(matchingFee, tradingstate.RelayerFee)
+	matchingFee = new(big.Int).Add(matchingFee, tradingstate.RelayerTradingFee)
+	matchingFee = new(big.Int).Add(matchingFee, tradingstate.RelayerTradingFee)
 
 	if takerExOwner.Hash().IsZero() || makerExOwner.Hash().IsZero() {
 		return fmt.Errorf("Echange owner empty , Taker: %v , maker : %v ", takerExOwner, makerExOwner)
@@ -571,18 +571,18 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 	mapBalances[makerOrder.QuoteToken][makerExOwner] = newMakerFee
 
 	mapRelayerFee := map[common.Address]*big.Int{}
-	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
+	newRelayerTakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, tradingstate.RelayerTradingFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[takerOrder.ExchangeAddress] = newRelayerTakerFee
-	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, tradingstate.RelayerFee, statedb, mapRelayerFee)
+	newRelayerMakerFee, err := tradingstate.CheckSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, tradingstate.RelayerTradingFee, statedb, mapRelayerFee)
 	if err != nil {
 		return err
 	}
 	mapRelayerFee[makerOrder.ExchangeAddress] = newRelayerMakerFee
-	tradingstate.SetSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, newRelayerTakerFee, tradingstate.RelayerFee, statedb)
-	tradingstate.SetSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, newRelayerMakerFee, tradingstate.RelayerFee, statedb)
+	tradingstate.SetSubRelayerFee(relayerSMC, takerOrder.ExchangeAddress, newRelayerTakerFee, tradingstate.RelayerTradingFee, statedb)
+	tradingstate.SetSubRelayerFee(relayerSMC, makerOrder.ExchangeAddress, newRelayerMakerFee, tradingstate.RelayerTradingFee, statedb)
 
 	masternodeOwner, _ := statedb.VicGetValidatorInfo(validatorSMC, coinbase)
 	log.Debug("DoSettleBalance masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "matchingFee", matchingFee)
@@ -607,7 +607,7 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 }
 
 func (t *Trading) ProcessCancelOrder(header *types.Header, tradingStateDB *tradingstate.TradingStateDB, statedb *state.StateDB, chain tradingstate.ChainContext, coinbase common.Address, orderBook common.Hash, order *tradingstate.OrderItem) (error, bool) {
-	if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, order.ExchangeAddress, tradingstate.RelayerCancelFee, statedb); err != nil {
+	if err := tradingstate.CheckRelayerFee(t.config.Viction.RelayerRegistrationContract, order.ExchangeAddress, tradingstate.RelayerTradingCancelFee, statedb); err != nil {
 		log.Debug("Relayer not enough fee when cancel order", "err", err)
 		return nil, true
 	}
@@ -651,11 +651,11 @@ func (t *Trading) ProcessCancelOrder(header *types.Header, tradingStateDB *tradi
 		return err, false
 	}
 	// relayers pay ETH for masternode
-	tradingstate.SubRelayerFee(t.config.Viction.RelayerRegistrationContract, originOrder.ExchangeAddress, tradingstate.RelayerCancelFee, statedb)
+	tradingstate.SubRelayerFee(t.config.Viction.RelayerRegistrationContract, originOrder.ExchangeAddress, tradingstate.RelayerTradingCancelFee, statedb)
 	masternodeOwner, _ := statedb.VicGetValidatorInfo(t.config.Viction.ValidatorContract, coinbase)
-	log.Debug("ProcessCancelOrder masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "cancelFee", tradingstate.RelayerCancelFee)
+	log.Debug("ProcessCancelOrder masternode fee", "coinbase", coinbase, "masternodeOwner", masternodeOwner, "cancelFee", tradingstate.RelayerTradingCancelFee)
 	// relayers pay ETH for masternode
-	statedb.AddBalance(masternodeOwner, tradingstate.RelayerCancelFee)
+	statedb.AddBalance(masternodeOwner, tradingstate.RelayerTradingCancelFee)
 
 	relayerOwner := tradingstate.GetRelayerOwner(t.config.Viction.RelayerRegistrationContract, originOrder.ExchangeAddress, statedb)
 	switch originOrder.Side {
@@ -716,9 +716,9 @@ func (t *Trading) getCancelFee(chain tradingstate.ChainContext, statedb *state.S
 	tokenPriceInNativeToken := big.NewInt(0)
 	var err error
 	if order.Side == tradingstate.Ask {
-		cancelFee, tokenPriceInNativeToken, err = t.ConvertETHToToken(chain, statedb, tradingStateDb, order.BaseToken, tradingstate.RelayerCancelFee)
+		cancelFee, tokenPriceInNativeToken, err = t.ConvertETHToToken(chain, statedb, tradingStateDb, order.BaseToken, tradingstate.RelayerTradingCancelFee)
 	} else {
-		cancelFee, tokenPriceInNativeToken, err = t.ConvertETHToToken(chain, statedb, tradingStateDb, order.QuoteToken, tradingstate.RelayerCancelFee)
+		cancelFee, tokenPriceInNativeToken, err = t.ConvertETHToToken(chain, statedb, tradingStateDb, order.QuoteToken, tradingstate.RelayerTradingCancelFee)
 	}
 	if err != nil {
 		return common.Big0, common.Big0
