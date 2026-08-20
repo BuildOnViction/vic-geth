@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	ProtocolName       = "tomoxlending"
 	ProtocolVersion    = uint64(1)
 	ProtocolVersionStr = "1.0"
 )
@@ -42,15 +41,15 @@ type Lending struct {
 
 // New creates a Lending engine.
 // db is the ethdb passed directly - legacy/trading.Trading does not expose its DB.
-// tomox is required for token decimal lookups and price conversions.
+// Trading is required for token decimal lookups and price conversions.
 // config is the chain configuration, required for correct EIP155 signer derivation.
-func New(db ethdb.Database, tomox *trading.Trading, config *params.ChainConfig) *Lending {
+func New(db ethdb.Database, trading *trading.Trading, config *params.ChainConfig) *Lending {
 	return &Lending{
 		db:                db,
 		lendingStateCache: lendingstate.NewDatabase(db),
 		trieCacheLimit:    100,
 		triegc:            prque.New(nil),
-		trading:           tomox,
+		trading:           trading,
 		config:            config,
 	}
 }
@@ -66,7 +65,7 @@ func (l *Lending) GetLendingState(block *types.Block, author common.Address) (*l
 		return nil, err
 	}
 	if l.lendingStateCache == nil {
-		return nil, errors.New("Not initialized tomox")
+		return nil, errors.New("Not initialized LendingStateDB")
 	}
 	state, err := lendingstate.New(root, l.lendingStateCache)
 	if err != nil {

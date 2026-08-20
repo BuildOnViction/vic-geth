@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	ProtocolName       = "tomox"
 	ProtocolVersion    = uint64(1)
 	ProtocolVersionStr = "1.0"
 	overflowIdx        // Indicator of message queue overflow
@@ -33,19 +32,10 @@ var (
 	ErrNonceTooLow  = errors.New("nonce too low")
 )
 
-type Config struct {
-	DataDir string `toml:",omitempty"`
-}
-
-// DefaultConfig represents (shocker!) the default configuration.
-var DefaultConfig = Config{
-	DataDir: "",
-}
-
 type Trading struct {
 	// Order related
 	Triegc     *prque.Prque          // Priority queue mapping block numbers to tries to gc
-	StateCache tradingstate.Database // State database to reuse between imports (contains state cache)    *tomox_state.TradingStateDB
+	StateCache tradingstate.Database // State database to reuse between imports (contains state cache)
 
 	// config is needed to derive the correct transaction signer (EIP155 vs Homestead)
 	// when extracting the trading state root from the 0x92 system transaction.
@@ -80,7 +70,7 @@ func (t *Trading) GetTradingState(block *types.Block, author common.Address) (*t
 		return nil, err
 	}
 	if t.StateCache == nil {
-		return nil, errors.New("Not initialized tomox")
+		return nil, errors.New("Not initialized TradingStateDB")
 	}
 	return tradingstate.New(root, t.StateCache)
 }
@@ -129,7 +119,7 @@ func (t *Trading) GetAveragePriceLastEpoch(chain tradingstate.ChainContext, stat
 	return nil, nil
 }
 
-// GetStateCache returns the trie-node cache backed by the tomox LevelDB.
+// GetStateCache returns the trie-node cache backed by the Trading LevelDB.
 func (t *Trading) GetStateCache() tradingstate.Database {
 	return t.StateCache
 }
@@ -144,8 +134,8 @@ func (t *Trading) ConvertETHToToken(chain tradingstate.ChainContext, statedb *st
 	if token.String() == tradingstate.NativeTokenAddress {
 		return quantity, tradingstate.BasePrice, nil
 	}
-	tokenPriceInTomo, err := t.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
-	if err != nil || tokenPriceInTomo == nil || tokenPriceInTomo.Sign() <= 0 {
+	tokenPriceInETH, err := t.GetAveragePriceLastEpoch(chain, statedb, tradingStateDb, token, common.HexToAddress(tradingstate.NativeTokenAddress))
+	if err != nil || tokenPriceInETH == nil || tokenPriceInETH.Sign() <= 0 {
 		return common.Big0, common.Big0, err
 	}
 
@@ -154,6 +144,6 @@ func (t *Trading) ConvertETHToToken(chain tradingstate.ChainContext, statedb *st
 		return common.Big0, common.Big0, fmt.Errorf("fail to get tokenDecimal. Token: %v . Err: %v", token.String(), err)
 	}
 	tokenQuantity := new(big.Int).Mul(quantity, tokenDecimal)
-	tokenQuantity = new(big.Int).Div(tokenQuantity, tokenPriceInTomo)
-	return tokenQuantity, tokenPriceInTomo, nil
+	tokenQuantity = new(big.Int).Div(tokenQuantity, tokenPriceInETH)
+	return tokenQuantity, tokenPriceInETH, nil
 }

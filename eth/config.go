@@ -188,8 +188,4 @@ type Config struct {
 
 	// CheckpointOracle is the configuration for checkpoint oracle.
 	CheckpointOracle *params.CheckpointOracleConfig `toml:",omitempty"`
-
-	// TomoXDataDir is the directory for the TomoX/TomoZ LevelDB.
-	// If empty, defaults to {DataDir}/{instance}/tomox (set by node.ResolvePath).
-	TomoXDataDir string `toml:",omitempty"`
 }

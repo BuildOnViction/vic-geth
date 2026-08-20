@@ -16,11 +16,11 @@ import (
 )
 
 func (t *Trading) CommitOrder(header *types.Header, coinbase common.Address, chain tradingstate.ChainContext, statedb *state.StateDB, tradingStateDB *tradingstate.TradingStateDB, orderBook common.Hash, order *tradingstate.OrderItem) ([]map[string]string, []*tradingstate.OrderItem, error) {
-	tomoxSnap := tradingStateDB.Snapshot()
+	tradingSnap := tradingStateDB.Snapshot()
 	dbSnap := statedb.Snapshot()
 	trades, rejects, err := t.ApplyOrder(header, coinbase, chain, statedb, tradingStateDB, orderBook, order)
 	if err != nil {
-		tradingStateDB.RevertToSnapshot(tomoxSnap)
+		tradingStateDB.RevertToSnapshot(tradingSnap)
 		statedb.RevertToSnapshot(dbSnap)
 		return nil, nil, err
 	}
@@ -45,11 +45,11 @@ func (t *Trading) ApplyOrder(header *types.Header, coinbase common.Address, chai
 	// increase nonce
 	log.Debug("ApplyOrder set nonce", "nonce", nonce+1, "addr", order.UserAddress.Hex(), "status", order.Status, "oldnonce", nonce)
 	tradingStateDB.SetNonce(order.UserAddress.Hash(), nonce+1)
-	tomoxSnap := tradingStateDB.Snapshot()
+	lendingSnap := tradingStateDB.Snapshot()
 	dbSnap := statedb.Snapshot()
 	defer func() {
 		if err != nil {
-			tradingStateDB.RevertToSnapshot(tomoxSnap)
+			tradingStateDB.RevertToSnapshot(lendingSnap)
 			statedb.RevertToSnapshot(dbSnap)
 		}
 	}()
@@ -597,9 +597,9 @@ func DoSettleBalance(relayerSMC common.Address, validatorSMC common.Address, coi
 	// add balance for relayers
 	//log.Debug("NativeTradingMatchEngine settle fee for relayers",
 	//	"takerRelayerOwner", takerExOwner,
-	//	"takerFeeToken", quoteToken, "takerFee", settleBalanceResult[takerAddr][tomox.Fee].(*big.Int),
+	//	"takerFeeToken", quoteToken, "takerFee", settleBalanceResult[takerAddr][trading.Fee].(*big.Int),
 	//	"makerRelayerOwner", makerExOwner,
-	//	"makerFeeToken", quoteToken, "makerFee", settleBalanceResult[makerAddr][tomox.Fee].(*big.Int))
+	//	"makerFeeToken", quoteToken, "makerFee", settleBalanceResult[makerAddr][trading.Fee].(*big.Int))
 	// takerFee
 	tradingstate.SetTokenBalance(takerExOwner, newTakerFee, makerOrder.QuoteToken, statedb)
 	tradingstate.SetTokenBalance(makerExOwner, newMakerFee, makerOrder.QuoteToken, statedb)
@@ -616,7 +616,7 @@ func (t *Trading) ProcessCancelOrder(header *types.Header, tradingStateDB *tradi
 		log.Debug("Fail to get tokenDecimal ", "Token", order.BaseToken.String(), "err", err)
 		return err, false
 	}
-	// order: basic order information (includes orderId, orderHash, baseToken, quoteToken) which user send to tomox to cancel order
+	// order: basic order information (includes orderId, orderHash, baseToken, quoteToken) which user send to Trading to cancel order
 	// originOrder: full order information getting from order trie
 	originOrder := tradingStateDB.GetOrder(orderBook, common.BigToHash(new(big.Int).SetUint64(order.OrderID)))
 	if originOrder == tradingstate.EmptyOrder {

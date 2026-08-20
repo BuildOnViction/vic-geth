@@ -91,7 +91,7 @@ func SubRelayerFee(relayerSMC common.Address, relayer common.Address, fee *big.I
 	balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
 	log.Debug("NativeTradingMatchEngine settle balance: SubRelayerFee BEFORE", "relayer", relayer.String(), "balance", balance)
 	if balance.Cmp(fee) < 0 {
-		return errors.Errorf("relayer %s isn't enough tomo fee", relayer.String())
+		return errors.Errorf("relayer %s isn't enough ETH fee", relayer.String())
 	} else {
 		balance = new(big.Int).Sub(balance, fee)
 		statedb.SetState(relayerSMC, locHashDeposit, common.BigToHash(balance))
@@ -109,7 +109,7 @@ func CheckRelayerFee(relayerSMC common.Address, relayer common.Address, fee *big
 	locHashDeposit := common.BigToHash(locBigDeposit)
 	balance := statedb.GetState(relayerSMC, locHashDeposit).Big()
 	if new(big.Int).Sub(balance, fee).Cmp(new(big.Int).Mul(tradingstate.BasePrice, tradingstate.RelayerLockedFund)) < 0 {
-		return errors.Errorf("relayer %s isn't enough tomo fee : balance %d , fee : %d ", relayer.Hex(), balance.Uint64(), fee.Uint64())
+		return errors.Errorf("relayer %s isn't enough ETH fee : balance %d , fee : %d ", relayer.Hex(), balance.Uint64(), fee.Uint64())
 	}
 	return nil
 }
@@ -256,7 +256,7 @@ func CheckSubRelayerFee(relayerSMC common.Address, relayer common.Address, fee *
 	}
 	log.Debug("CheckSubRelayerFee settle balance: SubRelayerFee ", "relayer", relayer.String(), "balance", balance, "fee", fee)
 	if balance.Cmp(fee) < 0 {
-		return nil, errors.Errorf("relayer %s isn't enough tomo fee", relayer.String())
+		return nil, errors.Errorf("relayer %s isn't enough ETH fee", relayer.String())
 	} else {
 		return new(big.Int).Sub(balance, fee), nil
 	}

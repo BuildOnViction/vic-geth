@@ -211,7 +211,7 @@ func GetCollateralPrice(lendingSMC common.Address, statedb *state.StateDB, colla
 
 // @function GetSupportedTerms
 // @param statedb : current state
-// @return: list of terms which tomoxlending supports
+// @return: list of terms which Lending supports
 func GetSupportedTerms(lendingSMC common.Address, statedb *state.StateDB) []uint64 {
 	terms := []uint64{}
 	locSupportedTerm := locSimpleVariable(SupportedTermSlot)
