@@ -214,8 +214,8 @@ func (p *VictionProcessor) isSupported() bool {
 func (p *VictionProcessor) snapshotCapacities(statedb *state.StateDB, blockNum *big.Int) {
 	p.zeroGasCapacities = nil
 	// Pre-Atlas: ZeroGas use block level gas pool.
-	if !p.config.IsAtlas(blockNum) && p.config.Viction != nil && p.config.Viction.VRC25Contract != (common.Address{}) {
-		p.zeroGasCapacities = statedb.VicGetZeroGasCapacities(p.config.Viction.VRC25Contract)
+	if !p.config.IsAtlas(blockNum) && p.config.Viction != nil && p.config.Viction.VRC25RegistryContract != (common.Address{}) {
+		p.zeroGasCapacities = statedb.VicGetZeroGasCapacities(p.config.Viction.VRC25RegistryContract)
 	}
 	p.updatedZeroGasCapacities = make(types.BalanceMap)
 	p.totalUsedZeroGasCapacities = new(big.Int)
@@ -231,7 +231,7 @@ func (p *VictionProcessor) processZeroGas(statedb *state.StateDB, tx *types.Tran
 
 	// Atlas: ZeroGas use transaction level gas pool.
 	if p.config.IsAtlas(p.blockNumber) && failed {
-		zgcap := statedb.VicGetZeroGasCapacity(vicConfig.VRC25Contract, tx.To())
+		zgcap := statedb.VicGetZeroGasCapacity(vicConfig.VRC25RegistryContract, tx.To())
 		gasFee := new(big.Int).Mul(new(big.Int).SetUint64(usedGas), (*big.Int)(vicConfig.VRC25GasPrice))
 		if zgcap != nil && zgcap.Cmp(gasFee) > 0 {
 			PayTxFeeUsingToken(statedb, from, token)
@@ -267,5 +267,5 @@ func (p *VictionProcessor) flushRemainCapacities(statedb *state.StateDB) {
 	if p.zeroGasCapacities == nil || len(p.updatedZeroGasCapacities) == 0 || p.config.Viction == nil {
 		return
 	}
-	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25Contract, p.updatedZeroGasCapacities, p.totalUsedZeroGasCapacities)
+	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25RegistryContract, p.updatedZeroGasCapacities, p.totalUsedZeroGasCapacities)
 }

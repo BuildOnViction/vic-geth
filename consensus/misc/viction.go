@@ -67,7 +67,7 @@ func ApplySaigonHardFork(statedb *state.StateDB, victionConfig *params.VictionCo
 func ApplyAtlasHardFork(statedb *state.StateDB, victionConfig *params.VictionConfig, atlasBlock *big.Int, headBlock *big.Int) {
 	if headBlock.Cmp(atlasBlock) == 0 {
 		if victionConfig.AtlasVRC25MinCap != nil {
-			statedb.VicSetZeroGasMinCap(victionConfig.VRC25Contract, (*big.Int)(victionConfig.AtlasVRC25MinCap))
+			statedb.VicSetZeroGasMinCap(victionConfig.VRC25RegistryContract, (*big.Int)(victionConfig.AtlasVRC25MinCap))
 		}
 	}
 }
