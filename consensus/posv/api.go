@@ -162,6 +162,6 @@ func (api *API) NetworkInformation() NetworkInformation {
 	info.LendingContract = api.chain.Config().Viction.LendingContract
 	info.RelayerContract = api.chain.Config().Viction.RelayerLockedAddress
 	info.TomoXContract = api.chain.Config().Viction.TradingContract
-	info.VRC25Contract = api.chain.Config().Viction.VRC25Contract
+	info.VRC25Contract = api.chain.Config().Viction.VRC25RegistryContract
 	return info
 }

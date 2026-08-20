@@ -32,14 +32,14 @@ type VictionConfig struct {
 
 	ConsensusLimitTimeFinality uint64 `json:"consensusLimitTimeFinality,omitempty"`
 
-	LendingBaseRecall           *math.Decimal256 `json:"lendingBaseRecall,omitempty"`
 	LendingContract             common.Address   `json:"lendingContract,omitempty"`
 	LendingFinalizedContract    common.Address   `json:"lendingFinalizedContract,omitempty"`
-	LendingInterestAmount       *math.Decimal256 `json:"lendingInterestAmount,omitempty"`
+	LendingInterestBase         *math.Decimal256 `json:"lendingInterestBase,omitempty"`
 	LendingLiquidateTradeBlock  uint64           `json:"lendingLiquidateTradeBlock,omitempty"`
+	LendingRecallBase           *math.Decimal256 `json:"lendingRecallBase,omitempty"`
 	LendingRegistrationContract common.Address   `json:"lendingRegistrationContract,omitempty"`
-	LendingTopupDenom           uint64           `json:"lendingTopupDenom,omitempty"`
-	LendingTopupNumer           uint64           `json:"lendingTopupNumer,omitempty"`
+	LendingTopupBase            uint64           `json:"lendingTopupBase,omitempty"`
+	LendingTopupRate            uint64           `json:"lendingTopupRate,omitempty"`
 
 	PenaltyComebackBlockCount uint64 `json:"penaltyComebackBlockCount,omitempty"`
 	PenaltyEpochCount         uint64 `json:"penaltyEpochCount,omitempty"`
@@ -49,13 +49,13 @@ type VictionConfig struct {
 	RandomizerFinaleNthBlock uint64         `json:"randomizerFinaleNthBlock,omitempty"`
 	RandomizerRevealNthBlock uint64         `json:"randomizerRevealNthBlock,omitempty"`
 
-	RelayerCancelFee            *math.Decimal256 `json:"relayerCancelFee,omitempty"`
-	RelayerFee                  *math.Decimal256 `json:"relayerFee,omitempty"`
-	RelayerRegistrationContract common.Address   `json:"relayerRegistrationContract,omitempty"`
-	RelayerLendingFee           *math.Decimal256 `json:"relayerLendingFee,omitempty"`
 	RelayerLendingCancelFee     *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
+	RelayerLendingFee           *math.Decimal256 `json:"relayerLendingFee,omitempty"`
 	RelayerLockedAddress        common.Address   `json:"relayerLockedAddress,omitempty"`
-	RelayerLockedFund           *math.Decimal256 `json:"relayerLockedFund,omitempty"`
+	RelayerLockedAmount         *math.Decimal256 `json:"relayerLockedAmount,omitempty"`
+	RelayerRegistrationContract common.Address   `json:"relayerRegistrationContract,omitempty"`
+	RelayerTradingCancelFee     *math.Decimal256 `json:"relayerTradingCancelFee,omitempty"`
+	RelayerTradingFee           *math.Decimal256 `json:"relayerTradingFee,omitempty"`
 
 	RewardFoundationAddress common.Address   `json:"rewardFoundationAddress,omitempty"`
 	RewardFoundationPercent uint64           `json:"rewardFoundationPercent,omitempty"`
@@ -85,8 +85,8 @@ type VictionConfig struct {
 	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorSignInterval          uint64         `json:"validatorSignInterval,omitempty"`
 
-	VRC25GasPrice *math.Decimal256 `json:"vrc25GasPrice,omitempty"`
-	VRC25Contract common.Address   `json:"vrc25Contract,omitempty"`
+	VRC25GasPrice         *math.Decimal256 `json:"vrc25GasPrice,omitempty"`
+	VRC25RegistryContract common.Address   `json:"vrc25RegistryContract,omitempty"`
 }
 
 func (c *VictionConfig) GetBypassBalance(blockNum uint64, addr common.Address) *big.Int {

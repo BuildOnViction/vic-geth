@@ -39,7 +39,7 @@ func (st *StateTransition) buyGasZG() (bool, error) {
 	// Atlas: ZeroGas supports buy/refund as normal transaction.
 	if chainConfig.IsAtlas(number) {
 		statedb := st.state.(*state.StateDB)
-		zgcap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, st.msg.To())
+		zgcap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25RegistryContract, st.msg.To())
 		if zgcap == nil || zgcap.Sign() == 0 {
 			return false, nil
 		}
@@ -49,7 +49,7 @@ func (st *StateTransition) buyGasZG() (bool, error) {
 			return false, nil
 		}
 		st.gasPrice = gasPrice
-		st.payer = victionConfig.VRC25Contract
+		st.payer = victionConfig.VRC25RegistryContract
 		statedb.SubBalance(st.payer, mgval)
 		return true, nil
 	}
@@ -72,7 +72,7 @@ func (st *StateTransition) buyGasZG() (bool, error) {
 		return false, nil
 	}
 	st.gasPrice = gasPrice
-	st.payer = victionConfig.VRC25Contract
+	st.payer = victionConfig.VRC25RegistryContract
 	return true, nil
 }
 
@@ -91,10 +91,10 @@ func (st *StateTransition) refundGasZG(remaining *big.Int) bool {
 		// Atlas: Refund remaining gas for the payer.
 		if chainConfig.IsAtlas(number) {
 			addr := st.msg.To()
-			zgCap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25Contract, addr)
+			zgCap := statedb.VicGetZeroGasCapacity(victionConfig.VRC25RegistryContract, addr)
 			if zgCap != nil {
 				gasFee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), (*big.Int)(victionConfig.VRC25GasPrice))
-				statedb.VicSetZeroGasCapacity(victionConfig.VRC25Contract, *addr, new(big.Int).Sub(zgCap, gasFee))
+				statedb.VicSetZeroGasCapacity(victionConfig.VRC25RegistryContract, *addr, new(big.Int).Sub(zgCap, gasFee))
 			}
 			statedb.AddBalance(st.payer, remaining)
 		}
@@ -143,7 +143,7 @@ func (st *StateTransition) rewardValidatorOwner() bool {
 // Return true if the chain supports ZeroGas.
 func (st *StateTransition) isZeroGasSupported() bool {
 	victionConfig := st.evm.ChainConfig().Viction
-	return victionConfig != nil && victionConfig.VRC25Contract != (common.Address{})
+	return victionConfig != nil && victionConfig.VRC25RegistryContract != (common.Address{})
 }
 
 // Return true if the transaction is sponsored.
