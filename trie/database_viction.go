@@ -17,7 +17,7 @@ type LockAccessor struct {
 }
 
 // Lock is a public accessor for the trie database's internal RWMutex.
-// Used by legacy/tomox/tradingstate/tomox_trie.go for preimage operations.
+// Used by legacy/trading/tradingstate/trading_trie.go for preimage operations.
 type DatabaseLock struct {
 	sync.RWMutex
 }
@@ -28,13 +28,13 @@ func (db *Database) GetLock() *sync.RWMutex {
 }
 
 // InsertPreimage is a public wrapper around the internal insertPreimage method.
-// Used by legacy/tomox/tradingstate/tomox_trie.go to write preimages.
+// Used by legacy/trading/tradingstate/trading_trie.go to write preimages.
 func (db *Database) InsertPreimage(hash common.Hash, preimage []byte) {
 	db.insertPreimage(hash, preimage)
 }
 
 // Preimage is a public wrapper around the internal preimage method.
-// Used by legacy/tomox/tradingstate/tomox_trie.go to read preimages.
+// Used by legacy/trading/tradingstate/trading_trie.go to read preimages.
 func (db *Database) Preimage(hash common.Hash) ([]byte, error) {
 	p := db.preimage(hash)
 	return p, nil

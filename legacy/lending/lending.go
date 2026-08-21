@@ -1,4 +1,4 @@
-package tomoxlending
+package lending
 
 import (
 	"encoding/json"
@@ -10,9 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/legacy/tomox"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
-	"github.com/ethereum/go-ethereum/legacy/tomoxlending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -33,7 +33,7 @@ type Lending struct {
 	lendingStateCache lendingstate.Database
 	trieCacheLimit    int
 	triegc            *prque.Prque
-	tomox             *tomox.TomoX
+	tomox             *trading.TomoX
 
 	// config is needed to derive the correct transaction signer (EIP155 vs Homestead)
 	// when extracting the lending state root from the 0x92 system transaction.
@@ -41,10 +41,10 @@ type Lending struct {
 }
 
 // New creates a Lending engine.
-// db is the ethdb passed directly - legacy/tomox.TomoX does not expose its DB.
+// db is the ethdb passed directly - legacy/trading.TomoX does not expose its DB.
 // tomox is required for token decimal lookups and price conversions.
 // config is the chain configuration, required for correct EIP155 signer derivation.
-func New(db ethdb.Database, tomox *tomox.TomoX, config *params.ChainConfig) *Lending {
+func New(db ethdb.Database, tomox *trading.TomoX, config *params.ChainConfig) *Lending {
 	return &Lending{
 		db:                db,
 		lendingStateCache: lendingstate.NewDatabase(db),

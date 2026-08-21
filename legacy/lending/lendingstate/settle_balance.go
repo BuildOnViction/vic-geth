@@ -6,7 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	tradingstate "github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -34,7 +34,7 @@ func (settleBalance *LendingSettleBalance) String() string {
 	return string(jsonData)
 }
 
-func GetSettleBalance(isTomoXLendingFork bool,
+func GetSettleBalance(isNativeLendingFork bool,
 	takerSide string,
 	lendTokenTOMOPrice,
 	collateralPrice,
@@ -56,7 +56,7 @@ func GetSettleBalance(isTomoXLendingFork bool,
 
 	var result *LendingSettleBalance
 
-	if !isTomoXLendingFork {
+	if !isNativeLendingFork {
 		if takerSide == Borrowing {
 			// taker = Borrower : takerOutTotal = CollateralLockedAmount = quantityToLend * collateral Token Decimal/ CollateralPrice  * deposit rate
 			takerOutTotal := new(big.Int).Mul(quantityToLend, collateralTokenDecimal)

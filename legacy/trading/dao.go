@@ -1,4 +1,4 @@
-package tomox
+package trading
 
 import (
 	"github.com/ethereum/go-ethereum/ethdb"

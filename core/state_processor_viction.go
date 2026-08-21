@@ -28,8 +28,8 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
-	"github.com/ethereum/go-ethereum/legacy/tomoxlending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -109,17 +109,9 @@ func (p *VictionProcessor) BeforeBlockProcess(block *types.Block, statedb *state
 	p.tradingStateDB = nil
 	p.tradingCommittedRoot = common.Hash{}
 
-	if p.config.TIPSigningBlock != nil && p.config.TIPSigningBlock.Cmp(header.Number) == 0 {
-		statedb.RemoveState(p.config.Viction.ValidatorBlockSignContract)
-	}
-	if p.config.IsAtlas(header.Number) {
-		misc.ApplyAtlasHardFork(statedb, p.config.Viction, p.config.AtlasBlock, header.Number)
-	}
-	if p.config.IsSaigon(block.Number()) {
-		misc.ApplySaigonHardFork(statedb, p.config.Viction, p.config.SaigonBlock, block.Number())
-	}
+	misc.ApplyPosvHardForks(statedb, p.config, p.config.Viction, header.Number)
 
-	if p.config.IsTomoXEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
+	if p.config.IsNativeTradingEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
 		parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)
 		if parent != nil {
 			parentAuthor, _ := p.engine.Author(parent.Header())
@@ -253,27 +245,32 @@ func (p *VictionProcessor) ApplyNativeTransaction(statedb *state.StateDB, tx *ty
 	}
 	vicConfig := p.config.Viction
 
+	// 0x89 — Block signing.
+	if tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) && p.config.IsTIPSigning(header.Number) {
+		return p.applyBlockSigningTransaction(statedb, tx, header, usedGas)
+	}
+
 	// 0x91 — Trading order-matching batch.
-	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
-			return p.applyTradingTx(statedb, tx, header, usedGas, batch)
+			return p.applyTradingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
 	// 0x92 — Trading state root commit, verified in AfterBlockProcess.
-	if *tx.To() == vicConfig.TradingStateContract && p.config.IsTomoXEnabled(header.Number) {
+	if *tx.To() == vicConfig.TradingStateContract && p.config.IsNativeTradingEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
 
 	// 0x93 — Lending order-matching batch.
-	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
-			return p.applyLendingTx(statedb, tx, header, usedGas, batch)
+			return p.applyLendingTransaction(statedb, tx, header, usedGas, batch)
 		}
 	}
 
 	// 0x94 — Lending finalized trade.
-	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsTomoXEnabled(header.Number) {
+	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsNativeTradingEnabled(header.Number) {
 		return p.applyEmptyTransaction(statedb, tx, header, usedGas)
 	}
 
@@ -292,10 +289,7 @@ func (p *VictionProcessor) AfterApplyTransaction(tx *types.Transaction, msg type
 	if p.config.IsAtlas(p.blockNumber) {
 		if receipt.Status == types.ReceiptStatusFailed && vicCfg.VRC25GasPrice != nil {
 			feeCap := statedb.VicGetZeroGasCapacity(vicCfg.VRC25Contract, tx.To())
-			fee := new(big.Int).Mul(
-				new(big.Int).SetUint64(usedGas),
-				(*big.Int)(vicCfg.VRC25GasPrice),
-			)
+			fee := new(big.Int).Mul(new(big.Int).SetUint64(usedGas), (*big.Int)(vicCfg.VRC25GasPrice))
 			if feeCap != nil && feeCap.Cmp(fee) > 0 {
 				PayTxFeeUsingToken(statedb, msg.From(), token)
 			}
@@ -307,6 +301,44 @@ func (p *VictionProcessor) AfterApplyTransaction(tx *types.Transaction, msg type
 	p.fee.Process(statedb, p.blockNumber, tx, msg.From(), usedGas, failed)
 
 	return nil
+}
+
+// applyBlockSigningTransaction processes a BlockSigner special transaction (0x89)
+// without the EVM: increments the sender nonce, adds a log entry, and returns a
+// zero-gas receipt. Used during block import (ApplyNativeTransaction), the
+// standalone ApplyTransaction path, and the miner (block creation).
+func (p *VictionProcessor) applyBlockSigningTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	// Validate nonce BEFORE Finalise to avoid invalidating the snapshot
+	// on error (the caller may need to RevertToSnapshot).
+	from, err := types.Sender(types.MakeSigner(p.config, header.Number), tx)
+	if err != nil {
+		return true, nil, 0, err, nil
+	}
+	nonce := statedb.GetNonce(from)
+	if nonce < tx.Nonce() {
+		return true, nil, 0, ErrNonceTooHigh, nil
+	} else if nonce > tx.Nonce() {
+		return true, nil, 0, ErrNonceTooLow, nil
+	}
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+	statedb.SetNonce(from, nonce+1)
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	log := &types.Log{}
+	log.Address = p.config.Viction.ValidatorBlockSignContract
+	log.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(log)
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
 }
 
 // Process transaction as null transcation for system transactions (0x92,0x94).
@@ -332,7 +364,7 @@ func (p *VictionProcessor) applyEmptyTransaction(statedb *state.StateDB, tx *typ
 }
 
 // Process Trading order-matching batch transaction (0x91).
-func (p *VictionProcessor) applyTradingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+func (p *VictionProcessor) applyTradingTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
@@ -385,7 +417,7 @@ func (p *VictionProcessor) applyTradingTx(statedb *state.StateDB, tx *types.Tran
 }
 
 // Process Lending order-matching batch transaction (0x93).
-func (p *VictionProcessor) applyLendingTx(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+func (p *VictionProcessor) applyLendingTransaction(statedb *state.StateDB, tx *types.Transaction, header *types.Header, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
 	var root []byte
 	if p.config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
@@ -573,9 +605,8 @@ func (p *FeeProcessor) Process(statedb *state.StateDB, blockNum *big.Int, tx *ty
 	}
 	vicCfg := p.config.Viction
 	fee := new(big.Int).SetUint64(usedGas)
-	if p.config.TIPTRC21FeeBlock != nil && blockNum.Cmp(p.config.TIPTRC21FeeBlock) > 0 &&
-		vicCfg != nil && vicCfg.VRC25GasPrice != nil {
-		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.VRC25GasPrice))
+	if p.config.TIPGasPriceBlock != nil && blockNum.Cmp(p.config.TIPGasPriceBlock) > 0 && vicCfg != nil && vicCfg.TRC21NewGasPrice != nil {
+		fee = new(big.Int).Mul(fee, (*big.Int)(vicCfg.TRC21NewGasPrice))
 	}
 	if runningCap.Cmp(fee) > 0 {
 		newCap := new(big.Int).Sub(runningCap, fee)
@@ -594,4 +625,134 @@ func (p *FeeProcessor) Flush(statedb *state.StateDB) {
 		return
 	}
 	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25Contract, p.updatedBalances, p.totalChange)
+}
+
+// Flush current block Lending State Trie to LevelDB.
+func (p *StateProcessor) CommitLendingState(block *types.Block) error {
+	if !p.viction.IsLendingInitialized() {
+		return nil
+	}
+	lendingRoot := p.viction.CommittedLendingRoot()
+	if lendingRoot == (common.Hash{}) {
+		return nil
+	}
+	if err := p.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
+		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", block.NumberU64(), err)
+	}
+	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", block.NumberU64(), "root", lendingRoot.Hex())
+	return nil
+}
+
+// Flush current block Lending State Trie in GC cache to LevelDB.
+func (p *StateProcessor) CommitLendingStateDeferred(block *types.Block) error {
+	if !p.viction.IsLendingInitialized() {
+		return nil
+	}
+	current := block.NumberU64()
+	lendingRoot := p.viction.CommittedLendingRoot()
+	if lendingRoot == (common.Hash{}) {
+		return nil
+	}
+	lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
+	lendingTrieDB.Reference(lendingRoot, common.Hash{})
+	p.lendingTriegc.Push(lendingRoot, -int64(current))
+
+	if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
+		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", current, err)
+	}
+	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", current, "root", lendingRoot.Hex())
+
+	if current > TriesInMemory {
+		chosen := current - TriesInMemory
+		for !p.lendingTriegc.Empty() {
+			root, number := p.lendingTriegc.Pop()
+			if uint64(-number) > chosen {
+				p.lendingTriegc.Push(root, number)
+				break
+			}
+			lendingTrieDB.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
+
+// Flush all Lending State Trie entires in GC cache to LevelDB.
+func (p *StateProcessor) FlushLendingStateGCCache() {
+	if p.bc.cacheConfig.TrieDirtyDisabled || p.viction.LendingEngine() == nil {
+		return
+	}
+
+	lendingTrieDB := p.viction.LendingEngine().GetStateCache().TrieDB()
+	for !p.lendingTriegc.Empty() {
+		root := p.lendingTriegc.PopItem()
+		if err := lendingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
+			log.Error("[Processor][Native Lending] Failed to commit Trie on shutdown", "root", root, "err", err)
+		}
+		lendingTrieDB.Dereference(root.(common.Hash))
+	}
+}
+
+// Flush current block Trading State Trie to LevelDB.
+func (p *StateProcessor) CommitTradingState(block *types.Block) error {
+	if !p.viction.IsTradingInitialized() {
+		return nil
+	}
+	tradingRoot := p.viction.CommittedTradingRoot()
+	if tradingRoot == (common.Hash{}) {
+		return nil
+	}
+	if err := p.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
+		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", block.NumberU64(), err)
+	}
+	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", block.NumberU64(), "root", tradingRoot.Hex())
+	return nil
+}
+
+// Flush current block Trading State Trie in GC cache to LevelDB.
+func (p *StateProcessor) CommitTradingStateDeferred(block *types.Block) error {
+	if !p.viction.IsTradingInitialized() {
+		return nil
+	}
+	current := block.NumberU64()
+	tradingRoot := p.viction.CommittedTradingRoot()
+	if tradingRoot == (common.Hash{}) {
+		return nil
+	}
+	tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
+	tradingTrieDB.Reference(tradingRoot, common.Hash{})
+	p.tradingTriegc.Push(tradingRoot, -int64(current))
+
+	if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
+		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", current, err)
+	}
+	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", current, "root", tradingRoot.Hex())
+
+	if current > TriesInMemory {
+		chosen := current - TriesInMemory
+		for !p.tradingTriegc.Empty() {
+			root, number := p.tradingTriegc.Pop()
+			if uint64(-number) > chosen {
+				p.tradingTriegc.Push(root, number)
+				break
+			}
+			tradingTrieDB.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
+
+// Flush all Trading State Trie entires in GC cache to LevelDB.
+func (p *StateProcessor) FlushTradingStateGCCache() {
+	if p.bc.cacheConfig.TrieDirtyDisabled || p.viction.TradingEngine() == nil {
+		return
+	}
+
+	tradingTrieDB := p.viction.TradingEngine().GetStateCache().TrieDB()
+	for !p.tradingTriegc.Empty() {
+		root := p.tradingTriegc.PopItem()
+		if err := tradingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
+			log.Error("[Processor][Native Trading] Failed to commit Trie on shutdown", "root", root, "err", err)
+		}
+		tradingTrieDB.Dereference(root.(common.Hash))
+	}
 }

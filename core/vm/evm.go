@@ -58,13 +58,12 @@ func (evm *EVM) ActivePrecompiles() []common.Address {
 }
 
 // precompileViction selects precompiles with Viction fork gating.
-// Istanbul precompiles are enabled only after TIPTomoXCancelFee.
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	var precompiles map[common.Address]PrecompiledContract
 	switch {
 	case evm.chainRules.IsYoloV2:
 		precompiles = PrecompiledContractsYoloV2
-	case evm.chainRules.IsIstanbul && evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber):
+	case evm.chainRules.IsIstanbul:
 		precompiles = PrecompiledContractsIstanbul
 	case evm.chainRules.IsByzantium:
 		precompiles = PrecompiledContractsByzantium
@@ -77,7 +76,7 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
-	if evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber) {
+	if evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
 		for _, interpreter := range evm.interpreters {
 			if interpreter.CanRun(contract.Code) {
 				if evm.interpreter != interpreter {
@@ -396,10 +395,10 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	var snapshot = evm.StateDB.Snapshot()
 
 	// We do an AddBalance of zero here, just in order to trigger a touch.
-	// For POSV, keep this behavior only after TomoX cancellation-fee fork.
+	// For POSV, keep this behavior only after TIP2021 fork.
 	// For non-POSV chains, keep the original always-touch behavior.
 
-	if evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber) {
+	if evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
 		evm.StateDB.AddBalance(addr, big0)
 	}
 
@@ -414,8 +413,8 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		if evm.ChainConfig().IsTIPTomoX(evm.Context.BlockNumber) {
-			ret, err = run(evm, contract, input, evm.ChainConfig().IsTIPTomoXCancelFee(evm.Context.BlockNumber))
+		if evm.ChainConfig().IsTIPNativeTrading(evm.Context.BlockNumber) {
+			ret, err = run(evm, contract, input, evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber))
 		} else {
 			ret, err = run(evm, contract, input, true)
 		}

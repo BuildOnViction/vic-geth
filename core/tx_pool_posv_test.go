@@ -44,7 +44,7 @@ var (
 		TIPSigningBlock:   big.NewInt(0),
 		TIPRandomizeBlock: big.NewInt(0),
 		TIPBlacklistBlock: big.NewInt(0),
-		TIPTRC21FeeBlock:  big.NewInt(0),
+		TIPGasPriceBlock:  big.NewInt(0),
 		Posv:              &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			ValidatorBlockSignContract: blockSignerAddr,
@@ -506,7 +506,7 @@ func TestApplySignTransaction_NonceMismatch(t *testing.T) {
 	tx := makeBlockSignerTx(3, 100, common.HexToHash("0xdeadbeef"), key)
 	statedb.Prepare(tx.Hash(), common.Hash{}, 0)
 
-	_, receipt, _, err, _ := ApplySignTransaction(testPosvConfig, statedb, tx, header, &usedGas)
+	_, receipt, _, err, _ := (&VictionProcessor{config: testPosvConfig}).applyBlockSigningTransaction(statedb, tx, header, &usedGas)
 	if err == nil {
 		t.Fatal("expected error for nonce too low")
 	}
@@ -518,7 +518,7 @@ func TestApplySignTransaction_NonceMismatch(t *testing.T) {
 	tx2 := makeBlockSignerTx(10, 100, common.HexToHash("0xdeadbeef"), key)
 	statedb.Prepare(tx2.Hash(), common.Hash{}, 0)
 
-	_, receipt2, _, err2, _ := ApplySignTransaction(testPosvConfig, statedb, tx2, header, &usedGas)
+	_, receipt2, _, err2, _ := (&VictionProcessor{config: testPosvConfig}).applyBlockSigningTransaction(statedb, tx2, header, &usedGas)
 	if err2 == nil {
 		t.Fatal("expected error for nonce too high")
 	}
@@ -530,7 +530,7 @@ func TestApplySignTransaction_NonceMismatch(t *testing.T) {
 	tx3 := makeBlockSignerTx(5, 100, common.HexToHash("0xdeadbeef"), key)
 	statedb.Prepare(tx3.Hash(), common.Hash{}, 0)
 
-	_, receipt3, _, err3, _ := ApplySignTransaction(testPosvConfig, statedb, tx3, header, &usedGas)
+	_, receipt3, _, err3, _ := (&VictionProcessor{config: testPosvConfig}).applyBlockSigningTransaction(statedb, tx3, header, &usedGas)
 	if err3 != nil {
 		t.Fatalf("expected no error for correct nonce, got: %v", err3)
 	}

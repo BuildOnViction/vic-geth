@@ -69,13 +69,14 @@ var vicZeroGasStorageMap = map[string]uint64{
 
 // Return address of singers for a given block.
 func (statedb *StateDB) GetSigners(contractAddress common.Address, block *types.Block) []common.Address {
-	signerSlot := StorageLocationFromSlot(vicBlockSignerStorageMap["blockSigners"])
-	signerArrSlot := StorageLocationOfMappingElement(signerSlot, block.Hash().Bytes())
-	arrayLength := statedb.GetState(contractAddress, signerArrSlot.Hash()).Big().Uint64()
-	signers := make([]common.Address, 0, arrayLength)
-	for i := uint64(0); i < arrayLength; i++ {
-		signerSlot := StorageLocationOfDynamicArrayElement(signerArrSlot, i, 160)
-		signer := common.BytesToAddress(statedb.GetState(contractAddress, signerSlot.Hash()).Bytes())
+	signerMappingSlot := StorageLocationFromSlot(vicBlockSignerStorageMap["blockSigners"])
+	signerArraySlot := StorageLocationOfMappingElement(signerMappingSlot, block.Hash().Bytes())
+	signerArrayLength := statedb.GetState(contractAddress, signerArraySlot.Hash()).Big().Uint64()
+	signers := make([]common.Address, 0, signerArrayLength)
+	for i := uint64(0); i < signerArrayLength; i++ {
+		signerSlot := StorageLocationOfDynamicArrayElement(signerArraySlot, i, 160)
+		signerData := statedb.GetState(contractAddress, signerSlot.Hash())
+		signer := common.BytesToAddress(signerData.Bytes())
 		signers = append(signers, signer)
 	}
 	return signers
@@ -86,12 +87,11 @@ func (statedb *StateDB) GetSigners(contractAddress common.Address, block *types.
 // Return first part of secret submitted by an address. This value will be used in Commit phase.
 func (statedb *StateDB) VictionGetSecrets(contractAddress common.Address, address common.Address) []common.Hash {
 	secretMappingSlot := StorageLocationFromSlot(vicRandomizeStorageMap["randomSecret"])
-	secretArrSlot := StorageLocationOfMappingElement(secretMappingSlot, address.Hash().Bytes())
-
-	arrayLength := statedb.GetState(contractAddress, secretArrSlot.Hash()).Big().Uint64()
-	secrets := make([]common.Hash, 0, arrayLength)
-	for i := uint64(0); i < arrayLength; i++ {
-		secretSlot := StorageLocationOfDynamicArrayElement(secretArrSlot, i, 256)
+	secretArraySlot := StorageLocationOfMappingElement(secretMappingSlot, address.Hash().Bytes())
+	secretArrayLength := statedb.GetState(contractAddress, secretArraySlot.Hash()).Big().Uint64()
+	secrets := make([]common.Hash, 0, secretArrayLength)
+	for i := uint64(0); i < secretArrayLength; i++ {
+		secretSlot := StorageLocationOfDynamicArrayElement(secretArraySlot, i, 256)
 		secretData := statedb.GetState(contractAddress, secretSlot.Hash())
 		secret := common.BytesToHash(secretData.Bytes())
 		secrets = append(secrets, secret)
@@ -114,7 +114,6 @@ func (statedb *StateDB) VictionGetSecretOpening(contractAddress common.Address, 
 func (statedb *StateDB) VicGetVrc25Balance(contractAddress common.Address, address common.Address) *big.Int {
 	balanceMappingSlot := StorageLocationFromSlot(vicVRC25StorageMap["balances"])
 	balanceSlot := StorageLocationOfMappingElement(balanceMappingSlot, address.Hash().Bytes())
-
 	balanceData := statedb.GetState(contractAddress, balanceSlot.Hash())
 	return new(big.Int).SetBytes(balanceData.Bytes())
 }
@@ -147,7 +146,6 @@ func (statedb *StateDB) VicSetVrc25Balance(contractAddress common.Address, addre
 func (statedb *StateDB) VicGetValidatorOwner(contractAddress common.Address, validator common.Address) common.Address {
 	validatorMappingSlot := StorageLocationFromSlot(vicValidatorStorageMap["validatorsState"])
 	validatorStructSlot := StorageLocationOfMappingElement(validatorMappingSlot, validator.Hash().Bytes())
-
 	ownerData := statedb.GetState(contractAddress, validatorStructSlot.Hash())
 	owner := common.BytesToAddress(ownerData.Bytes())
 	return owner
@@ -157,13 +155,11 @@ func (statedb *StateDB) VicGetValidatorOwner(contractAddress common.Address, val
 func (statedb *StateDB) VicGetValidatorInfo(contractAddress common.Address, validator common.Address) (common.Address, *big.Int) {
 	validatorMappingSlot := StorageLocationFromSlot(vicValidatorStorageMap["validatorsState"])
 	validatorStructSlot := StorageLocationOfMappingElement(validatorMappingSlot, validator.Hash().Bytes())
-
 	ownerData := statedb.GetState(contractAddress, validatorStructSlot.Hash())
 	owner := common.BytesToAddress(ownerData.Bytes())
 	if owner == (common.Address{}) {
 		return common.Address{}, common.Big0
 	}
-
 	capacitySlot := StorageLocationOfStructElement(validatorStructSlot, common.Big1)
 	capacityData := statedb.GetState(contractAddress, capacitySlot.Hash())
 	return owner, new(big.Int).SetBytes(capacityData.Bytes())
@@ -172,13 +168,13 @@ func (statedb *StateDB) VicGetValidatorInfo(contractAddress common.Address, vali
 // Return all addresses voted for a given validator.
 func (statedb *StateDB) VicGetValidatorVoters(contractAddress common.Address, validator common.Address) []common.Address {
 	voterMappingSlot := StorageLocationFromSlot(vicValidatorStorageMap["voters"])
-	voterArrSlot := StorageLocationOfMappingElement(voterMappingSlot, validator.Hash().Bytes())
-
-	arrayLength := statedb.GetState(contractAddress, voterArrSlot.Hash()).Big().Uint64()
-	voters := make([]common.Address, 0, arrayLength)
-	for i := uint64(0); i < arrayLength; i++ {
-		voterSlot := StorageLocationOfDynamicArrayElement(voterArrSlot, i, 160)
-		voter := common.BytesToAddress(statedb.GetState(contractAddress, voterSlot.Hash()).Bytes())
+	voterArraySlot := StorageLocationOfMappingElement(voterMappingSlot, validator.Hash().Bytes())
+	voterArrayLength := statedb.GetState(contractAddress, voterArraySlot.Hash()).Big().Uint64()
+	voters := make([]common.Address, 0, voterArrayLength)
+	for i := uint64(0); i < voterArrayLength; i++ {
+		voterSlot := StorageLocationOfDynamicArrayElement(voterArraySlot, i, 160)
+		voterData := statedb.GetState(contractAddress, voterSlot.Hash())
+		voter := common.BytesToAddress(voterData.Bytes())
 		voters = append(voters, voter)
 	}
 	return voters
@@ -188,24 +184,22 @@ func (statedb *StateDB) VicGetValidatorVoters(contractAddress common.Address, va
 func (statedb *StateDB) VicGetValidatorVoterCap(contractAddress common.Address, validator, voter common.Address) *big.Int {
 	validatorMappingSlot := StorageLocationFromSlot(vicValidatorStorageMap["validatorsState"])
 	validatorStructSlot := StorageLocationOfMappingElement(validatorMappingSlot, validator.Hash().Bytes())
-
 	voterMappingSlot := StorageLocationOfStructElement(validatorStructSlot, common.Big2)
 	voterSlot := StorageLocationOfMappingElement(voterMappingSlot, voter.Hash().Bytes())
 	voterCapacityData := statedb.GetState(contractAddress, voterSlot.Hash())
-
 	return new(big.Int).SetBytes(voterCapacityData.Bytes())
 }
 
 // Return all addresses of candidates applied to be validator.
 func (statedb *StateDB) VicGetCandidates(contractAddress common.Address) []common.Address {
-	candidatesSlot := StorageLocationFromSlot(vicValidatorStorageMap["candidates"])
-	candidatesStateData := statedb.GetState(contractAddress, candidatesSlot.Hash())
-	arrayLength := candidatesStateData.Big().Uint64()
-	candidates := make([]common.Address, 0, arrayLength)
-	for i := uint64(0); i < arrayLength; i++ {
-		candidateSlot := StorageLocationOfDynamicArrayElement(candidatesSlot, i, 160)
-		candidateStateData := statedb.GetState(contractAddress, candidateSlot.Hash())
-		candidates = append(candidates, common.BytesToAddress(candidateStateData.Bytes()))
+	candidateArraySlot := StorageLocationFromSlot(vicValidatorStorageMap["candidates"])
+	candiateArrayLength := statedb.GetState(contractAddress, candidateArraySlot.Hash()).Big().Uint64()
+	candidates := make([]common.Address, 0, candiateArrayLength)
+	for i := uint64(0); i < candiateArrayLength; i++ {
+		candidateSlot := StorageLocationOfDynamicArrayElement(candidateArraySlot, i, 160)
+		candidateData := statedb.GetState(contractAddress, candidateSlot.Hash())
+		candidate := common.BytesToAddress(candidateData.Bytes())
+		candidates = append(candidates, candidate)
 	}
 	return candidates
 }
@@ -226,12 +220,11 @@ func (statedb *StateDB) VicGetZeroGasCapacity(contractAddress common.Address, to
 // Return remaining sponsoring capacities for all tokens.
 func (statedb *StateDB) VicGetZeroGasCapacities(contractAddress common.Address) map[common.Address]*big.Int {
 	tokenCapacityMappingSlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokensState"])
-	tokenArrSlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokens"])
-	arrayLength := statedb.GetState(contractAddress, tokenArrSlot.Hash()).Big().Uint64()
-
+	tokenArraySlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokens"])
+	tokenArrayLength := statedb.GetState(contractAddress, tokenArraySlot.Hash()).Big().Uint64()
 	capacities := map[common.Address]*big.Int{}
-	for i := uint64(0); i < arrayLength; i++ {
-		tokenSlot := StorageLocationOfDynamicArrayElement(tokenArrSlot, i, 1)
+	for i := uint64(0); i < tokenArrayLength; i++ {
+		tokenSlot := StorageLocationOfDynamicArrayElement(tokenArraySlot, i, 1)
 		tokenData := statedb.GetState(contractAddress, tokenSlot.Hash())
 		token := common.BytesToAddress(tokenData.Bytes())
 		tokenCapacitySlot := StorageLocationOfMappingElement(tokenCapacityMappingSlot, token.Hash().Bytes())

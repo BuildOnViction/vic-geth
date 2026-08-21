@@ -19,8 +19,9 @@ func EmptyHash(h common.Hash) bool {
 }
 
 type VictionConfig struct {
-	AtlasVRC25MinCap           *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
-	ConsensusLimitTimeFinality uint64           `json:"consensusLimitTimeFinality,omitempty"`
+	AtlasVRC25MinCap *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
+
+	ConsensusLimitTimeFinality uint64 `json:"consensusLimitTimeFinality,omitempty"`
 
 	LendingBaseRecall           *math.Decimal256 `json:"lendingBaseRecall,omitempty"`
 	LendingContract             common.Address   `json:"lendingContract,omitempty"`
@@ -39,21 +40,22 @@ type VictionConfig struct {
 	RandomizerFinaleNthBlock uint64         `json:"randomizerFinaleNthBlock,omitempty"`
 	RandomizerRevealNthBlock uint64         `json:"randomizerRevealNthBlock,omitempty"`
 
+	RelayerCancelFee            *math.Decimal256 `json:"relayerCancelFee,omitempty"`
+	RelayerFee                  *math.Decimal256 `json:"relayerFee,omitempty"`
+	RelayerRegistrationContract common.Address   `json:"relayerRegistrationContract,omitempty"`
+	RelayerLendingFee           *math.Decimal256 `json:"relayerLendingFee,omitempty"`
+	RelayerLendingCancelFee     *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
+	RelayerLockedAddress        common.Address   `json:"relayerLockedAddress,omitempty"`
+	RelayerLockedFund           *math.Decimal256 `json:"relayerLockedFund,omitempty"`
+
 	RewardFoundationAddress common.Address   `json:"rewardFoundationAddress,omitempty"`
 	RewardFoundationPercent uint64           `json:"rewardFoundationPercent,omitempty"`
 	RewardPerEpoch          *math.Decimal256 `json:"rewardPerEpoch,omitempty"`
 	RewardValidatorPercent  uint64           `json:"rewardValidatorPercent,omitempty"`
 	RewardVoterPercent      uint64           `json:"rewardVoterPercent,omitempty"`
 
-	RelayerCancelFee            *math.Decimal256 `json:"relayerCancelFee,omitempty"`
-	RelayerLockedAddress        common.Address   `json:"relayerLockedAddress,omitempty"`
-	RelayerFee                  *math.Decimal256 `json:"relayerFee,omitempty"`
-	RelayerRegistrationContract common.Address   `json:"relayerRegistrationContract,omitempty"`
-	RelayerLendingFee           *math.Decimal256 `json:"relayerLendingFee,omitempty"`
-	RelayerLendingCancelFee     *math.Decimal256 `json:"relayerLendingCancelFee,omitempty"`
-	RelayerLockedFund           *math.Decimal256 `json:"relayerLockedFund,omitempty"`
-
-	TRC21GasPrice *math.Decimal256 `json:"trc21GasPrice,omitempty"`
+	TRC21GasPrice    *math.Decimal256 `json:"trc21GasPrice,omitempty"`
+	TRC21NewGasPrice *math.Decimal256 `json:"trc21NewGasPrice,omitempty"`
 
 	SaigonFundAddress    common.Address   `json:"saigonFundAddress,omitempty"`
 	SaigonFundAmount     *math.Decimal256 `json:"saigonFundAmount,omitempty"`
@@ -70,8 +72,8 @@ type VictionConfig struct {
 
 	ValidatorBlockSignContract     common.Address `json:"validatorBlockSignContract,omitempty"`
 	ValidatorContract              common.Address `json:"validatorContract,omitempty"`
-	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorMaxCount              uint64         `json:"validatorMaxCount,omitempty"`
+	ValidatorMinBlockPerEpochCount uint64         `json:"validatorMinBlockPerEpochCount,omitempty"`
 	ValidatorSignInterval          uint64         `json:"validatorSignInterval,omitempty"`
 
 	VRC25GasPrice *math.Decimal256 `json:"vrc25GasPrice,omitempty"`
@@ -288,19 +290,19 @@ func (c *VictionConfig) GetVictionBypassBalance(blockNum uint64, addr common.Add
 }
 
 var victionHardforks = map[string]bool{
-	"tip2019Block":           true,
-	"tipSigningBlock":        true,
-	"tipRandomizeBlock":      true,
-	"tipBlacklistBlock":      true,
-	"tipTRC21FeeBlock":       true,
-	"tipFixSignerCheckBlock": true,
-	"tipTomoXBlock":          true,
-	"tipTomoXLendingBlock":   true,
-	"tipTomoXCancelFeeBlock": true,
+	"tip2019Block":          true,
+	"tipSigningBlock":       true,
+	"tipRandomizeBlock":     true,
+	"tipBlacklistBlock":     true,
+	"tipGasPriceBlock":      true,
+	"tipSignerCheckBlock":   true,
+	"tipNativeTradingBlock": true,
+	"tipNativeLendingBlock": true,
+	"tip2021Block":          true,
 
-	"saigonBlock":        true,
-	"atlasBlock":         true,
-	"prePrometheusBlock": true,
+	"saigonBlock":    true,
+	"atlasBlock":     true,
+	"postAtlasBlock": true,
 }
 
 func isVictionHardfork(name string) bool {

@@ -1,4 +1,4 @@
-package tomoxlending
+package lending
 
 import (
 	"encoding/json"
@@ -8,8 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
-	"github.com/ethereum/go-ethereum/legacy/tomoxlending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -480,8 +480,8 @@ func (l *Lending) getLendQuantity(
 	log.Debug("GetLendQuantity", "side", takerOrder.Side, "takerBalance", takerBalance, "makerBalance", makerBalance, "LendingToken", makerOrder.LendingToken, "CollateralToken", collateralToken, "quantity", quantity, "rejectMaker", rejectMaker)
 	if quantity.Sign() > 0 {
 		// Apply Match Order
-		isTomoXLendingFork := chain.Config().IsTIPTomoXLending(header.Number)
-		settleBalanceResult, err := lendingstate.GetSettleBalance(isTomoXLendingFork, takerOrder.Side, lendTokenTOMOPrice, collateralPrice, depositRate, borrowFee, lendToken, collateralToken, LendingTokenDecimal, collateralTokenDecimal, quantity)
+		isNativeLendingFork := chain.Config().IsTIPNativeLending(header.Number)
+		settleBalanceResult, err := lendingstate.GetSettleBalance(isNativeLendingFork, takerOrder.Side, lendTokenTOMOPrice, collateralPrice, depositRate, borrowFee, lendToken, collateralToken, LendingTokenDecimal, collateralTokenDecimal, quantity)
 		log.Debug("GetSettleBalance", "settleBalanceResult", settleBalanceResult, "err", err)
 		if err == nil {
 			err = DoSettleBalance(l.config.Viction.RelayerRegistrationContract, l.config.Viction.ValidatorContract, coinbase, takerOrder, makerOrder, settleBalanceResult, statedb)
@@ -724,7 +724,7 @@ func (l *Lending) ProcessCancelOrder(header *types.Header, lendingStateDB *lendi
 	}
 	feeRate := lendingstate.GetFee(l.config.Viction.LendingRegistrationContract, statedb, originOrder.Relayer)
 	tokenCancelFee, tokenPriceInTOMO := common.Big0, common.Big0
-	if !chain.Config().IsTIPTomoXCancelFee(header.Number) {
+	if !chain.Config().IsTIP2021(header.Number) {
 		tokenCancelFee = getCancelFeeV1(collateralTokenDecimal, collateralPrice, feeRate, &originOrder)
 	} else {
 		tokenCancelFee, tokenPriceInTOMO = l.getCancelFee(chain, statedb, tradingStateDb, &originOrder, feeRate)
@@ -896,7 +896,7 @@ func (l *Lending) LiquidationTrade(lendingStateDB *lendingstate.LendingStateDB, 
 }
 
 // cancellation fee = 1/10 borrowing fee
-// deprecated after hardfork at TIPTomoXCancellationFee
+// deprecated after hardfork at TIP2021
 func getCancelFeeV1(collateralTokenDecimal *big.Int, collateralPrice, borrowFee *big.Int, order *lendingstate.LendingItem) *big.Int {
 	cancelFee := big.NewInt(0)
 	if order.Side == lendingstate.Investing {
@@ -1134,7 +1134,7 @@ func (l *Lending) ProcessRepayLendingTrade(header *types.Header, chain tradingst
 		}
 		newLendingTrade := &lendingstate.LendingTrade{}
 		var err error
-		if chain.Config().IsTIPTomoXLending(header.Number) {
+		if chain.Config().IsTIPNativeLending(header.Number) {
 			newLendingTrade, err = l.LiquidationExpiredTrade(header, chain, lendingStateDB, statedb, tradingstateDB, lendingBook, lendingTradeId)
 		} else {
 			newLendingTrade, err = l.LiquidationTrade(lendingStateDB, statedb, tradingstateDB, lendingBook, lendingTradeId)

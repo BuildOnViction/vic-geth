@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -13,12 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/legacy/tomox"
-	"github.com/ethereum/go-ethereum/legacy/tomoxlending"
+	"github.com/ethereum/go-ethereum/legacy/lending"
+	"github.com/ethereum/go-ethereum/legacy/trading"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/sortlgc"
 )
 
 const SignMethodHex = "e341eaa4"
@@ -318,10 +318,10 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 		log.Error("Failed to open TomoX database", "err", err)
 		return nil
 	}
-	tomoxEngine := tomox.NewWithDB(tomoxDb, eth.blockchain.Config())
+	tomoxEngine := trading.NewWithDB(tomoxDb, eth.blockchain.Config())
 	eth.blockchain.SetTradingEngine(tomoxEngine)
 
-	lendingEngine := tomoxlending.New(tomoxDb, tomoxEngine, eth.blockchain.Config())
+	lendingEngine := lending.New(tomoxDb, tomoxEngine, eth.blockchain.Config())
 	eth.blockchain.SetLendingEngine(lendingEngine)
 
 	return nil

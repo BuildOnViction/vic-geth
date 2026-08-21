@@ -29,7 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
@@ -41,10 +41,10 @@ import (
 // testChainConfig returns a minimal ChainConfig for production-level tests.
 func testChainConfig() *params.ChainConfig {
 	return &params.ChainConfig{
-		ChainID:       big.NewInt(88),
-		TIPTomoXBlock: big.NewInt(20_581_700),
-		AtlasBlock:    big.NewInt(97_705_094),
-		Posv:          &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
+		ChainID:               big.NewInt(88),
+		TIPNativeTradingBlock: big.NewInt(20_581_700),
+		AtlasBlock:            big.NewInt(97_705_094),
+		Posv:                  &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{
 			TradingStateContract: common.HexToAddress("0x0000000000000000000000000000000000000092"),
 		},
@@ -165,7 +165,7 @@ func TestAfterProcessRootMismatch(t *testing.T) {
 // --- Tests: GetTradingStateRoot ---
 
 // TestApplyTomoXTxMalformedBatch verifies the dispatch-layer pre-screening:
-// a 0x91 tx with non-decodable data must NOT be intercepted by applyVictionTransaction
+// a 0x91 tx with non-decodable data must NOT be intercepted by ApplyNativeTransaction
 // (it should return handled=false so the EVM handles it), and applyTomoXTx itself
 // should tolerate an unexpected decode failure gracefully (empty receipt, no error).
 func TestApplyTomoXTxMalformedBatch(t *testing.T) {
@@ -197,17 +197,17 @@ func TestApplyTomoXTxMalformedBatch(t *testing.T) {
 
 	// applyTomoXTx itself (called directly) should produce an empty receipt on
 	// unexpected decode failure — no error, no state mutation.
-	handled, receipt, _, err, _ := vp.applyTradingTx(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
+	handled, receipt, _, err, _ := vp.applyTradingTransaction(statedb, tx, header, &usedGas, tradingstate.TxMatchBatch{})
 	require.True(t, handled)
 	require.NoError(t, err, "applyTomoXTx fallthrough must not return an error")
 	require.NotNil(t, receipt)
 	require.Equal(t, rootBefore, tdb.IntermediateRoot(), "no trading-state mutation on decode failure")
 }
 
-// TestBeforeProcessPreTIPTomoXNilDB verifies that a block before TIPTomoX
+// TestBeforeProcessPreTIPNativeTradingNilDB verifies that a block before TIPNativeTrading
 // activation does not initialize tradingStateDB (no error, no panic).
-func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
-	cfg := testChainConfig() // TIPTomoX at 20_581_700
+func TestBeforeProcessPreTIPNativeTradingNilDB(t *testing.T) {
+	cfg := testChainConfig() // TIPNativeTrading at 20_581_700
 
 	header := &types.Header{Number: big.NewInt(100)} // pre-activation
 	block := types.NewBlock(header, nil, nil, nil, new(trie.Trie))
@@ -220,6 +220,5 @@ func TestBeforeProcessPreTIPTomoXNilDB(t *testing.T) {
 
 	err := vp.BeforeBlockProcess(block, statedb)
 	require.NoError(t, err)
-	require.Nil(t, vp.tradingStateDB,
-		"tradingStateDB must be nil before TIPTomoX activation")
+	require.Nil(t, vp.tradingStateDB, "tradingStateDB must be nil before TIPNativeTrading activation")
 }

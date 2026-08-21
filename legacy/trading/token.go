@@ -1,4 +1,4 @@
-package tomox
+package trading
 
 import (
 	"math/big"
@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/contracts/tomox/contract"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/legacy/tomox/tradingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )

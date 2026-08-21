@@ -21,6 +21,24 @@ func AreSimilarSlices(list1 []Address, list2 []Address) bool {
 	return reflect.DeepEqual(list1, list2)
 }
 
+// Return the forward distance from parentIndex to currentIndex on a circular list with length.
+func CircularDistance(currentIndex, parentIndex, length int) int {
+	if currentIndex > parentIndex {
+		return currentIndex - parentIndex
+	}
+	return length + currentIndex - parentIndex
+}
+
+// Return index of the element e in slice s. Return -1 if not found.
+func IndexOf(list []Address, x Address) int {
+	for i, item := range list {
+		if item == x {
+			return i
+		}
+	}
+	return -1
+}
+
 // SetSubstract removes all occurrences of items in 'items' from 'array' and returns the new array.
 func SetSubstract(array []Address, items []Address) []Address {
 	if len(items) == 0 {
@@ -36,14 +54,4 @@ func SetSubstract(array []Address, items []Address) []Address {
 	}
 
 	return array
-}
-
-// Return index of the element e in slice s. Return -1 if not found.
-func IndexOf(list []Address, x Address) int {
-	for i, item := range list {
-		if item == x {
-			return i
-		}
-	}
-	return -1
 }
