@@ -43,7 +43,6 @@ var (
 		TIP2019Block:      big.NewInt(0),
 		TIPSigningBlock:   big.NewInt(0),
 		TIPRandomizeBlock: big.NewInt(0),
-		TIPBlacklistBlock: big.NewInt(0),
 		TIPGasPriceBlock:  big.NewInt(0),
 		Posv:              &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5},
 		Viction: &params.VictionConfig{

@@ -11,12 +11,12 @@
   "tip2019Block": 5,
   "tipSigningBlock": 5,
   "tipRandomizeBlock": 5,
-  "tipBlacklistBlock": 5,
   "tipGasPriceBlock": 5,
   "petersburgBlock": 10,
   "istanbulBlock": 10,
   "saigonBlock": 0,
   "atlasBlock": 0,
+  "atlasRefreshBlock": 0,
   "posv": {
     "period": 2,
     "epoch": 900,

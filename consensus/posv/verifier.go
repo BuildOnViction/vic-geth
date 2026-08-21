@@ -256,7 +256,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 	victionConfig := config.Viction
 
 	// Fix SignerCheck issue on Mainnet
-	if number == config.TIPSignerCheckBlock.Uint64() {
+	if victionConfig != nil && victionConfig.IsBypassValidatorBlock(number) {
 		return nil
 	}
 

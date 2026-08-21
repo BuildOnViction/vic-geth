@@ -30,6 +30,7 @@ import (
 type VictionConfig struct {
 	AtlasVRC25MinCap *math.Decimal256 `json:"atlasVRC25MinCap,omitempty"`
 
+	ConsensusLegacyCompat      bool   `json:"consensusLegacyCompat,omitempty"`
 	ConsensusLimitTimeFinality uint64 `json:"consensusLimitTimeFinality,omitempty"`
 
 	LendingContract             common.Address   `json:"lendingContract,omitempty"`
@@ -90,6 +91,9 @@ type VictionConfig struct {
 }
 
 func (c *VictionConfig) GetBypassBalance(blockNum uint64, addr common.Address) *big.Int {
+	if c == nil || !c.ConsensusLegacyCompat {
+		return nil
+	}
 	if bypassAddrHex, ok := victionBypassBlocks[blockNum]; ok {
 		if strings.EqualFold(bypassAddrHex, addr.Hex()) {
 			if balanceStr, ok := victionBypassBalances[bypassAddrHex]; ok {
@@ -103,10 +107,20 @@ func (c *VictionConfig) GetBypassBalance(blockNum uint64, addr common.Address) *
 }
 
 func (c *VictionConfig) IsBlacklisted(addr common.Address) bool {
+	if c == nil || !c.ConsensusLegacyCompat {
+		return false
+	}
 	if blocked, exists := victionBlacklists[addr]; exists {
 		return blocked
 	}
 	return false
+}
+
+func (c *VictionConfig) IsBypassValidatorBlock(blockNum uint64) bool {
+	if c == nil || !c.ConsensusLegacyCompat {
+		return false
+	}
+	return victionBypassValidators[blockNum]
 }
 
 func (c *ChainConfig) IsPosv() bool {
@@ -309,13 +323,15 @@ var victionBypassBlocks = map[uint64]string{
 	9147459: "0xe187cf86c2274b1f16e8225a7da9a75aba4f1f5f",
 }
 
+var victionBypassValidators = map[uint64]bool{
+	14458500: true,
+}
+
 var victionHardforks = map[string]bool{
 	"tip2019Block":          true,
 	"tipSigningBlock":       true,
 	"tipRandomizeBlock":     true,
-	"tipBlacklistBlock":     true,
 	"tipGasPriceBlock":      true,
-	"tipSignerCheckBlock":   true,
 	"tipNativeTradingBlock": true,
 	"tipNativeLendingBlock": true,
 	"tip2021Block":          true,
