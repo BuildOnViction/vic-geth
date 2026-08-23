@@ -114,7 +114,7 @@ func (c *VictionConfig) IsBlacklisted(addr common.Address, number *big.Int) bool
 		if number == nil {
 			return true
 		}
-		return blocked >= number.Uint64()
+		return number.Uint64() >= blocked
 	}
 	return false
 }
