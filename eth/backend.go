@@ -189,13 +189,6 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
 
-	// Set PosvBackend now that eth.blockchain is fully initialised.
-	// Must be done AFTER NewBlockChain returns so that eth.blockchain is non-nil
-	// when NewBlockChain's internal VerifyHeader call triggers verifyValidators.
-	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
-		return nil, err
-	}
-
 	eth.bloomIndexer.Start(eth.blockchain)
 
 	if config.TxPool.Journal != "" {
@@ -230,11 +223,6 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	}
 	eth.miner = miner.New(eth, &config.Miner, chainConfig, eth.EventMux(), eth.engine, eth.isLocalBlock)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
-
-	if chainConfig.Posv != nil {
-		eth.setupPosvFetcherHook()
-		eth.setupPosvMinerHook()
-	}
 	eth.APIBackend = &EthAPIBackend{stack.Config().ExtRPCEnabled(), eth, nil}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
@@ -244,6 +232,11 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 
 	eth.dialCandidates, err = eth.setupDiscovery()
 	if err != nil {
+		return nil, err
+	}
+
+	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
+	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
 		return nil, err
 	}
 

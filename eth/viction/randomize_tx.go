@@ -14,12 +14,7 @@
 package viction
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
-	"io"
 	"math/big"
 	mathrand "math/rand"
 	"time"
@@ -35,26 +30,20 @@ var (
 	SetSecretSelector = common.Hex2Bytes("34d38600")
 	// setOpening(bytes32) — 0xe11f5ba2
 	SetOpeningSelector = common.Hex2Bytes("e11f5ba2")
+	// RandomizeKeyName is the database key used to persist the random key between the commit and reveal phases within a single epoch.
+	RandomizeKeyName = []byte("randomizeKey")
 )
-
-// RandomizeKeyName is the database key used to persist the random key between
-// the commit and reveal phases within a single epoch.
-var RandomizeKeyName = []byte("randomizeKey")
 
 // ShouldSendSecret returns true if the current block position within the epoch
 // falls in the commit phase: [CommitNthBlock, RevealNthBlock).
 func ShouldSendSecret(vicConfig *params.VictionConfig, blockInEpoch uint64) bool {
-	return blockInEpoch > 0 &&
-		blockInEpoch >= vicConfig.RandomizerCommitNthBlock &&
-		blockInEpoch < vicConfig.RandomizerRevealNthBlock
+	return blockInEpoch > 0 && blockInEpoch >= vicConfig.RandomizerCommitNthBlock && blockInEpoch < vicConfig.RandomizerRevealNthBlock
 }
 
 // ShouldSendOpening returns true if the current block position within the epoch
 // falls in the reveal phase: [RevealNthBlock, FinaleNthBlock].
 func ShouldSendOpening(vicConfig *params.VictionConfig, blockInEpoch uint64) bool {
-	return blockInEpoch > 0 &&
-		blockInEpoch >= vicConfig.RandomizerRevealNthBlock &&
-		blockInEpoch <= vicConfig.RandomizerFinaleNthBlock
+	return blockInEpoch > 0 && blockInEpoch >= vicConfig.RandomizerRevealNthBlock && blockInEpoch <= vicConfig.RandomizerFinaleNthBlock
 }
 
 // GenerateRandomizeKey creates a 32-byte random key for AES encryption.
@@ -102,25 +91,4 @@ func BuildOpeningTx(nonce uint64, randomizeContract common.Address, key []byte) 
 	data = append(data, key...)
 
 	return types.NewTransaction(nonce, randomizeContract, big.NewInt(0), 200000, big.NewInt(0), data)
-}
-
-// EncryptAesCfb encrypts plaintext using AES-CFB mode with a random IV.
-// Returns a base64url-encoded string: IV || ciphertext.
-func EncryptAesCfb(key []byte, plaintext string) (string, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-
-	plain := []byte(plaintext)
-	ciphertext := make([]byte, aes.BlockSize+len(plain))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return "", err
-	}
-
-	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], plain)
-
-	return base64.URLEncoding.EncodeToString(ciphertext), nil
 }

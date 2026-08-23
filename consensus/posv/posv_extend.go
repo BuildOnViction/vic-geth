@@ -41,6 +41,8 @@ const (
 )
 
 var (
+	ErrAttestedBlock = errors.New("block is already attested")
+
 	errCannotGetCheckpointHeader = errors.New("cannot get checkpoint header")
 
 	errEmptyValidators = errors.New("validators is empty")
@@ -54,6 +56,9 @@ var (
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
 	errNoBackend = errors.New("backend reference is not available")
+
+	// ErrNoAttestorSignature is returned if a block's attestor signature is missing.
+	ErrNoAttestorSignature = errors.New("no attestor in header")
 
 	errNoChainReader = errors.New("chain reader is not available")
 )
@@ -272,7 +277,7 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 	return validators
 }
 
-// Return header of neareast checkpoint block before the give header. If the header is also a checkpoint block, return the header itself.
+// Return header of neareast checkpoint block before the given header. If the header is also a checkpoint block, return the header itself.
 func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
 	blockNumber := header.Number.Uint64()
 	if blockNumber%posvConfig.Epoch == 0 {

@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 )
 
-// Decrypt encrypted data using AES CFB mode,
+// Decrypt encrypted data using AES CFB mode.
 func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext, _ := base64.URLEncoding.DecodeString(cryptoText)
 
@@ -28,7 +30,6 @@ func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext = ciphertext[aes.BlockSize:]
 
 	stream := cipher.NewCFBDecrypter(block, iv)
-
 	// XORKeyStream can work in-place if the two arguments are the same.
 	stream.XORKeyStream(ciphertext, ciphertext)
 
@@ -53,6 +54,26 @@ func DecryptRandomize(secrets [][32]byte, opening [32]byte) (int64, error) {
 	}
 
 	return random, nil
+}
+
+// Encrypt data using AES CFB mode.
+func EncryptAesCfb(key []byte, text string) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	plaintext := []byte(text)
+	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", err
+	}
+
+	stream := cipher.NewCFBEncrypter(block, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
 }
 
 // Generate a dynamic array from *start*, increase by *step* unit by *repeat* times.

@@ -145,8 +145,9 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	nowUnix := now.Unix()
 
 	if seal {
+		// PoSV block requires attestor signature after first epoch.
 		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
-			return consensus.ErrNoValidatorSignature
+			return ErrNoAttestorSignature
 		}
 		// Don't waste time checking blocks from the future
 		if header.Time > uint64(nowUnix) {
