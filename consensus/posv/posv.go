@@ -251,6 +251,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
 				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash)
 				snap = s
+				c.recents.Add(hash, snap)
 				break
 			}
 		}
@@ -258,6 +259,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
 				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
 				snap = s
+				c.recents.Add(hash, snap)
 				break
 			}
 		}
