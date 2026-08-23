@@ -46,9 +46,8 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 // --- Validation helpers ---
 
 // validateBlacklistTx rejects transactions whose sender or receiver is
-// blacklisted. Unlike the block-import and worker checks this is not gated
-// on the TIPBlacklist fork block: pool admission is local policy, and the
-// legacy pool rejected these unconditionally.
+// blacklisted. Pool admission is local policy, and the legacy pool
+// rejected these unconditionally.
 func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
 	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To()); sender || receiver {
 		return ErrBlacklistedAddress
