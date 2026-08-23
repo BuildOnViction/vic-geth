@@ -49,7 +49,7 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 // blacklisted. Pool admission is local policy, and the legacy pool
 // rejected these unconditionally.
 func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
-	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To()); sender || receiver {
+	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To(), nil); sender || receiver {
 		return ErrBlacklistedAddress
 	}
 	return nil
