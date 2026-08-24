@@ -85,6 +85,10 @@ type ExecutionResult struct {
 	UsedGas    uint64 // Total used gas but include the refunded gas
 	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
+
+	IsSponsoredTx   bool           // Whether VRC25 gas sponsorship was applied
+	Payer           common.Address // The address that paid for gas
+	SponsorGasPrice *big.Int       // Effective gas price for sponsored tx (nil if not sponsored)
 }
 
 // Unwrap returns the internal evm error which allows us for further
@@ -290,10 +294,19 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
 	}
 
+	isSponsored := st.isVRC25Transaction()
+	var sponsorGasPrice *big.Int
+	if isSponsored {
+		sponsorGasPrice = new(big.Int).Set(st.gasPrice)
+	}
+
 	return &ExecutionResult{
-		UsedGas:    st.gasUsed(),
-		Err:        vmerr,
-		ReturnData: ret,
+		UsedGas:         st.gasUsed(),
+		Err:             vmerr,
+		ReturnData:      ret,
+		IsSponsoredTx:   isSponsored,
+		Payer:           st.payer,
+		SponsorGasPrice: sponsorGasPrice,
 	}, nil
 }
 
