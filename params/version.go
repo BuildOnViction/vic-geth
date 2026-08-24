@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	VictionMajor = 0
-	VictionMinor = 1
+	VictionMajor = 1
+	VictionMinor = 0
 	VictionPatch = 0
 	VictionMeta  = "rc6"
 )
@@ -59,14 +59,13 @@ var VersionWithMeta = func() string {
 //
 //	"1.8.13-unstable-21c059b6" for unstable releases
 func ArchiveVersion(gitCommit string) string {
-	vsn := Version
+	vsn := VersionWithMeta
 	if VictionMeta != "stable" {
 		vsn += "-" + VictionMeta
 	}
 	if len(gitCommit) >= 8 {
 		vsn += "-" + gitCommit[:8]
 	}
-	vsn += ApiVersion
 	return vsn
 }
 
@@ -78,6 +77,5 @@ func VersionWithCommit(gitCommit, gitDate string) string {
 	if (VictionMeta != "stable") && (gitDate != "") {
 		vsn += "-" + gitDate
 	}
-	vsn += ApiVersion
 	return vsn
 }
