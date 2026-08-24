@@ -22,9 +22,12 @@ var Modules = map[string]string{
 	"admin":      AdminJs,
 	"chequebook": ChequebookJs,
 	"clique":     CliqueJs,
+	"posv":       PosvJs,
 	"ethash":     EthashJs,
 	"debug":      DebugJs,
-	"eth":        EthJs,
+	// Load Viction helpers under the eth module so they're always available
+	// wherever eth is exposed by the node.
+	"eth":      EthJs + VictionJs,
 	"miner":      MinerJs,
 	"net":        NetJs,
 	"personal":   PersonalJs,
@@ -113,6 +116,41 @@ web3._extend({
 		new web3._extend.Property({
 			name: 'proposals',
 			getter: 'clique_proposals'
+		}),
+	]
+});
+`
+const PosvJs = `
+web3._extend({
+	property: 'posv',
+	methods: [
+		new web3._extend.Method({
+			name: 'getSnapshot',
+			call: 'posv_getSnapshot',
+			params: 1,
+			inputFormatter: [null]
+		}),
+		new web3._extend.Method({
+			name: 'getSnapshotAtHash',
+			call: 'posv_getSnapshotAtHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getSigners',
+			call: 'posv_getSigners',
+			params: 1,
+			inputFormatter: [null]
+		}),
+		new web3._extend.Method({
+			name: 'getSignersAtHash',
+			call: 'posv_getSignersAtHash',
+			params: 1
+		}),
+	],
+	properties: [
+		new web3._extend.Property({
+			name: 'networkInformation',
+			getter: 'posv_networkInformation'
 		}),
 	]
 });
@@ -903,6 +941,57 @@ web3._extend({
 		new web3._extend.Property({
 			name: 'requestStats',
 			getter: 'lespay_requestStats'
+		}),
+	]
+});
+`
+// VictionJs extends the eth namespace with Viction/PoSV-specific methods.
+//
+// All RPC calls use the eth_ prefix so they work over HTTP, WS and IPC without
+// every method for discoverability and to allow a clean cut-over in future.
+const VictionJs = `
+web3._extend({
+	property: 'eth',
+	methods: [
+		new web3._extend.Method({
+			name: 'getRewardByHash',
+			call: 'eth_getRewardByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByNumber',
+			call: 'eth_getRewardByNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByHashOrNumber',
+			call: 'eth_getRewardByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getAttestorsPairsByHash',
+			call: 'eth_getAttestorsPairsByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getAttestorsPairsByNumber',
+			call: 'eth_getAttestorsPairsByNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByHash',
+			call: 'eth_getBlockFinalityByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByNumber',
+			call: 'eth_getBlockFinalityByNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getCandidates',
+			call: 'eth_getCandidates',
+			params: 1
 		}),
 	]
 });

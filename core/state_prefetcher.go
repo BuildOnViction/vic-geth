@@ -90,6 +90,8 @@ func precacheTransaction(config *params.ChainConfig, bc ChainContext, author *co
 	txContext := NewEVMTxContext(msg)
 	vm := vm.NewEVM(context, txContext, statedb, config, cfg)
 
-	_, err = ApplyMessage(vm, msg, gaspool)
+	// Speculative warm-up only; no fee pool needed (sponsorship is irrelevant to
+	// prefetching, and this state is discarded).
+	_, err = ApplyMessage(vm, msg, gaspool, nil)
 	return err
 }

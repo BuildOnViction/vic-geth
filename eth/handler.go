@@ -235,7 +235,8 @@ func (pm *ProtocolManager) removePeer(id string) {
 	if peer == nil {
 		return
 	}
-	log.Debug("Removing Ethereum peer", "peer", id)
+	// Log the caller to help diagnose unexpected disconnections.
+	log.Info("[Handler] removePeer called", "peer", id, "caller", "removePeer")
 
 	// Unregister the peer from the downloader and Ethereum peer set
 	pm.downloader.UnregisterPeer(id)
@@ -390,6 +391,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	defer msg.Discard()
 
 	// Handle the message depending on its contents
+	log.Debug("Received eth message", "code", msg.Code, "size", msg.Size, "peer", p.id)
 	switch {
 	case msg.Code == StatusMsg:
 		// Status messages should never arrive after the handshake
@@ -481,6 +483,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				query.Origin.Number += query.Skip + 1
 			}
 		}
+		log.Debug("Sending block headers to peer", "count", len(headers), "peer", p.id)
 		return p.SendBlockHeaders(headers)
 
 	case msg.Code == BlockHeadersMsg:
@@ -561,6 +564,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				bytes += len(data)
 			}
 		}
+		log.Debug("Sending block bodies to peer", "count", len(bodies), "peer", p.id)
 		return p.SendBlockBodiesRLP(bodies)
 
 	case msg.Code == BlockBodiesMsg:
@@ -812,7 +816,17 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		}
 		pm.txFetcher.Enqueue(p.id, txs, msg.Code == PooledTransactionsMsg)
 
+	case (msg.Code == OrderTxMsg || msg.Code == LendingTxMsg) && p.version < eth65:
+		// Victionchain peers (eth62/eth63) send OrderTxMsg (0x08) and LendingTxMsg
+		// (0x09) for their DEX order/lending pools.  vic-geth does not implement
+		// these pools, so silently discard the payload to keep the connection alive.
+		// We must consume the message body to avoid leaving stale data on the stream.
+		var ignored []rlp.RawValue
+		msg.Decode(&ignored)
+		log.Trace("[Handler] Discarded victionchain order/lending tx", "code", msg.Code, "peer", p.id, "count", len(ignored))
+
 	default:
+		log.Warn("Received unknown message code from peer", "code", msg.Code, "peer", p.id, "version", p.version)
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
 	return nil

@@ -1,0 +1,160 @@
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
+package viction
+
+import (
+	"fmt"
+	"math/big"
+	"math/rand"
+	mathrand "math/rand"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
+)
+
+var (
+	/// RandomizeKeyName is the database key used to persist the random key between the commit and reveal phases within a single epoch.
+	RandomizeKeyName = []byte("randomizeKey")
+)
+
+func CreateSetRandomizeSecretData(secret []byte) []byte {
+	data := common.Hex2Bytes("34d38600") // setSecret(bytes32[])
+	data = append(data, common.LeftPadBytes(big.NewInt(32).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(1).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes([]byte(secret), 32)...)
+	return data
+}
+
+func CreateSetRandomizeSecretTransaction(nonce uint64, contractAddr common.Address, secret []byte) *types.Transaction {
+	data := CreateSetRandomizeSecretData(secret)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}
+
+func CreateSetRandomizeOpeningData(key []byte) []byte {
+	data := common.Hex2Bytes("e11f5ba2") // setOpening(bytes32)
+	data = append(data, key...)
+	return data
+}
+
+func CreateSetRandomizeOpeningTransaction(nonce uint64, contractAddr common.Address, key []byte) *types.Transaction {
+	data := CreateSetRandomizeOpeningData(key)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}
+
+func GenerateRandomKey() []byte {
+	mathrand.Seed(time.Now().UnixNano())
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = charset[mathrand.Intn(len(charset))]
+	}
+	return b
+}
+
+func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
+	mathrand.Seed(time.Now().UnixNano())
+	secretNumber := mathrand.Intn(int(max))
+	encrypted, err := EncryptAesCfb(key, fmt.Sprintf("%d", secretNumber))
+	if err != nil {
+		return nil, fmt.Errorf("encrypt secret: %w", err)
+	}
+	return []byte(encrypted), nil
+}
+
+func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
+	randomizes := []int64{}
+	validatorCount := int64(len(validators))
+	if validatorCount > 0 {
+		for _, validator := range validators {
+			random, err := GetRandomizeOfValidator(vicConfig, validator, state)
+			if err != nil {
+				return nil, err
+			}
+			randomizes = append(randomizes, random)
+		}
+		attestors, err := GetAttestorsFromRandomize(randomizes, validatorCount)
+		if err != nil {
+			return nil, err
+		}
+		log.Debug("[POSV randomize] computed attestor indices",
+			"validators", validatorCount, "randomizes", randomizes, "attestors", attestors)
+		return attestors, nil
+	}
+	return nil, ErrNoValidator
+}
+
+func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
+	randomizeContract := vicConfig.RandomizerContract
+	if randomizeContract == (common.Address{}) {
+		return -1, ErrNoContractAddress
+	}
+
+	secretsHash := state.VictionGetSecrets(randomizeContract, validator)
+	openingHash := state.VictionGetSecretOpening(randomizeContract, validator)
+
+	// Convert []common.Hash to [][32]byte
+	secrets := make([][32]byte, len(secretsHash))
+	for i, h := range secretsHash {
+		secrets[i] = h
+	}
+
+	// Convert common.Hash to [32]byte
+	opening := [32]byte(openingHash)
+
+	result, err := DecryptRandomize(secrets, opening)
+	if err != nil {
+		log.Debug("[POSV randomize] failed to decrypt validator secret",
+			"validator", validator, "secrets", len(secretsHash), "err", err)
+		return result, err
+	}
+	log.Debug("[POSV randomize] decrypted validator random",
+		"validator", validator, "secrets", len(secretsHash), "hasOpening", openingHash != common.Hash{}, "random", result)
+	return result, nil
+}
+
+func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, error) {
+	randomSeed := int64(0)
+	for _, j := range randomizes {
+		randomSeed += j
+	}
+	rand.Seed(randomSeed)
+
+	randArray := GenerateSequence(0, 1, signersLen)
+	attestorIndices := make([]int64, signersLen)
+	attestorIndex := int64(0)
+	for i := len(randArray) - 1; i >= 0; i-- {
+		blockLength := len(randArray) - 1
+		if blockLength <= 1 {
+			blockLength = 1
+		}
+		randomIndex := int64(rand.Intn(blockLength))
+		attestorIndex = randArray[randomIndex]
+		randArray[randomIndex] = randArray[i]
+		randArray[i] = attestorIndex
+		randArray = append(randArray[:i], randArray[i+1:]...)
+		attestorIndices[i] = attestorIndex
+	}
+
+	return attestorIndices, nil
+}

@@ -57,6 +57,7 @@ func (evm *EVM) ActivePrecompiles() []common.Address {
 	}
 }
 
+// precompileViction selects precompiles with Viction fork gating.
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	var precompiles map[common.Address]PrecompiledContract
 	switch {
@@ -75,18 +76,23 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
-	for _, interpreter := range evm.interpreters {
-		if interpreter.CanRun(contract.Code) {
-			if evm.interpreter != interpreter {
-				// Ensure that the interpreter pointer is set back
-				// to its current value upon return.
-				defer func(i Interpreter) {
-					evm.interpreter = i
-				}(evm.interpreter)
-				evm.interpreter = interpreter
+	if evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
+		for _, interpreter := range evm.interpreters {
+			if interpreter.CanRun(contract.Code) {
+				if evm.interpreter != interpreter {
+					// Ensure that the interpreter pointer is set back
+					// to its current value upon return.
+					defer func(i Interpreter) {
+						evm.interpreter = i
+					}(evm.interpreter)
+					evm.interpreter = interpreter
+				}
+				return interpreter.Run(contract, input, readOnly)
 			}
-			return interpreter.Run(contract, input, readOnly)
 		}
+
+	} else {
+		return evm.interpreter.Run(contract, input, readOnly)
 	}
 	return nil, errors.New("no compatible interpreter")
 }
@@ -389,10 +395,12 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	var snapshot = evm.StateDB.Snapshot()
 
 	// We do an AddBalance of zero here, just in order to trigger a touch.
-	// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
-	// but is the correct thing to do and matters on other networks, in tests, and potential
-	// future scenarios
-	evm.StateDB.AddBalance(addr, big0)
+	// For POSV, keep this behavior only after TIP2021 fork.
+	// For non-POSV chains, keep the original always-touch behavior.
+
+	if evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
+		evm.StateDB.AddBalance(addr, big0)
+	}
 
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
@@ -405,10 +413,11 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		// When an error was returned by the EVM or when setting the creation code
-		// above we revert to the snapshot and consume any gas remaining. Additionally
-		// when we're in Homestead this also counts for code storage gas errors.
-		ret, err = run(evm, contract, input, true)
+		if evm.ChainConfig().IsTIPNativeTrading(evm.Context.BlockNumber) {
+			ret, err = run(evm, contract, input, evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber))
+		} else {
+			ret, err = run(evm, contract, input, true)
+		}
 		gas = contract.Gas
 	}
 	if err != nil {

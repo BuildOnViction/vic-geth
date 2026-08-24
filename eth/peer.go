@@ -134,6 +134,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 		select {
 		case prop := <-p.queuedBlocks:
 			if err := p.SendNewBlock(prop.block, prop.td); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlock failed, removing peer", "number", prop.block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -141,6 +142,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 
 		case block := <-p.queuedBlockAnns:
 			if err := p.SendNewBlockHashes([]common.Hash{block.Hash()}, []uint64{block.NumberU64()}); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlockHashes failed, removing peer", "number", block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -205,7 +207,8 @@ func (p *peer) broadcastTransactions(removePeer func(string)) {
 		case <-done:
 			done = nil
 
-		case <-fail:
+		case err := <-fail:
+			p.Log().Warn("[Peer] broadcastTransactions send failed, removing peer", "err", err)
 			removePeer(p.id)
 			return
 
@@ -469,6 +472,8 @@ func (p *peer) SendNewBlock(block *types.Block, td *big.Int) error {
 		p.knownBlocks.Pop()
 	}
 	p.knownBlocks.Add(block.Hash())
+	// Ensure the block header is marked as PoSV so it encodes with 18 fields.
+	block.SetPosv(true)
 	return p2p.Send(p.rw, NewBlockMsg, []interface{}{block, td})
 }
 
@@ -489,6 +494,11 @@ func (p *peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 
 // SendBlockHeaders sends a batch of block headers to the remote peer.
 func (p *peer) SendBlockHeaders(headers []*types.Header) error {
+	// Ensure all headers are marked as PoSV so they encode with 18 fields.
+	// This is needed for compatibility with victionchain peers which expect 18 fields.
+	for _, h := range headers {
+		h.Posv = true
+	}
 	return p2p.Send(p.rw, BlockHeadersMsg, headers)
 }
 
