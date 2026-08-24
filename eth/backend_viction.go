@@ -233,30 +233,23 @@ func (s *Ethereum) PosvGetEpochReward(
 func (s *Ethereum) PosvDistributeEpochRewards(
 	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
 ) error {
-	blockNumber := header.Number.Uint64()
-
-	if epochReward == nil {
-		log.Debug("PosvAddBalanceRewards: no epoch rewards to apply", "block", blockNumber)
-		return nil
-	}
-	if state == nil {
+	if state == nil || epochReward == nil {
 		return nil
 	}
 
-	// Apply stakeholder rewards to the state
-	totalRewardDistributed := big.NewInt(0)
-	rewardCount := 0
-
+	number := header.Number.Uint64()
+	rewardAmount := big.NewInt(0)
+	stakeholderCount := 0
 	for addr, amount := range epochReward.StakeholderRewards {
 		if amount == nil || amount.Sign() <= 0 {
 			continue
 		}
 		state.AddBalance(addr, amount)
-		totalRewardDistributed.Add(totalRewardDistributed, amount)
-		rewardCount++
+		rewardAmount.Add(rewardAmount, amount)
+		stakeholderCount++
 	}
 
-	log.Info("PosvAddBalanceRewards: applied epoch rewards", "block", blockNumber, "recipientCount", rewardCount, "totalReward", totalRewardDistributed.String())
+	log.Info("[Backend] Distributed epoch rewards", "block", number, "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
 	return nil
 }
 
