@@ -34,11 +34,6 @@ const (
 	posvWaitPeriodCheckpoint = 20 * time.Second
 )
 
-type PosvBackend interface {
-	// Create a new block with attestor's signature. Only accept non-attested block.
-	PosvAttestBlock(block *types.Block) (*types.Block, error)
-}
-
 // Attempt to commit new block for PoSV consensus. Returns true if it's our turn or we've waited long enough for out-of-turn fallback.
 func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 	// Pending block / snapshot updates must run even when the miner is stopped.

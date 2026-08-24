@@ -110,9 +110,6 @@ func (c *VictionConfig) IsBlacklisted(addr common.Address, number *big.Int) bool
 	if c == nil || !c.ConsensusLegacyCompat {
 		return false
 	}
-	if c == nil || !c.ConsensusLegacyCompat {
-		return false
-	}
 	if blocked, exists := victionBlacklists[addr]; exists {
 		if number == nil {
 			return true
