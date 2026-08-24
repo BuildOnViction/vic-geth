@@ -1692,9 +1692,6 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	// Pre-checks passed, start the full block imports
 	bc.wg.Add(1)
 	bc.chainmu.Lock()
-	for _, b := range chain {
-		fmt.Println("-> insertchain: {} - {}", b.Number(), b.Hash().String())
-	}
 	n, err := bc.insertChain(chain, true)
 	bc.chainmu.Unlock()
 	bc.wg.Done()

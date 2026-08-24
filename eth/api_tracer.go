@@ -23,7 +23,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -888,20 +887,7 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 		return res, nil
 
 	case *tracers.Tracer:
-		tracerResult, err := tracer.GetResult()
-		if err != nil {
-			return nil, err
-		}
-		var base map[string]interface{}
-		if err := json.Unmarshal(tracerResult, &base); err != nil {
-			return tracerResult, nil
-		}
-		base["isSponsoredTx"] = result.IsSponsoredTx
-		if result.IsSponsoredTx {
-			base["payer"] = result.Payer
-			base["sponsorGasPrice"] = (*hexutil.Big)(result.SponsorGasPrice)
-		}
-		return base, nil
+		return tracer.GetResult()
 
 	default:
 		panic(fmt.Sprintf("bad tracer type %T", tracer))
