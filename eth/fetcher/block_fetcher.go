@@ -881,7 +881,6 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		go f.broadcastBlock(block, false)
 
 		// PoSV: Submit scheduled transactions to txpool.
-		f.posvBackend.PosvAttestBlock(block)
 		f.posvBackend.PosvSignBlock(block)
 		f.posvBackend.PosvRandomNumber(block)
 
