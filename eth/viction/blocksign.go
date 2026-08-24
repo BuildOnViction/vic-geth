@@ -19,15 +19,21 @@
 
 package viction
 
-import "errors"
+import (
+	"math/big"
 
-var (
-	// ErrNoValidator is when the list of validator is empty.
-	ErrNoValidator = errors.New("no validator existed")
-
-	// ErrInvalidAttestorList is when the attestors list are not conformed to the consensus rules.
-	ErrInvalidAttestorList = errors.New("invalid attestor list")
-
-	// ErrNoContractAddress is when the contract address is not set in the config.
-	ErrNoContractAddress = errors.New("contract address is not set")
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
+
+func CreateBlockSignData(blockNumber *big.Int, blockHash common.Hash) []byte {
+	data := common.Hex2Bytes("e341eaa4") // sign(uint256,bytes32)
+	data = append(data, common.LeftPadBytes(blockNumber.Bytes(), 32)...)
+	data = append(data, blockHash.Bytes()...)
+	return data
+}
+
+func CreateBlockSignTransaction(nonce uint64, contractAddr common.Address, blockNumber *big.Int, blockHash common.Hash) *types.Transaction {
+	data := CreateBlockSignData(blockNumber, blockHash)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}

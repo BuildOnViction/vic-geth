@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -597,10 +597,6 @@ func TestAppendAttestorHookUnchangedBlock(t *testing.T) {
 		verifyCalls++
 		return nil
 	}
-	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
-		hookCalls++
-		return block, false, nil
-	})
 
 	tester.fetcher.Enqueue("valid", original)
 	verifyImportEvent(t, imported, true)
@@ -635,7 +631,7 @@ func TestAppendAttestorHookMutatedBlock(t *testing.T) {
 		switch header.Hash() {
 		case original.Header().Hash():
 			seenOriginal = true
-			return consensus.ErrNoValidatorSignature
+			return posv.ErrNoAttestorSignature
 		case mutated.Header().Hash():
 			seenMutated = true
 			return nil
@@ -644,12 +640,6 @@ func TestAppendAttestorHookMutatedBlock(t *testing.T) {
 		}
 		return nil
 	}
-	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
-		if block.Hash() != original.Hash() {
-			t.Fatalf("hook received unexpected block hash, got %s, want %s", block.Hash(), original.Hash())
-		}
-		return mutated, true, nil
-	})
 
 	tester.fetcher.Enqueue("valid", original)
 	verifyImportEvent(t, imported, true)
@@ -674,11 +664,8 @@ func TestAppendAttestorHookError(t *testing.T) {
 	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
 		imported <- block
 	}
-	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
-		return nil, false, errors.New("append attestor failed")
-	})
 	tester.fetcher.verifyHeader = func(header *types.Header) error {
-		return consensus.ErrNoValidatorSignature
+		return posv.ErrNoAttestorSignature
 	}
 
 	tester.fetcher.Enqueue("valid", original)
@@ -708,11 +695,8 @@ func TestAppendAttestorHookSkipImportStillRelays(t *testing.T) {
 		imported <- block
 	}
 	tester.fetcher.verifyHeader = func(header *types.Header) error {
-		return consensus.ErrNoValidatorSignature
+		return posv.ErrNoAttestorSignature
 	}
-	tester.fetcher.SetPOSVAppendAttestorHook(func(block *types.Block) (*types.Block, bool, error) {
-		return block, false, nil
-	})
 
 	tester.fetcher.Enqueue("valid", original)
 	// Block should NOT be imported when this node is not the assigned attestor.

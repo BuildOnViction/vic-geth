@@ -1,16 +1,37 @@
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package viction
 
 import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 )
 
-// Decrypt encrypted data using AES CFB mode,
+// Decrypt encrypted data using AES CFB mode.
 func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext, _ := base64.URLEncoding.DecodeString(cryptoText)
 
@@ -28,7 +49,6 @@ func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext = ciphertext[aes.BlockSize:]
 
 	stream := cipher.NewCFBDecrypter(block, iv)
-
 	// XORKeyStream can work in-place if the two arguments are the same.
 	stream.XORKeyStream(ciphertext, ciphertext)
 
@@ -53,6 +73,26 @@ func DecryptRandomize(secrets [][32]byte, opening [32]byte) (int64, error) {
 	}
 
 	return random, nil
+}
+
+// Encrypt data using AES CFB mode.
+func EncryptAesCfb(key []byte, text string) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	plaintext := []byte(text)
+	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", err
+	}
+
+	stream := cipher.NewCFBEncrypter(block, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
 }
 
 // Generate a dynamic array from *start*, increase by *step* unit by *repeat* times.

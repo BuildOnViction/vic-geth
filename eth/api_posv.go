@@ -72,7 +72,7 @@ func NewPublicPosvDebugAPI(e *Ethereum) *PublicPosvDebugAPI {
 type GetValidatorsResult struct {
 	BlockNumber      uint64                          `json:"number"`
 	BlockHash        string                          `json:"hash"`
-	Candidates       []*GetValidatorsCandidateDetail `json:"candidatess"`
+	Candidates       []*GetValidatorsCandidateDetail `json:"candidates"`
 	SortedCandidates []*GetValidatorsCandidateDetail `json:"sortedCandidates"`
 	SortType         string                          `json:"sortType"`
 	Validators       []*GetValidatorsValidatorDetail `json:"validators"`

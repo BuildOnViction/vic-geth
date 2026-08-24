@@ -5,10 +5,12 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
@@ -20,7 +22,55 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-const SignMethodHex = "e341eaa4"
+// Create a new block with attestor's signature. Only accept non-attested block.
+func (s *Ethereum) PosvAttestBlock(
+	block *types.Block,
+) (*types.Block, error) {
+	c := s.engine.(*posv.Posv)
+	config := s.blockchain.Config()
+	posvConfig := config.Posv
+
+	header := block.Header()
+	number := header.Number.Uint64()
+	if number <= posvConfig.Epoch {
+		return block, nil
+	}
+	// Only accept non-attested block.
+	if len(header.Attestor) == posv.ExtraSeal {
+		return nil, nil
+	}
+	eb, err := s.Etherbase()
+	if err != nil || eb.IsZero() {
+		return nil, nil
+	}
+	creator, err := c.Author(header)
+	if err != nil {
+		return nil, nil
+	}
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.blockchain, nil)
+	valAttPairs, _, err := s.PosvGetCreatorAttestorPairs(config, posvConfig, config.Viction, header, checkpointHeader)
+	if err != nil {
+		return nil, nil
+	}
+	assigned, ok := valAttPairs[creator]
+	if !ok || eb != assigned {
+		return nil, nil
+	}
+	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+	if wallet == nil || err != nil {
+		return nil, nil
+	}
+	sig, err := wallet.SignData(accounts.Account{Address: eb}, accounts.MimetypePosv, posv.PosvRLP(header))
+	if err != nil {
+		return nil, err
+	}
+	attestedHeader := types.CopyHeader(header)
+	attestedHeader.Attestor = make([]byte, len(sig))
+	copy(attestedHeader.Attestor, sig)
+	attestedBlock := block.WithSeal(attestedHeader)
+	attestedBlock.ReceivedAt = block.ReceivedAt // preserve for propagation-latency metrics
+	return attestedBlock, nil
+}
 
 // Get attestors from list of validators.
 func (s *Ethereum) PosvGetAttestors(
@@ -183,30 +233,23 @@ func (s *Ethereum) PosvGetEpochReward(
 func (s *Ethereum) PosvDistributeEpochRewards(
 	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
 ) error {
-	blockNumber := header.Number.Uint64()
-
-	if epochReward == nil {
-		log.Debug("PosvAddBalanceRewards: no epoch rewards to apply", "block", blockNumber)
-		return nil
-	}
-	if state == nil {
+	if state == nil || epochReward == nil {
 		return nil
 	}
 
-	// Apply stakeholder rewards to the state
-	totalRewardDistributed := big.NewInt(0)
-	rewardCount := 0
-
+	number := header.Number.Uint64()
+	rewardAmount := big.NewInt(0)
+	stakeholderCount := 0
 	for addr, amount := range epochReward.StakeholderRewards {
 		if amount == nil || amount.Sign() <= 0 {
 			continue
 		}
 		state.AddBalance(addr, amount)
-		totalRewardDistributed.Add(totalRewardDistributed, amount)
-		rewardCount++
+		rewardAmount.Add(rewardAmount, amount)
+		stakeholderCount++
 	}
 
-	log.Info("PosvAddBalanceRewards: applied epoch rewards", "block", blockNumber, "recipientCount", rewardCount, "totalReward", totalRewardDistributed.String())
+	log.Info("[Backend] Distributed epoch rewards", "block", number, "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
 	return nil
 }
 
@@ -273,33 +316,225 @@ func (s *Ethereum) PosvGetValidators(
 		validators = append(validators, candidate.Address)
 	}
 	return validators, nil
+}
 
+// Create new Randomize transaction and submit to TxPool.
+func (s *Ethereum) PosvRandomNumber(
+	block *types.Block,
+) error {
+	c := s.engine.(*posv.Posv)
+	config := s.blockchain.Config()
+	vicConfig := config.Viction
+	posvConfig := config.Posv
+	number := block.NumberU64()
+
+	if !config.IsTIPRandomize(block.Number()) {
+		log.Info("[Backend][RandomNumber] Randomize not enabled", "number", block.NumberU64())
+		return nil
+	}
+	blockOfEpoch := number % posvConfig.Epoch
+	commitPhase := blockOfEpoch > 0 && blockOfEpoch >= vicConfig.RandomizerCommitNthBlock && blockOfEpoch < vicConfig.RandomizerRevealNthBlock
+	if commitPhase {
+		chaindb := s.ChainDb()
+		exists, _ := chaindb.Has(viction.RandomizeKeyName)
+		if exists {
+			// Already committed this epoch.
+			return nil
+		}
+
+		eb, err := s.Etherbase()
+		// Only validator can sign block.
+		if err != nil || eb.IsZero() {
+			return nil
+		}
+		snap, err := c.GetSnapshot(s.blockchain, block.Header())
+		if err != nil {
+			return nil
+		}
+		if _, ok := snap.Signers[eb]; !ok {
+			log.Debug("[Backend][RandomNumber] Not a validator in this epoch", "etherbase", eb, "number", number)
+			return nil
+		}
+		wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+		if wallet == nil || err != nil {
+			log.Warn("[Backend][RandomNumber] Etherbase key is not available", "etherbase", eb, "err", err)
+			return nil
+		}
+
+		statedb, err := s.blockchain.State()
+		if err != nil {
+			return err
+		}
+		nonce := statedb.GetNonce(eb)
+		pendingTxs, _ := s.txPool.Pending()
+		nonce += uint64(len(pendingTxs[eb]))
+
+		key := viction.GenerateRandomKey()
+		secret, err := viction.GenerateRandomNumber(posvConfig.Epoch, key)
+		if err != nil {
+			log.Error("[Backend][RandomNumber] Failed to generate RandomNumber", "number", number, "err", err)
+			return err
+		}
+		tx := viction.CreateSetRandomizeSecretTransaction(nonce, vicConfig.RandomizerContract, secret)
+		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
+		if err != nil {
+			return err
+		}
+		if err := s.txPool.AddLocal(signedTx); err != nil {
+			if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+				log.Info("[Backend][RandomNumber] RandomizeSecret transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+				return nil
+			}
+			log.Warn("[Backend][RandomNumber] Failed to submit RandomizeSecret transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+			return err
+		}
+		if err := chaindb.Put(viction.RandomizeKeyName, key); err != nil {
+			log.Error("[Backend][RandomNumber] Failed to store RandomizeKey to database", "number", number, "err", err)
+			return err
+		}
+		log.Info("[Backend][RandomNumber] Submitted RandomizeSecret transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+		return nil
+	}
+	openingPhase := blockOfEpoch > 0 && blockOfEpoch >= vicConfig.RandomizerRevealNthBlock && blockOfEpoch <= vicConfig.RandomizerFinaleNthBlock
+	if openingPhase {
+		chaindb := s.ChainDb()
+		key, err := chaindb.Get(viction.RandomizeKeyName)
+		if err != nil || len(key) == 0 {
+			// Either already revealed or never committed in this epoch.
+			return nil
+		}
+
+		eb, err := s.Etherbase()
+		// Only validator can sign block.
+		if err != nil || eb.IsZero() {
+			return nil
+		}
+		snap, err := c.GetSnapshot(s.blockchain, block.Header())
+		if err != nil {
+			return nil
+		}
+		if _, ok := snap.Signers[eb]; !ok {
+			log.Debug("[Backend][RandomNumber] Not a validator in this epoch", "etherbase", eb, "number", number)
+			return nil
+		}
+		wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+		if wallet == nil || err != nil {
+			log.Warn("[Backend][RandomNumber] Etherbase key is not available", "etherbase", eb, "err", err)
+			return nil
+		}
+
+		statedb, err := s.blockchain.State()
+		if err != nil {
+			return err
+		}
+		nonce := statedb.GetNonce(eb)
+		pendingTxs, _ := s.txPool.Pending()
+		nonce += uint64(len(pendingTxs[eb]))
+
+		tx := viction.CreateSetRandomizeOpeningTransaction(nonce, vicConfig.RandomizerContract, key)
+		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
+		if err != nil {
+			return err
+		}
+		if err := s.txPool.AddLocal(signedTx); err != nil {
+			if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+				log.Info("[Backend][RandomNumber] RandomizeOpening transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+				return nil
+			}
+			log.Warn("[Backend][RandomNumber] Failed to submit RandomizeOpening transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+			return err
+		}
+		if err := chaindb.Delete(viction.RandomizeKeyName); err != nil {
+			log.Error("[Backend][RandomNumber] Failed to delete RandomizeKey in database", "number", number, "err", err)
+		}
+		log.Info("[Backend][RandomNumber] Submitted RandomizeSecret transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+	}
+	return nil
+}
+
+// Create new BlockSign transaction and submit to TxPool.
+func (s *Ethereum) PosvSignBlock(
+	block *types.Block,
+) error {
+	c := s.engine.(*posv.Posv)
+	config := s.blockchain.Config()
+	vicConfig := config.Viction
+	number := block.NumberU64()
+
+	// Pre-TIP2019: Emit SignBlock transaction every block.
+	// TIP2019: Emit SignBlock transaction every *vicConfig.ValidatorSignInterval* blocks.
+	if config.IsTIP2019(block.Number()) && number%vicConfig.ValidatorSignInterval != 0 {
+		log.Info("[Backend][SignBlock] Skipped sign block: not interval block", "number", block.NumberU64(), "inveral", vicConfig.ValidatorSignInterval, "blockOfInterval", number%vicConfig.ValidatorSignInterval)
+		return nil
+	}
+
+	eb, err := s.Etherbase()
+	// Only validator can sign block.
+	if err != nil || eb.IsZero() {
+		return nil
+	}
+	snap, err := c.GetSnapshot(s.blockchain, block.Header())
+	if err != nil {
+		return nil
+	}
+	if _, ok := snap.Signers[eb]; !ok {
+		log.Debug("[Backend][SignBlock] Not a validator in this epoch", "etherbase", eb, "number", block.NumberU64())
+		return nil
+	}
+	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+	if wallet == nil || err != nil {
+		log.Warn("[Backend][SignBlock] Etherbase key is not available", "etherbase", eb, "err", err)
+		return nil
+	}
+
+	statedb, err := s.blockchain.State()
+	if err != nil {
+		return err
+	}
+	nonce := statedb.GetNonce(eb)
+	tx := viction.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
+	signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
+	if err != nil {
+		return err
+	}
+	if err := s.txPool.AddLocal(signedTx); err != nil {
+		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+			log.Info("[Backend][SignBlock] BlockSign transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+			return nil
+		}
+		log.Warn("[Backend][SignBlock] Failed to submit BlockSign transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+		return err
+	}
+	log.Info("[Backend][SignBlock] Submitted BlockSign transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+	return nil
 }
 
 // Attach services required by Viction blockchain.
-func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
+func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
 	if !chainConfig.IsPosv() {
 		return nil
 	}
 
-	posvEngine, ok := eth.engine.(*posv.Posv)
+	posvEngine, ok := s.engine.(*posv.Posv)
 	if !ok {
-		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", eth.engine)
+		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", s.engine)
 	}
 
-	posvEngine.SetBackend(eth)
+	posvEngine.SetBackend(s)
 	log.Info("[Backend] Set current backend reference to PoSV engine.")
+	s.protocolManager.blockFetcher.SetPosvBackend(s)
+	log.Info("[Backend] Set current backend reference to BlockFetcher.")
 
 	tradingStatedb, err := openTradingDatabase(stack)
 	if err != nil {
 		log.Error("failed to open Trading database", "err", err)
 		return nil
 	}
-	tradingEngine := trading.NewWithDB(tradingStatedb, eth.blockchain.Config())
-	eth.blockchain.SetTradingEngine(tradingEngine)
+	tradingEngine := trading.NewWithDB(tradingStatedb, s.blockchain.Config())
+	s.blockchain.SetTradingEngine(tradingEngine)
 
-	lendingEngine := lending.New(tradingStatedb, tradingEngine, eth.blockchain.Config())
-	eth.blockchain.SetLendingEngine(lendingEngine)
+	lendingEngine := lending.New(tradingStatedb, tradingEngine, s.blockchain.Config())
+	s.blockchain.SetLendingEngine(lendingEngine)
 
 	return nil
 }

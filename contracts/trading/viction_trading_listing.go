@@ -15,44 +15,44 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package randomize
+package trading
 
 import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/contracts/randomize/contract"
+	"github.com/ethereum/go-ethereum/contracts/trading/contract"
 )
 
-type Randomize struct {
-	*contract.RandomizeSession
+type TradingListing struct {
+	*contract.TradingListingSession
 	contractBackend bind.ContractBackend
 }
 
-func NewRandomize(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*Randomize, error) {
-	randomize, err := contract.NewRandomize(contractAddr, contractBackend)
+func NewTradingListing(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*TradingListing, error) {
+	tradingListing, err := contract.NewTradingListing(contractAddr, contractBackend)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Randomize{
-		&contract.RandomizeSession{
-			Contract:     randomize,
+	return &TradingListing{
+		&contract.TradingListingSession{
+			Contract:     tradingListing,
 			TransactOpts: *transactOpts,
 		},
 		contractBackend,
 	}, nil
 }
 
-func DeployRandomize(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend) (common.Address, *Randomize, error) {
-	randomizeAddr, _, _, err := contract.DeployRandomize(transactOpts, contractBackend)
+func DeployTradingListing(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend) (common.Address, *TradingListing, error) {
+	tradingListingAddr, _, _, err := contract.DeployTradingListing(transactOpts, contractBackend)
 	if err != nil {
-		return randomizeAddr, nil, err
+		return tradingListingAddr, nil, err
 	}
 
-	randomize, err := NewRandomize(transactOpts, randomizeAddr, contractBackend)
+	tradingListing, err := NewTradingListing(transactOpts, tradingListingAddr, contractBackend)
 	if err != nil {
-		return randomizeAddr, nil, err
+		return tradingListingAddr, nil, err
 	}
 
-	return randomizeAddr, randomize, nil
+	return tradingListingAddr, tradingListing, nil
 }
