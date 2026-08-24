@@ -49,41 +49,43 @@ func (s *Ethereum) PosvGetBlockSignData(
 		return nil, fmt.Errorf("PosvGetBlockSignData: block body not found (number=%d hash=%s)", blockNumber, blockHash)
 	}
 	data := []types.Transaction{}
-
-	// Block-sign txs are EVM-executed and may fail.
-	// Only successful signing txs count toward rewards and penalties.
-	//
-	// On post-Byzantium receipt format, `Receipt.Status` is the correct source
-	// of success/failure. Using `len(PostState)` is unreliable and can misclassify.
-	var receipts types.Receipts
-	if config != nil {
-		receipts = s.blockchain.GetReceiptsByHash(blockHash)
-	}
 	txs := block.Transactions()
-	if receipts != nil && len(receipts) != len(txs) {
-		return nil, fmt.Errorf(
-			"PosvGetBlockSignData: receipts/tx count mismatch (number=%d hash=%s txs=%d receipts=%d)",
-			blockNumber.Uint64(), blockHash, len(txs), len(receipts),
-		)
-	}
 
-	for i, tx := range txs {
-		if !tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) {
-			continue
-		}
-		if receipts != nil && i < len(receipts) {
-			r := receipts[i]
-			var status uint64
-			if len(r.PostState) > 0 {
-				status = types.ReceiptStatusSuccessful
-			} else {
-				status = r.Status
+	// Post-TIPSigning: all signing txs count regardless of receipt status
+	// (matches reference CacheSigner behavior).
+	// Pre-TIPSigning: only successful signing txs count (receipt-filtered).
+	if config.IsTIPSigning(blockNumber) {
+		for _, tx := range txs {
+			if tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) {
+				data = append(data, *tx)
 			}
-			if status == types.ReceiptStatusFailed {
+		}
+	} else {
+		receipts := s.blockchain.GetReceiptsByHash(blockHash)
+		if receipts != nil && len(receipts) != len(txs) {
+			return nil, fmt.Errorf(
+				"PosvGetBlockSignData: receipts/tx count mismatch (number=%d hash=%s txs=%d receipts=%d)",
+				blockNumber.Uint64(), blockHash, len(txs), len(receipts),
+			)
+		}
+		for i, tx := range txs {
+			if !tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) {
 				continue
 			}
+			if receipts != nil && i < len(receipts) {
+				r := receipts[i]
+				var status uint64
+				if len(r.PostState) > 0 {
+					status = types.ReceiptStatusSuccessful
+				} else {
+					status = r.Status
+				}
+				if status == types.ReceiptStatusFailed {
+					continue
+				}
+			}
+			data = append(data, *tx)
 		}
-		data = append(data, *tx)
 	}
 	return data, nil
 }

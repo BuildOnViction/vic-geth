@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -73,7 +74,11 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	chain consensus.ChainReader,
 	validators []common.Address,
 ) ([]common.Address, error) {
+	if header == nil {
+		return nil, fmt.Errorf("penalize TIP signing: checkpoint header is nil")
+	}
 	blockNumber := header.Number.Uint64()
+	log.Debug("PenalizeValidatorsTIPSigning", "checkpoint", blockNumber, "hash", header.Hash())
 	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch
 	penalties := []common.Address{}
 
@@ -89,7 +94,18 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	parentHash := header.ParentHash
 	for i := uint64(1); i < posvConfig.Epoch; i++ {
 		parentHeader := chain.GetHeaderByHash(parentHash)
-		miner, _ := c.Author(parentHeader)
+		if parentHeader == nil {
+			log.Warn("PenalizeValidatorsTIPSigning: parent header missing from chain reader",
+				"checkpoint", blockNumber, "epochStep", i, "parentHash", parentHash.Hex())
+			return nil, fmt.Errorf("penalize TIP signing: GetHeaderByHash returned nil (checkpoint %d, step %d, parentHash %s)",
+				blockNumber, i, parentHash.Hex())
+		}
+		miner, err := c.Author(parentHeader)
+		if err != nil {
+			log.Warn("PenalizeValidatorsTIPSigning: Author failed",
+				"checkpoint", blockNumber, "epochStep", i, "headerNumber", parentHeader.Number, "err", err)
+			return nil, fmt.Errorf("penalize TIP signing: author at step %d: %w", i, err)
+		}
 		if count, ok := blockMiningCounts[miner]; ok {
 			blockMiningCounts[miner] = count + 1
 		} else {
@@ -122,6 +138,11 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	comebacks := []common.Address{}
 	if comebackCheckpointBlockNumber > 0 {
 		combackHeader := chain.GetHeaderByNumber(comebackCheckpointBlockNumber)
+		if combackHeader == nil {
+			log.Warn("PenalizeValidatorsTIPSigning: comeback checkpoint header missing",
+				"checkpoint", blockNumber, "comebackCheckpoint", comebackCheckpointBlockNumber)
+			return nil, fmt.Errorf("penalize TIP signing: comeback header nil at block %d", comebackCheckpointBlockNumber)
+		}
 		penalties := posv.DecodePenaltiesFromHeader(combackHeader.Penalties)
 		for _, p := range penalties {
 			for _, addr := range validators {
@@ -136,17 +157,22 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	mapBlockHash := map[common.Hash]bool{}
 	for i := int(vicConfig.PenaltyComebackBlockCount) - 1; i >= 0; i-- {
 		if len(comebacks) > 0 {
-			blockNumber := header.Number.Uint64() - uint64(i) - 1
-			header := chain.GetHeaderByNumber(blockNumber)
+			hNum := header.Number.Uint64() - uint64(i) - 1
+			h := chain.GetHeaderByNumber(hNum)
 			blockHash := epochBlockHashes[i]
-			if blockNumber%vicConfig.ValidatorSignInterval == 0 {
+			if hNum%vicConfig.ValidatorSignInterval == 0 {
 				mapBlockHash[blockHash] = true
 			}
-			txs, err := c.GetSignDataForBlock(config, vicConfig, header, chain)
+			if h == nil {
+				log.Warn("PenalizeValidatorsTIPSigning: header missing for BlockSign scan",
+					"checkpoint", blockNumber, "blockNumber", hNum)
+				return nil, fmt.Errorf("penalize TIP signing: header nil at block %d", hNum)
+			}
+			txs, err := c.GetSignDataForBlock(config, vicConfig, h, chain)
 			if err != nil {
 				return []common.Address{}, err
 			}
-			signer := types.MakeSigner(config, big.NewInt(int64(blockNumber)))
+			signer := types.MakeSigner(config, big.NewInt(int64(hNum)))
 			// Check for BlockSign of specific signer
 			for _, tx := range txs {
 				signedBlockHash := common.BytesToHash(tx.Data()[len(tx.Data())-32:])

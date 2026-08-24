@@ -123,6 +123,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
 		return nil, genesisErr
 	}
+	chainConfig.IstanbulBlock = big.NewInt(700)
 	log.Info("Initialised chain configuration", "config", chainConfig)
 
 	eth := &Ethereum{

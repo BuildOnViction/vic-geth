@@ -47,3 +47,8 @@ profile.cov
 /dashboard/assets/package-lock.json
 
 **/yarn-error.log
+
+
+/private-chain
+/*.md
+*.md
