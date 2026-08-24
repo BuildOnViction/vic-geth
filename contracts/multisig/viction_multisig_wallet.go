@@ -13,28 +13,29 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-package multisigwallet
+package Multisigwallet
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/contracts/multisigwallet/contract"
-	"math/big"
+	"github.com/ethereum/go-ethereum/contracts/multisig/contract"
 )
 
-type MultiSigWallet struct {
-	*contract.MultiSigWalletSession
+type MultisigWallet struct {
+	*contract.MultisigSession
 	contractBackend bind.ContractBackend
 }
 
-func NewMultiSigWallet(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*MultiSigWallet, error) {
-	blockSigner, err := contract.NewMultiSigWallet(contractAddr, contractBackend)
+func NewMultisigWallet(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*MultisigWallet, error) {
+	blockSigner, err := contract.NewMultisig(contractAddr, contractBackend)
 	if err != nil {
 		return nil, err
 	}
 
-	return &MultiSigWallet{
-		&contract.MultiSigWalletSession{
+	return &MultisigWallet{
+		&contract.MultisigSession{
 			Contract:     blockSigner,
 			TransactOpts: *transactOpts,
 		},
@@ -42,13 +43,13 @@ func NewMultiSigWallet(transactOpts *bind.TransactOpts, contractAddr common.Addr
 	}, nil
 }
 
-func DeployMultiSigWallet(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend, _owners []common.Address, _required *big.Int) (common.Address, *MultiSigWallet, error) {
-	blockSignerAddr, _, _, err := contract.DeployMultiSigWallet(transactOpts, contractBackend, _owners, _required)
+func DeployMultisigWallet(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend, _owners []common.Address, _required *big.Int) (common.Address, *MultisigWallet, error) {
+	blockSignerAddr, _, _, err := contract.DeployMultisig(transactOpts, contractBackend, _owners, _required)
 	if err != nil {
 		return blockSignerAddr, nil, err
 	}
 
-	blockSigner, err := NewMultiSigWallet(transactOpts, blockSignerAddr, contractBackend)
+	blockSigner, err := NewMultisigWallet(transactOpts, blockSignerAddr, contractBackend)
 	if err != nil {
 		return blockSignerAddr, nil, err
 	}

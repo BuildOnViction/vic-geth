@@ -162,7 +162,6 @@ var (
 		utils.GpoMaxGasPriceFlag,
 		utils.EWASMInterpreterFlag,
 		utils.EVMInterpreterFlag,
-		utils.TomoXDataDirFlag,
 		configFileFlag,
 	}
 

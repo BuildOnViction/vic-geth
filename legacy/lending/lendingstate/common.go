@@ -7,43 +7,40 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
 	EmptyAddress = "0x0000000000000000000000000000000000000000"
 	EmptyRoot    = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+	LockAddress  = "0x0000000000000000000000000000000000000011"
 )
 
-var EmptyHash = common.Hash{}
-var Zero = big.NewInt(0)
-var One = big.NewInt(1)
+var (
+	// Precision base for interest rates.
+	InterestBase = big.NewInt(100000000)
 
-// RelayerLendingFee is the minimum lending fee threshold (0.01 TOMO = 1e16 wei).
-var RelayerLendingFee = big.NewInt(10000000000000000)
+	// Precision base for recall rate calculation.
+	RecallBase = big.NewInt(100)
 
-// RelayerLendingCancelFee is the fee charged when cancelling a lending order (0.001 TOMO = 1e15 wei).
-var RelayerLendingCancelFee = big.NewInt(1000000000000000)
+	// Fixed fee for creating lending order in the relayer.
+	RelayerLendingFee = big.NewInt(10000000000000000) // 0.01 ETH
 
-// LendingLockAddress is the system address that holds locked collateral for lending trades.
-const LendingLockAddress = "0x0000000000000000000000000000000000000011"
+	// Fixed fee for cancelling lending order in the relayer.
+	RelayerLendingCancelFee = big.NewInt(1000000000000000) // 0.001 ETH
 
-// RateTopUp and BaseTopUp define the top-up rate: newLiquidationPrice = currentPrice * RateTopUp / BaseTopUp = 90%.
-var RateTopUp = big.NewInt(90)
-var BaseTopUp = big.NewInt(100)
+	// Precision base for topup rate calculation.
+	TopupBase = big.NewInt(100)
 
-// BaseRecall is the precision base for the recall rate calculation.
-var BaseRecall = big.NewInt(100)
+	// Rate for topup fee calculate.
+	TopupRate = big.NewInt(90)
+)
 
 // OneYear is the number of seconds in one year (365 days).
 const OneYear = uint64(31536000)
 
-// BaseLendingInterest is the precision base for lending interest rates (1e8).
-var BaseLendingInterest = big.NewInt(100000000)
 var EmptyLendingOrder = LendingItem{
-	Quantity: Zero,
+	Quantity: common.Big0,
 }
-
 var EmptyLendingTrade = LendingTrade{
 	Amount: big.NewInt(0),
 }
@@ -202,7 +199,7 @@ func Max(a, b *big.Int) *big.Int {
 }
 
 func GetLendingOrderBookHash(lendingToken common.Address, term uint64) common.Hash {
-	return crypto.Keccak256Hash(append(params.Uint64ToHash(term).Bytes(), lendingToken.Bytes()...))
+	return crypto.Keccak256Hash(append(common.Uint64ToHash(term).Bytes(), lendingToken.Bytes()...))
 }
 
 func EncodeTxLendingBatch(batch TxLendingBatch) ([]byte, error) {

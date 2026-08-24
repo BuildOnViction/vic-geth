@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
-	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -210,13 +209,13 @@ func (l *LendingItem) EncodedSide() *big.Int {
 
 func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb *state.StateDB, lendingStateDb *LendingStateDB,
 	orderType, side, status string, userAddress, relayer, lendingToken, collateralToken common.Address,
-	quantity, lendingTokenDecimal, collateralTokenDecimal, lendTokenTOMOPrice, collateralPrice *big.Int,
+	quantity, lendingTokenDecimal, collateralTokenDecimal, lendTokenETHPrice, collateralPrice *big.Int,
 	term uint64, lendingId uint64, lendingTradeId uint64) error {
 	borrowingFeeRate := GetFee(lendingSMC, statedb, relayer)
 	switch orderType {
 	case TopUp:
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
-		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
+		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, common.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
 			return fmt.Errorf("VerifyBalance: process deposit for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}
@@ -228,7 +227,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 		}
 	case Repay:
 		lendingBook := GetLendingOrderBookHash(lendingToken, term)
-		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, params.Uint64ToHash(lendingTradeId))
+		lendingTrade := lendingStateDb.GetLendingTrade(lendingBook, common.Uint64ToHash(lendingTradeId))
 		if lendingTrade == EmptyLendingTrade {
 			return fmt.Errorf("VerifyBalance: process payment for emptyLendingTrade is not allowed. lendingTradeId: %v", lendingTradeId)
 		}
@@ -251,17 +250,17 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 					return fmt.Errorf("VerifyBalance: investor doesn't have enough lendingToken. User: %s. Token: %s. Expected: %v. Have: %v", userAddress.Hex(), lendingToken.Hex(), quantity, balance)
 				}
 				// check quantity: reject if it's too small
-				if lendTokenTOMOPrice != nil && lendTokenTOMOPrice.Sign() > 0 {
+				if lendTokenETHPrice != nil && lendTokenETHPrice.Sign() > 0 {
 					defaultFee := new(big.Int).Mul(quantity, new(big.Int).SetUint64(DefaultFeeRate))
-					defaultFee = new(big.Int).Div(defaultFee, tradingstate.TomoXBaseFee)
-					defaultFeeInTOMO := common.Big0
-					if lendingToken.String() != tradingstate.TomoNativeAddress {
-						defaultFeeInTOMO = new(big.Int).Mul(defaultFee, lendTokenTOMOPrice)
-						defaultFeeInTOMO = new(big.Int).Div(defaultFeeInTOMO, lendingTokenDecimal)
+					defaultFee = new(big.Int).Div(defaultFee, tradingstate.BaseFee)
+					defaultFeeInETH := common.Big0
+					if lendingToken.String() != tradingstate.NativeTokenAddress {
+						defaultFeeInETH = new(big.Int).Mul(defaultFee, lendTokenETHPrice)
+						defaultFeeInETH = new(big.Int).Div(defaultFeeInETH, lendingTokenDecimal)
 					} else {
-						defaultFeeInTOMO = defaultFee
+						defaultFeeInETH = defaultFee
 					}
-					if defaultFeeInTOMO.Cmp(RelayerLendingFee) <= 0 {
+					if defaultFeeInETH.Cmp(RelayerLendingFee) <= 0 {
 						return ErrQuantityTradeTooSmall
 					}
 
@@ -274,7 +273,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 				item := lendingStateDb.GetLendingOrder(lendingBook, common.BigToHash(new(big.Int).SetUint64(lendingId)))
 				cancelFee := big.NewInt(0)
 				cancelFee = new(big.Int).Mul(item.Quantity, borrowingFeeRate)
-				cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
+				cancelFee = new(big.Int).Div(cancelFee, tradingstate.BaseCancelFee)
 
 				actualBalance := GetTokenBalance(userAddress, lendingToken, statedb)
 				if actualBalance.Cmp(cancelFee) < 0 {
@@ -289,7 +288,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 			switch status {
 			case LendingStatusNew:
 				depositRate, _, _ := GetCollateralDetail(lendingSMC, statedb, collateralToken)
-				settleBalanceResult, err := GetSettleBalance(isNativeLendingFork, Borrowing, lendTokenTOMOPrice, collateralPrice, depositRate, borrowingFeeRate, lendingToken, collateralToken, lendingTokenDecimal, collateralTokenDecimal, quantity)
+				settleBalanceResult, err := GetSettleBalance(isNativeLendingFork, Borrowing, lendTokenETHPrice, collateralPrice, depositRate, borrowingFeeRate, lendingToken, collateralToken, lendingTokenDecimal, collateralTokenDecimal, quantity)
 				if err != nil {
 					return err
 				}
@@ -306,7 +305,7 @@ func VerifyBalance(isNativeLendingFork bool, lendingSMC common.Address, statedb 
 				// Fee ==  quantityToLend/base lend token decimal *price*borrowFee/LendingCancelFee
 				cancelFee = new(big.Int).Div(item.Quantity, collateralPrice)
 				cancelFee = new(big.Int).Mul(cancelFee, borrowingFeeRate)
-				cancelFee = new(big.Int).Div(cancelFee, tradingstate.TomoXBaseCancelFee)
+				cancelFee = new(big.Int).Div(cancelFee, tradingstate.BaseCancelFee)
 				actualBalance := GetTokenBalance(userAddress, collateralToken, statedb)
 				if actualBalance.Cmp(cancelFee) < 0 {
 					return fmt.Errorf("VerifyBalance: borrower doesn't have enough collateralToken to pay cancel fee. User: %s. CollateralToken: %s . ExpectedBalance: %s . ActualBalance: %s",

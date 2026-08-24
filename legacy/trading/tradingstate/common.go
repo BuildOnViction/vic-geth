@@ -15,26 +15,28 @@ const (
 )
 
 const (
-	// TradingStateAddr is the system address for 0x92 trading-state-root transactions.
-	// IMPORTANT: This must always equal params.VictionConfig.TradingStateContract
-	// (the authoritative runtime value). Full elimination of this duplicate requires
-	// passing the address through the TomoX constructor — tracked as future work.
-	TradingStateAddr  = "0x0000000000000000000000000000000000000092"
-	TomoNativeAddress = "0x0000000000000000000000000000000000000001"
+	TradingStateContract = "0x0000000000000000000000000000000000000092"
+	NativeTokenAddress   = "0x0000000000000000000000000000000000000001"
 )
 
-// Legacy TomoX constants and helpers.
-//
-// Some of these share names with VictionConfig struct fields. They coexist
-// because legacy tradingstate utility functions are pure helpers without access
-// to a VictionConfig instance - they use these package-level defaults directly.
 var (
-	BasePrice          = big.NewInt(1000000000000000000)                     // 1e18
-	RelayerLockedFund  = big.NewInt(20000)                                   // 20000 VIC
-	TomoXBaseFee       = big.NewInt(10000)                                   // 1 / TomoXBaseFee
-	RelayerFee         = big.NewInt(1000000000000000)                        // 0.001 VIC
-	RelayerCancelFee   = big.NewInt(100000000000000)                         // 0.0001 VIC
-	TomoXBaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 1 / (TomoXBaseFee * 10)
+	// Multipler that is equal to 1 ETH for using with price that is list in ETH.
+	BasePrice = big.NewInt(1000000000000000000) // 1 ETH
+
+	// Precision base for fee calculation.
+	BaseFee = big.NewInt(10000) // 10000 wei
+
+	// Precision base for cancellation fee calculation.
+	BaseCancelFee = new(big.Int).Mul(big.NewInt(10000), big.NewInt(10)) // 100000 wei
+
+	// Fixed fee for creating trading order in the relayer.
+	RelayerTradingFee = big.NewInt(1000000000000000) // 0.001 ETH
+
+	// Fixed fee for cancelling trading order in the relayer.
+	RelayerTradingCancelFee = big.NewInt(100000000000000) // 0.0001 ETH
+
+	// Minimum of ETH that is locked in the relayer contract.
+	RelayerLockedFund = big.NewInt(20000) // 20000 ETH
 )
 
 var (
@@ -47,21 +49,17 @@ var (
 	OrderNew  = "NEW"
 )
 
-var EmptyHash = common.Hash{}
-var Zero = big.NewInt(0)
-var One = big.NewInt(1)
-
 var EmptyOrderList = orderList{
 	Volume: nil,
-	Root:   EmptyHash,
+	Root:   common.ZeroHash,
 }
 var EmptyExchangeOnject = tradingExchangeObject{
 	Nonce:   0,
-	AskRoot: EmptyHash,
-	BidRoot: EmptyHash,
+	AskRoot: common.ZeroHash,
+	BidRoot: common.ZeroHash,
 }
 var EmptyOrder = OrderItem{
-	Quantity: Zero,
+	Quantity: common.Big0,
 }
 
 var (

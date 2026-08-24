@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	ProtocolName       = "tomoxlending"
 	ProtocolVersion    = uint64(1)
 	ProtocolVersionStr = "1.0"
 )
@@ -33,7 +32,7 @@ type Lending struct {
 	lendingStateCache lendingstate.Database
 	trieCacheLimit    int
 	triegc            *prque.Prque
-	tomox             *trading.TomoX
+	trading           *trading.Trading
 
 	// config is needed to derive the correct transaction signer (EIP155 vs Homestead)
 	// when extracting the lending state root from the 0x92 system transaction.
@@ -41,16 +40,16 @@ type Lending struct {
 }
 
 // New creates a Lending engine.
-// db is the ethdb passed directly - legacy/trading.TomoX does not expose its DB.
-// tomox is required for token decimal lookups and price conversions.
+// db is the ethdb passed directly - legacy/trading.Trading does not expose its DB.
+// Trading is required for token decimal lookups and price conversions.
 // config is the chain configuration, required for correct EIP155 signer derivation.
-func New(db ethdb.Database, tomox *trading.TomoX, config *params.ChainConfig) *Lending {
+func New(db ethdb.Database, trading *trading.Trading, config *params.ChainConfig) *Lending {
 	return &Lending{
 		db:                db,
 		lendingStateCache: lendingstate.NewDatabase(db),
 		trieCacheLimit:    100,
 		triegc:            prque.New(nil),
-		tomox:             tomox,
+		trading:           trading,
 		config:            config,
 	}
 }
@@ -66,7 +65,7 @@ func (l *Lending) GetLendingState(block *types.Block, author common.Address) (*l
 		return nil, err
 	}
 	if l.lendingStateCache == nil {
-		return nil, errors.New("Not initialized tomox")
+		return nil, errors.New("Not initialized LendingStateDB")
 	}
 	state, err := lendingstate.New(root, l.lendingStateCache)
 	if err != nil {
@@ -80,7 +79,7 @@ func (l *Lending) GetLendingStateRoot(block *types.Block, author common.Address)
 	// since block 3). Using HomesteadSigner would fail to recover the sender for any post-EIP155 tx.
 	signer := types.MakeSigner(l.config, block.Number())
 	for _, tx := range block.Transactions() {
-		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateAddr {
+		if tx.To() == nil || tx.To().Hex() != tradingstate.TradingStateContract {
 			continue
 		}
 		from, err := types.Sender(signer, tx)
@@ -207,7 +206,7 @@ func (l *Lending) ProcessLiquidationData(header *types.Header, chain tradingstat
 		}
 		// recall trades
 		depositRate, liquidationRate, recallRate := lendingstate.GetCollateralDetail(l.config.Viction.LendingRegistrationContract, statedb, lendingPair.CollateralToken)
-		recalLiquidatePrice := new(big.Int).Mul(collateralPrice, lendingstate.BaseRecall)
+		recalLiquidatePrice := new(big.Int).Mul(collateralPrice, lendingstate.RecallBase)
 		recalLiquidatePrice = new(big.Int).Div(recalLiquidatePrice, recallRate)
 		newLiquidatePrice := new(big.Int).Mul(collateralPrice, liquidationRate)
 		newLiquidatePrice = new(big.Int).Div(newLiquidatePrice, depositRate)

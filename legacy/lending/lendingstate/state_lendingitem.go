@@ -32,7 +32,7 @@ type lendingItemState struct {
 }
 
 func (s *lendingItemState) empty() bool {
-	return s.data.Quantity == nil || s.data.Quantity.Cmp(Zero) == 0
+	return s.data.Quantity == nil || s.data.Quantity.Cmp(common.Big0) == 0
 }
 
 func newLendinItemState(orderBook common.Hash, orderId common.Hash, data LendingItem, onDirty func(orderId common.Hash)) *lendingItemState {

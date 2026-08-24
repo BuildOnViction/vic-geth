@@ -23,7 +23,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -79,7 +78,7 @@ func (self *liquidationTimeState) getTrie(db Database) Trie {
 		var err error
 		self.trie, err = db.OpenStorageTrie(self.lendingBook, self.data.Root)
 		if err != nil {
-			self.trie, _ = db.OpenStorageTrie(self.time, EmptyHash)
+			self.trie, _ = db.OpenStorageTrie(self.time, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create storage trie: %v", err))
 		}
 	}
@@ -117,7 +116,7 @@ func (self *liquidationTimeState) getAllTradeIds(db Database) []common.Hash {
 		return tradeIds
 	}
 	for id, value := range self.cachedStorage {
-		if !params.EmptyHash(value) {
+		if !value.IsZero() {
 			tradeIds = append(tradeIds, id)
 		}
 	}
@@ -140,7 +139,7 @@ func (self *liquidationTimeState) insertTradeId(db Database, tradeId common.Hash
 func (self *liquidationTimeState) removeTradeId(db Database, tradeId common.Hash) {
 	tr := self.getTrie(db)
 	self.setError(tr.TryDelete(tradeId[:]))
-	self.setTradeId(tradeId, EmptyHash)
+	self.setTradeId(tradeId, common.ZeroHash)
 }
 
 func (self *liquidationTimeState) setTradeId(tradeId common.Hash, value common.Hash) {
@@ -157,7 +156,7 @@ func (self *liquidationTimeState) updateTrie(db Database) Trie {
 	tr := self.getTrie(db)
 	for key, value := range self.dirtyStorage {
 		delete(self.dirtyStorage, key)
-		if value == EmptyHash {
+		if value == common.ZeroHash {
 			self.setError(tr.TryDelete(key[:]))
 			continue
 		}

@@ -161,10 +161,7 @@ func (w *worker) commitPosvTransactions(txs types.Transactions, coinbase common.
 
 // Prevent blacklisted addresses to be used in the chain.
 func (w *worker) EnforceBlacklist(tx *types.Transaction, from common.Address) (skip, pop bool) {
-	if !w.chainConfig.IsTIPBlacklist(w.current.header.Number) {
-		return false, false
-	}
-	sender, receiver := misc.ValidateVictionBlackList(w.chainConfig, from, tx.To())
+	sender, receiver := misc.ValidateVictionBlackList(w.chainConfig, from, tx.To(), nil)
 	if sender {
 		return true, true
 	}

@@ -21,8 +21,6 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/params"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -87,16 +85,16 @@ func (s *tradingExchanges) empty() bool {
 	if s.data.TotalQuantity != nil && s.data.TotalQuantity.Sign() > 0 {
 		return false
 	}
-	if !params.EmptyHash(s.data.AskRoot) {
+	if !s.data.AskRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.BidRoot) {
+	if !s.data.BidRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.OrderRoot) {
+	if !s.data.OrderRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.LiquidationPriceRoot) {
+	if !s.data.LiquidationPriceRoot.IsZero() {
 		return false
 	}
 	return true
@@ -137,7 +135,7 @@ func (c *tradingExchanges) getAsksTrie(db Database) Trie {
 		var err error
 		c.asksTrie, err = db.OpenStorageTrie(c.orderBookHash, c.data.AskRoot)
 		if err != nil {
-			c.asksTrie, _ = db.OpenStorageTrie(c.orderBookHash, EmptyHash)
+			c.asksTrie, _ = db.OpenStorageTrie(c.orderBookHash, common.ZeroHash)
 			c.setError(fmt.Errorf("can't create asks trie: %v", err))
 		}
 	}
@@ -149,7 +147,7 @@ func (c *tradingExchanges) getOrdersTrie(db Database) Trie {
 		var err error
 		c.ordersTrie, err = db.OpenStorageTrie(c.orderBookHash, c.data.OrderRoot)
 		if err != nil {
-			c.ordersTrie, _ = db.OpenStorageTrie(c.orderBookHash, EmptyHash)
+			c.ordersTrie, _ = db.OpenStorageTrie(c.orderBookHash, common.ZeroHash)
 			c.setError(fmt.Errorf("can't create asks trie: %v", err))
 		}
 	}
@@ -161,18 +159,18 @@ func (c *tradingExchanges) getBestPriceAsksTrie(db Database) common.Hash {
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best price ask trie ", "orderbook", c.orderBookHash.Hex())
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best ask trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	price := common.BytesToHash(encKey)
 	if _, exit := c.stateAskObjects[price]; !exit {
 		var data orderList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best ask trie", "err", err)
-			return EmptyHash
+			return common.ZeroHash
 		}
 		obj := newStateOrderList(c.db, Bid, c.orderBookHash, price, data, c.MarkStateAskObjectDirty)
 		c.stateAskObjects[price] = obj
@@ -185,18 +183,18 @@ func (c *tradingExchanges) getBestBidsTrie(db Database) common.Hash {
 	encKey, encValue, err := trie.TryGetBestRightKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best price bid trie ", "orderbook", c.orderBookHash.Hex())
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best bid trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	price := common.BytesToHash(encKey)
 	if _, exit := c.stateBidObjects[price]; !exit {
 		var data orderList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best bid trie", "err", err)
-			return EmptyHash
+			return common.ZeroHash
 		}
 		// Insert into the live set.
 		obj := newStateOrderList(c.db, Bid, c.orderBookHash, price, data, c.MarkStateBidObjectDirty)
@@ -264,7 +262,7 @@ func (c *tradingExchanges) getBidsTrie(db Database) Trie {
 		var err error
 		c.bidsTrie, err = db.OpenStorageTrie(c.orderBookHash, c.data.BidRoot)
 		if err != nil {
-			c.bidsTrie, _ = db.OpenStorageTrie(c.orderBookHash, EmptyHash)
+			c.bidsTrie, _ = db.OpenStorageTrie(c.orderBookHash, common.ZeroHash)
 			c.setError(fmt.Errorf("can't create bids trie: %v", err))
 		}
 	}
@@ -449,7 +447,7 @@ func (self *tradingExchanges) MarkStateAskObjectDirty(price common.Hash) {
 // createStateOrderListObject creates a new state object. If there is an existing orderId with
 // the given address, it is overwritten and returned as the second return value.
 func (self *tradingExchanges) createStateOrderListAskObject(db Database, price common.Hash) (newobj *stateOrderList) {
-	newobj = newStateOrderList(self.db, Ask, self.orderBookHash, price, orderList{Volume: Zero}, self.MarkStateAskObjectDirty)
+	newobj = newStateOrderList(self.db, Ask, self.orderBookHash, price, orderList{Volume: common.Big0}, self.MarkStateAskObjectDirty)
 	self.stateAskObjects[price] = newobj
 	self.stateAskObjectsDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
@@ -501,7 +499,7 @@ func (self *tradingExchanges) MarkStateBidObjectDirty(price common.Hash) {
 // createStateOrderListObject creates a new state object. If there is an existing orderId with
 // the given address, it is overwritten and returned as the second return value.
 func (self *tradingExchanges) createStateBidOrderListObject(db Database, price common.Hash) (newobj *stateOrderList) {
-	newobj = newStateOrderList(self.db, Bid, self.orderBookHash, price, orderList{Volume: Zero}, self.MarkStateBidObjectDirty)
+	newobj = newStateOrderList(self.db, Bid, self.orderBookHash, price, orderList{Volume: common.Big0}, self.MarkStateBidObjectDirty)
 	self.stateBidObjects[price] = newobj
 	self.stateBidObjectsDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
@@ -612,7 +610,7 @@ func (self *tradingExchanges) MarkStateLiquidationPriceDirty(price common.Hash) 
 }
 
 func (self *tradingExchanges) createStateLiquidationPrice(db Database, liquidationPrice common.Hash) (newobj *liquidationPriceState) {
-	newobj = newLiquidationPriceState(self.db, self.orderBookHash, liquidationPrice, orderList{Volume: Zero}, self.MarkStateLiquidationPriceDirty)
+	newobj = newLiquidationPriceState(self.db, self.orderBookHash, liquidationPrice, orderList{Volume: common.Big0}, self.MarkStateLiquidationPriceDirty)
 	self.liquidationPriceStates[liquidationPrice] = newobj
 	self.liquidationPriceStatesDirty[liquidationPrice] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
@@ -632,7 +630,7 @@ func (self *tradingExchanges) getLiquidationPriceTrie(db Database) Trie {
 		var err error
 		self.liquidationPriceTrie, err = db.OpenStorageTrie(self.orderBookHash, self.data.LiquidationPriceRoot)
 		if err != nil {
-			self.liquidationPriceTrie, _ = db.OpenStorageTrie(self.orderBookHash, EmptyHash)
+			self.liquidationPriceTrie, _ = db.OpenStorageTrie(self.orderBookHash, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create liquidation liquidationPrice trie: %v", err))
 		}
 	}
@@ -667,11 +665,11 @@ func (self *tradingExchanges) getLowestLiquidationPrice(db Database) (common.Has
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best liquidationPrice ask trie ", "orderbook", self.orderBookHash.Hex())
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best ask trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	price := common.BytesToHash(encKey)
 	obj := self.liquidationPriceStates[price]
@@ -679,7 +677,7 @@ func (self *tradingExchanges) getLowestLiquidationPrice(db Database) (common.Has
 		var data orderList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best ask trie", "err", err)
-			return EmptyHash, nil
+			return common.ZeroHash, nil
 		}
 		obj = newLiquidationPriceState(self.db, self.orderBookHash, price, data, self.MarkStateLiquidationPriceDirty)
 		self.liquidationPriceStates[price] = obj
@@ -724,11 +722,11 @@ func (self *tradingExchanges) getHighestLiquidationPrice(db Database) (common.Ha
 	encKey, encValue, err := trie.TryGetBestRightKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best liquidationPrice ask trie ", "orderbook", self.orderBookHash.Hex())
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best ask trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	price := common.BytesToHash(encKey)
 	obj := self.liquidationPriceStates[price]
@@ -736,13 +734,13 @@ func (self *tradingExchanges) getHighestLiquidationPrice(db Database) (common.Ha
 		var data orderList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best ask trie", "err", err)
-			return EmptyHash, nil
+			return common.ZeroHash, nil
 		}
 		obj = newLiquidationPriceState(self.db, self.orderBookHash, price, data, self.MarkStateLiquidationPriceDirty)
 		self.liquidationPriceStates[price] = obj
 	}
 	if obj.empty() {
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	return price, obj
 }

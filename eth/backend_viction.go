@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
@@ -277,21 +276,9 @@ func (s *Ethereum) PosvGetValidators(
 
 }
 
-// setupPosvBackend wires the POSV engine backend and the legacy TomoX/TomoZ engines
-// for historical block replay (pre-Atlas sync).
-// openTomoXDatabase opens the TomoX LevelDB.
-//   - If --tomox.datadir is set, that explicit path is used directly.
-//   - Otherwise the database is created at {datadir}/{instance}/tomox.
-func openTomoXDatabase(cfg *Config, stack *node.Node) (ethdb.Database, error) {
-	if cfg.TomoXDataDir != "" {
-		log.Info("Opening TomoX database at custom path", "path", cfg.TomoXDataDir)
-		return rawdb.NewLevelDBDatabase(cfg.TomoXDataDir, 256, 256, "eth/db/tomox/")
-	}
-	return stack.OpenDatabase("tomox", 256, 256, "eth/db/tomox/")
-}
-
+// Attach services required by Viction blockchain.
 func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
-	if chainConfig.Posv == nil {
+	if !chainConfig.IsPosv() {
 		return nil
 	}
 
@@ -300,29 +287,24 @@ func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *no
 		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", eth.engine)
 	}
 
-	// Wire POSV backend
 	posvEngine.SetBackend(eth)
-	log.Info("PosvBackend set on Posv engine")
-	if head := eth.blockchain.CurrentHeader(); head != nil {
-		if err := eth.engine.VerifyHeader(eth.blockchain, head, true); err != nil {
-			log.Warn("Head invalid after full POSV check", "number", head.Number, "hash", head.Hash(), "err", err,
-				"hint", "often missing M2 attestor on post-epoch head; rewind or re-sync if chain stuck")
-		}
-	}
+	log.Info("[Backend] Set current backend reference to PoSV engine.")
 
-	// Initialize legacy TomoX/TomoZ engines for historical block replay.
-	// Both share a single LevelDB ("tomox") since TradingStateDB and LendingStateDB
-	// use independent trie roots and their key-spaces never collide.
-	tomoxDb, err := openTomoXDatabase(eth.config, stack)
+	tradingStatedb, err := openTradingDatabase(stack)
 	if err != nil {
-		log.Error("Failed to open TomoX database", "err", err)
+		log.Error("failed to open Trading database", "err", err)
 		return nil
 	}
-	tomoxEngine := trading.NewWithDB(tomoxDb, eth.blockchain.Config())
-	eth.blockchain.SetTradingEngine(tomoxEngine)
+	tradingEngine := trading.NewWithDB(tradingStatedb, eth.blockchain.Config())
+	eth.blockchain.SetTradingEngine(tradingEngine)
 
-	lendingEngine := lending.New(tomoxDb, tomoxEngine, eth.blockchain.Config())
+	lendingEngine := lending.New(tradingStatedb, tradingEngine, eth.blockchain.Config())
 	eth.blockchain.SetLendingEngine(lendingEngine)
 
 	return nil
+}
+
+// Open Trading LevelDB for storing trasnsient data required for native trading/lending engine
+func openTradingDatabase(stack *node.Node) (ethdb.Database, error) {
+	return stack.OpenDatabase("trading", 256, 256, "eth/db/trading/")
 }

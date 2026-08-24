@@ -21,7 +21,6 @@ package posv
 
 import (
 	"encoding/json"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -36,15 +35,6 @@ import (
 type API struct {
 	chain consensus.ChainHeaderReader
 	posv  *Posv
-}
-
-type NetworkInformation struct {
-	NetworkId         *big.Int
-	ValidatorContract common.Address
-	RelayerContract   common.Address
-	TomoXContract     common.Address
-	VRC25Contract     common.Address
-	LendingContract   common.Address
 }
 
 // GetSnapshot retrieves the state snapshot at a given block.
@@ -151,17 +141,4 @@ func (api *API) GetSigner(rlpOrBlockNr *blockNumberOrHashOrRLP) (common.Address,
 		return common.Address{}, err
 	}
 	return api.posv.Author(header)
-}
-
-func (api *API) NetworkInformation() NetworkInformation {
-	api.posv.lock.RLock()
-	defer api.posv.lock.RUnlock()
-	info := NetworkInformation{}
-	info.NetworkId = api.chain.Config().ChainID
-	info.ValidatorContract = api.chain.Config().Viction.ValidatorContract
-	info.LendingContract = api.chain.Config().Viction.LendingContract
-	info.RelayerContract = api.chain.Config().Viction.RelayerLockedAddress
-	info.TomoXContract = api.chain.Config().Viction.TradingContract
-	info.VRC25Contract = api.chain.Config().Viction.VRC25Contract
-	return info
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// Lock exposes the internal RWMutex for legacy TomoX trie operations.
+// Lock exposes the internal RWMutex for legacy Trading trie operations.
 // This is intentionally exposed for backward compatibility with the legacy
 // trading state trie that needs direct lock access during preimage writes.
 var _ = (*Database)(nil)

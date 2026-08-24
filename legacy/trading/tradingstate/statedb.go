@@ -23,8 +23,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/params"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -124,7 +122,7 @@ func (self *TradingStateDB) GetMediumPriceBeforeEpoch(addr common.Hash) *big.Int
 	if stateObject != nil {
 		return stateObject.data.MediumPriceBeforeEpoch
 	}
-	return Zero
+	return common.Big0
 }
 
 func (self *TradingStateDB) GetMediumPriceAndTotalAmount(addr common.Hash) (*big.Int, *big.Int) {
@@ -132,7 +130,7 @@ func (self *TradingStateDB) GetMediumPriceAndTotalAmount(addr common.Hash) (*big
 	if stateObject != nil {
 		return stateObject.data.MediumPrice, stateObject.data.TotalQuantity
 	}
-	return Zero, Zero
+	return common.Big0, common.Big0
 }
 
 // Database retrieves the low level database supporting the lower level trie ops.
@@ -345,10 +343,10 @@ func (self *TradingStateDB) GetVolume(orderBook common.Hash, price *big.Int, ord
 		case Bid:
 			stateOrderList = stateObject.getStateBidOrderListObject(self.db, common.BigToHash(price))
 		default:
-			return Zero
+			return common.Big0
 		}
 		if stateOrderList == nil || stateOrderList.empty() {
-			return Zero
+			return common.Big0
 		}
 		volume = stateOrderList.Volume()
 	}
@@ -358,34 +356,34 @@ func (self *TradingStateDB) GetBestAskPrice(orderBook common.Hash) (*big.Int, *b
 	stateObject := self.getStateExchangeObject(orderBook)
 	if stateObject != nil {
 		priceHash := stateObject.getBestPriceAsksTrie(self.db)
-		if params.EmptyHash(priceHash) {
-			return Zero, Zero
+		if priceHash.IsZero() {
+			return common.Big0, common.Big0
 		}
 		orderList := stateObject.getStateOrderListAskObject(self.db, priceHash)
 		if orderList == nil {
 			log.Error("order list ask not found", "price", priceHash.Hex())
-			return Zero, Zero
+			return common.Big0, common.Big0
 		}
 		return new(big.Int).SetBytes(priceHash.Bytes()), orderList.Volume()
 	}
-	return Zero, Zero
+	return common.Big0, common.Big0
 }
 
 func (self *TradingStateDB) GetBestBidPrice(orderBook common.Hash) (*big.Int, *big.Int) {
 	stateObject := self.getStateExchangeObject(orderBook)
 	if stateObject != nil {
 		priceHash := stateObject.getBestBidsTrie(self.db)
-		if params.EmptyHash(priceHash) {
-			return Zero, Zero
+		if priceHash.IsZero() {
+			return common.Big0, common.Big0
 		}
 		orderList := stateObject.getStateBidOrderListObject(self.db, priceHash)
 		if orderList == nil {
 			log.Error("order list bid not found", "price", priceHash.Hex())
-			return Zero, Zero
+			return common.Big0, common.Big0
 		}
 		return new(big.Int).SetBytes(priceHash.Bytes()), orderList.Volume()
 	}
-	return Zero, Zero
+	return common.Big0, common.Big0
 }
 
 func (self *TradingStateDB) GetBestOrderIdAndAmount(orderBook common.Hash, price *big.Int, side string) (common.Hash, *big.Int, error) {
@@ -398,20 +396,20 @@ func (self *TradingStateDB) GetBestOrderIdAndAmount(orderBook common.Hash, price
 		case Bid:
 			stateOrderList = stateObject.getStateBidOrderListObject(self.db, common.BigToHash(price))
 		default:
-			return EmptyHash, Zero, fmt.Errorf("not found side :%s ", side)
+			return common.ZeroHash, common.Big0, fmt.Errorf("not found side :%s ", side)
 		}
 		if stateOrderList != nil {
 			key, _, err := stateOrderList.getTrie(self.db).TryGetBestLeftKeyAndValue()
 			if err != nil {
-				return EmptyHash, Zero, err
+				return common.ZeroHash, common.Big0, err
 			}
 			orderId := common.BytesToHash(key)
 			amount := stateOrderList.GetOrderAmount(self.db, orderId)
 			return orderId, new(big.Int).SetBytes(amount.Bytes()), nil
 		}
-		return EmptyHash, Zero, fmt.Errorf("not found order list with orderBook : %s , price : %d , side :%s ", orderBook.Hex(), price, side)
+		return common.ZeroHash, common.Big0, fmt.Errorf("not found order list with orderBook : %s , price : %d , side :%s ", orderBook.Hex(), price, side)
 	}
-	return EmptyHash, Zero, fmt.Errorf("not found orderBook : %s ", orderBook.Hex())
+	return common.ZeroHash, common.Big0, fmt.Errorf("not found orderBook : %s ", orderBook.Hex())
 }
 
 // updateStateExchangeObject writes the given object to the trie.
@@ -474,7 +472,7 @@ func (self *TradingStateDB) createExchangeObject(hash common.Hash) (newobj *trad
 	// from the in-memory cache and dirty set, preventing it from being written
 	// to the trie after a revert.
 	self.journal = append(self.journal, createExchangeObjectChange{hash: hash})
-	newobj = newStateExchanges(self, hash, tradingExchangeObject{LendingCount: Zero, MediumPrice: Zero, MediumPriceBeforeEpoch: Zero, TotalQuantity: Zero}, self.MarkStateExchangeObjectDirty)
+	newobj = newStateExchanges(self, hash, tradingExchangeObject{LendingCount: common.Big0, MediumPrice: common.Big0, MediumPriceBeforeEpoch: common.Big0, TotalQuantity: common.Big0}, self.MarkStateExchangeObjectDirty)
 	newobj.setNonce(0) // sets the object to dirty
 	self.setStateExchangeObject(newobj)
 	return newobj
@@ -573,16 +571,16 @@ func (s *TradingStateDB) Commit() (root common.Hash, err error) {
 		if _, isDirty := s.stateExhangeObjectsDirty[addr]; isDirty {
 			// Write any storage changes in the state object to its storage trie.
 			if err := stateObject.CommitAsksTrie(s.db); err != nil {
-				return EmptyHash, err
+				return common.ZeroHash, err
 			}
 			if err := stateObject.CommitBidsTrie(s.db); err != nil {
-				return EmptyHash, err
+				return common.ZeroHash, err
 			}
 			if err := stateObject.CommitOrdersTrie(s.db); err != nil {
-				return EmptyHash, err
+				return common.ZeroHash, err
 			}
 			if err := stateObject.CommitLiquidationPriceTrie(s.db); err != nil {
-				return EmptyHash, err
+				return common.ZeroHash, err
 			}
 			// Update the object in the main orderId trie.
 			s.updateStateExchangeObject(stateObject)
@@ -671,7 +669,7 @@ func (self *TradingStateDB) GetHighestLiquidationPriceData(orderBook common.Hash
 }
 
 func (self *TradingStateDB) InsertLiquidationPrice(orderBook common.Hash, price *big.Int, lendingBook common.Hash, tradeId uint64) {
-	tradIdHash := params.Uint64ToHash(tradeId)
+	tradIdHash := common.Uint64ToHash(tradeId)
 	priceHash := common.BigToHash(price)
 	orderBookState := self.getStateExchangeObject(orderBook)
 	if orderBookState == nil {
@@ -686,9 +684,9 @@ func (self *TradingStateDB) InsertLiquidationPrice(orderBook common.Hash, price 
 		lendingBookState = liquidationPriceState.createLendingBook(self.db, lendingBook)
 	}
 	lendingBookState.insertTradingId(self.db, tradIdHash)
-	lendingBookState.AddVolume(One)
-	liquidationPriceState.AddVolume(One)
-	orderBookState.addLendingCount(One)
+	lendingBookState.AddVolume(common.Big1)
+	liquidationPriceState.AddVolume(common.Big1)
+	orderBookState.addLendingCount(common.Big1)
 	self.journal = append(self.journal, insertLiquidationPrice{
 		orderBook:   orderBook,
 		price:       price,
@@ -698,7 +696,7 @@ func (self *TradingStateDB) InsertLiquidationPrice(orderBook common.Hash, price 
 }
 
 func (self *TradingStateDB) RemoveLiquidationPrice(orderBook common.Hash, price *big.Int, lendingBook common.Hash, tradeId uint64) error {
-	tradeIdHash := params.Uint64ToHash(tradeId)
+	tradeIdHash := common.Uint64ToHash(tradeId)
 	priceHash := common.BigToHash(price)
 	orderbookState := self.getStateExchangeObject(orderBook)
 	if orderbookState == nil {
@@ -716,12 +714,12 @@ func (self *TradingStateDB) RemoveLiquidationPrice(orderBook common.Hash, price 
 		return fmt.Errorf("trade id not found : %s , %s ,%s , %d ", orderBook.Hex(), priceHash.Hex(), lendingBook.Hex(), tradeId)
 	}
 	lendingBookState.removeTradingId(self.db, tradeIdHash)
-	lendingBookState.subVolume(One)
-	liquidationPriceState.subVolume(One)
+	lendingBookState.subVolume(common.Big1)
+	liquidationPriceState.subVolume(common.Big1)
 	if liquidationPriceState.Volume().Sign() == 0 {
 		orderbookState.getLiquidationPriceTrie(self.db).TryDelete(priceHash[:])
 	}
-	orderbookState.subLendingCount(One)
+	orderbookState.subLendingCount(common.Big1)
 	self.journal = append(self.journal, removeLiquidationPrice{
 		orderBook:   orderBook,
 		price:       price,

@@ -27,11 +27,11 @@ import (
 
 var signMethodSelector = common.Hex2Bytes("e341eaa4")
 
-func (tx *Transaction) IsTradingTransaction(tomoXContract common.Address) bool {
+func (tx *Transaction) IsTradingTransaction(tradingContract common.Address) bool {
 	if tx.To() == nil {
 		return false
 	}
-	return *tx.To() == tomoXContract
+	return *tx.To() == tradingContract
 }
 
 func (tx *Transaction) IsLendingTransaction(lendingContract common.Address) bool {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/contracts/tomox/contract"
+	"github.com/ethereum/go-ethereum/contracts/token/contract"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
@@ -16,7 +16,7 @@ import (
 
 // GetTokenAbi return token abi
 func GetTokenAbi() (*abi.ABI, error) {
-	contractABI, err := abi.JSON(strings.NewReader(contract.TRC21ABI))
+	contractABI, err := abi.JSON(strings.NewReader(contract.FungibleTokenABI))
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +69,12 @@ func RunContract(chain tradingstate.ChainContext, statedb *state.StateDB, contra
 	return unpackResult, nil
 }
 
-func (tomox *TomoX) GetTokenDecimal(chain tradingstate.ChainContext, statedb *state.StateDB, tokenAddr common.Address) (*big.Int, error) {
-	if tokenDecimal, ok := tomox.tokenDecimalCache.Get(tokenAddr); ok {
+func (t *Trading) GetTokenDecimal(chain tradingstate.ChainContext, statedb *state.StateDB, tokenAddr common.Address) (*big.Int, error) {
+	if tokenDecimal, ok := t.tokenDecimalCache.Get(tokenAddr); ok {
 		return tokenDecimal.(*big.Int), nil
 	}
-	if tokenAddr.String() == tradingstate.TomoNativeAddress {
-		tomox.tokenDecimalCache.Add(tokenAddr, tradingstate.BasePrice)
+	if tokenAddr.String() == tradingstate.NativeTokenAddress {
+		t.tokenDecimalCache.Add(tokenAddr, tradingstate.BasePrice)
 		return tradingstate.BasePrice, nil
 	}
 	var decimals uint8
@@ -93,11 +93,6 @@ func (tomox *TomoX) GetTokenDecimal(chain tradingstate.ChainContext, statedb *st
 	decimals = result.(uint8)
 
 	tokenDecimal := new(big.Int).SetUint64(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-	tomox.tokenDecimalCache.Add(tokenAddr, tokenDecimal)
+	t.tokenDecimalCache.Add(tokenAddr, tokenDecimal)
 	return tokenDecimal, nil
-}
-
-// FIXME: using in unit tests only
-func (tomox *TomoX) SetTokenDecimal(token common.Address, decimal *big.Int) {
-	tomox.tokenDecimalCache.Add(token, decimal)
 }

@@ -23,7 +23,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -71,19 +70,19 @@ func (s *lendingExchangeState) empty() bool {
 	if s.data.TradeNonce != 0 {
 		return false
 	}
-	if !params.EmptyHash(s.data.InvestingRoot) {
+	if !s.data.InvestingRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.BorrowingRoot) {
+	if !s.data.BorrowingRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.LendingItemRoot) {
+	if !s.data.LendingItemRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.LendingTradeRoot) {
+	if !s.data.LendingTradeRoot.IsZero() {
 		return false
 	}
-	if !params.EmptyHash(s.data.LiquidationTimeRoot) {
+	if !s.data.LiquidationTimeRoot.IsZero() {
 		return false
 	}
 	return true
@@ -129,7 +128,7 @@ func (self *lendingExchangeState) getLendingItemTrie(db Database) Trie {
 		var err error
 		self.lendingItemTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LendingItemRoot)
 		if err != nil {
-			self.lendingItemTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
+			self.lendingItemTrie, _ = db.OpenStorageTrie(self.lendingBook, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
 		}
 	}
@@ -141,7 +140,7 @@ func (self *lendingExchangeState) getLendingTradeTrie(db Database) Trie {
 		var err error
 		self.lendingTradeTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LendingTradeRoot)
 		if err != nil {
-			self.lendingTradeTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
+			self.lendingTradeTrie, _ = db.OpenStorageTrie(self.lendingBook, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
 		}
 	}
@@ -152,7 +151,7 @@ func (self *lendingExchangeState) getInvestingTrie(db Database) Trie {
 		var err error
 		self.investingTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.InvestingRoot)
 		if err != nil {
-			self.investingTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
+			self.investingTrie, _ = db.OpenStorageTrie(self.lendingBook, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create Lendings trie: %v", err))
 		}
 	}
@@ -164,7 +163,7 @@ func (self *lendingExchangeState) getBorrowingTrie(db Database) Trie {
 		var err error
 		self.borrowingTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.BorrowingRoot)
 		if err != nil {
-			self.borrowingTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
+			self.borrowingTrie, _ = db.OpenStorageTrie(self.lendingBook, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create bids trie: %v", err))
 		}
 	}
@@ -176,7 +175,7 @@ func (self *lendingExchangeState) getLiquidationTimeTrie(db Database) Trie {
 		var err error
 		self.liquidationTimeTrie, err = db.OpenStorageTrie(self.lendingBook, self.data.LiquidationTimeRoot)
 		if err != nil {
-			self.liquidationTimeTrie, _ = db.OpenStorageTrie(self.lendingBook, EmptyHash)
+			self.liquidationTimeTrie, _ = db.OpenStorageTrie(self.lendingBook, common.ZeroHash)
 			self.setError(fmt.Errorf("can't create bids trie: %v", err))
 		}
 	}
@@ -528,11 +527,11 @@ func (self *lendingExchangeState) getBestInvestingInterest(db Database) common.H
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best investing rate", "orderbook", self.lendingBook.Hex())
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best investing rate", "encKey", encKey, "encValue", encValue)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	// Insert into the live set.
 	interest := common.BytesToHash(encKey)
@@ -540,7 +539,7 @@ func (self *lendingExchangeState) getBestInvestingInterest(db Database) common.H
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best investing rate", "err", err)
-			return EmptyHash
+			return common.ZeroHash
 		}
 		obj := newItemListState(self.lendingBook, interest, data, self.MarkInvestingDirty)
 		self.investingStates[interest] = obj
@@ -553,11 +552,11 @@ func (self *lendingExchangeState) getBestBorrowingInterest(db Database) common.H
 	encKey, encValue, err := trie.TryGetBestRightKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best key bid trie ", "orderbook", self.lendingBook.Hex())
-		return EmptyHash
+		return common.ZeroHash
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get best bid trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash
+		return common.ZeroHash
 	}
 	// Insert into the live set.
 	interest := common.BytesToHash(encKey)
@@ -565,7 +564,7 @@ func (self *lendingExchangeState) getBestBorrowingInterest(db Database) common.H
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get best bid trie", "err", err)
-			return EmptyHash
+			return common.ZeroHash
 		}
 		obj := newItemListState(self.lendingBook, interest, data, self.MarkBorrowingDirty)
 		self.borrowingStates[interest] = obj
@@ -578,11 +577,11 @@ func (self *lendingExchangeState) getLowestLiquidationTime(db Database) (common.
 	encKey, encValue, err := trie.TryGetBestLeftKeyAndValue()
 	if err != nil {
 		log.Error("Failed find best liquidation time trie ", "orderBook", self.lendingBook.Hex())
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	if len(encKey) == 0 || len(encValue) == 0 {
 		log.Debug("Not found get liquidation time trie", "encKey", encKey, "encValue", encValue)
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	price := common.BytesToHash(encKey)
 	obj, exist := self.liquidationTimeStates[price]
@@ -590,13 +589,13 @@ func (self *lendingExchangeState) getLowestLiquidationTime(db Database) (common.
 		var data itemList
 		if err := rlp.DecodeBytes(encValue, &data); err != nil {
 			log.Error("Failed to decode state get liquidation time trie", "err", err)
-			return EmptyHash, nil
+			return common.ZeroHash, nil
 		}
 		obj = newLiquidationTimeState(self.lendingBook, price, data, self.MarkLiquidationTimeDirty)
 		self.liquidationTimeStates[price] = obj
 	}
 	if obj.empty() {
-		return EmptyHash, nil
+		return common.ZeroHash, nil
 	}
 	return price, obj
 }
@@ -682,7 +681,7 @@ func (self *lendingExchangeState) removeBorrowingOrderList(db Database, stateOrd
 }
 
 func (self *lendingExchangeState) createInvestingOrderList(db Database, price common.Hash) (newobj *itemListState) {
-	newobj = newItemListState(self.lendingBook, price, itemList{Volume: Zero}, self.MarkInvestingDirty)
+	newobj = newItemListState(self.lendingBook, price, itemList{Volume: common.Big0}, self.MarkInvestingDirty)
 	self.investingStates[price] = newobj
 	self.investingStatesDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
@@ -738,7 +737,7 @@ func (self *lendingExchangeState) MarkLiquidationTimeDirty(orderId common.Hash) 
 }
 
 func (self *lendingExchangeState) createBorrowingOrderList(db Database, price common.Hash) (newobj *itemListState) {
-	newobj = newItemListState(self.lendingBook, price, itemList{Volume: Zero}, self.MarkBorrowingDirty)
+	newobj = newItemListState(self.lendingBook, price, itemList{Volume: common.Big0}, self.MarkBorrowingDirty)
 	self.borrowingStates[price] = newobj
 	self.borrowingStatesDirty[price] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)
@@ -766,7 +765,7 @@ func (self *lendingExchangeState) createLendingItem(db Database, orderId common.
 }
 
 func (self *lendingExchangeState) createLiquidationTime(db Database, time common.Hash) (newobj *liquidationTimeState) {
-	newobj = newLiquidationTimeState(time, self.lendingBook, itemList{Volume: Zero}, self.MarkLiquidationTimeDirty)
+	newobj = newLiquidationTimeState(time, self.lendingBook, itemList{Volume: common.Big0}, self.MarkLiquidationTimeDirty)
 	self.liquidationTimeStates[time] = newobj
 	self.liquidationTimestatesDirty[time] = struct{}{}
 	data, err := rlp.EncodeToBytes(newobj)

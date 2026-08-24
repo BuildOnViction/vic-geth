@@ -364,6 +364,16 @@ func (s *Ethereum) APIs() []rpc.API {
 			Version:   "1.0",
 			Service:   s.netRPCService,
 			Public:    true,
+		}, {
+			Namespace: "posv",
+			Version:   "1.0",
+			Service:   NewPublicPosvAPI(s),
+			Public:    true,
+		}, {
+			Namespace: "posvdebug",
+			Version:   "1.0",
+			Service:   NewPublicPosvDebugAPI(s),
+			Public:    true,
 		},
 	}...)
 }

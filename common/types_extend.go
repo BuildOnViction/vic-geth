@@ -19,6 +19,23 @@
 
 package common
 
+import "math/big"
+
+var (
+	ZeroAddress = Address{}
+	ZeroHash    = Hash{}
+)
+
+// Returns true if the address is zero.
+func (a Address) IsZero() bool {
+	return a == Address{}
+}
+
+// Returns true if the hash is zero.
+func (h Hash) IsZero() bool {
+	return h == Hash{}
+}
+
 // Return string representation of given address.
 func AddressToString(addr Address) string {
 	return addr.Hex()
@@ -31,4 +48,9 @@ func AddressesToStrings(addrs []Address) []string {
 		results = append(results, addr.Hex())
 	}
 	return results
+}
+
+// Return given uint64 as *Hash*.
+func Uint64ToHash(n uint64) Hash {
+	return BigToHash(new(big.Int).SetUint64(n))
 }

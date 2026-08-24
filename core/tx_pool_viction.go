@@ -46,11 +46,10 @@ var ErrDuplicateSpecialTransaction = errors.New("duplicate special transaction")
 // --- Validation helpers ---
 
 // validateBlacklistTx rejects transactions whose sender or receiver is
-// blacklisted. Unlike the block-import and worker checks this is not gated
-// on the TIPBlacklist fork block: pool admission is local policy, and the
-// legacy pool rejected these unconditionally.
+// blacklisted. Pool admission is local policy, and the legacy pool
+// rejected these unconditionally.
 func (pool *TxPool) validateBlacklistTx(tx *types.Transaction, from common.Address) error {
-	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To()); sender || receiver {
+	if sender, receiver := misc.ValidateVictionBlackList(pool.chainconfig, from, tx.To(), nil); sender || receiver {
 		return ErrBlacklistedAddress
 	}
 	return nil
@@ -91,11 +90,11 @@ func (pool *TxPool) posvValidateGasPrice(tx *types.Transaction, from common.Addr
 	// VRC25: zero-gasPrice tx to a registered token with sufficient capacity.
 	if tx.GasPrice().Sign() == 0 && tx.To() != nil &&
 		pool.chainconfig.Viction != nil &&
-		pool.chainconfig.Viction.VRC25Contract != (common.Address{}) {
+		pool.chainconfig.Viction.VRC25RegistryContract != (common.Address{}) {
 
-		cap := pool.currentState.VicGetZeroGasCapacity(pool.chainconfig.Viction.VRC25Contract, tx.To())
+		cap := pool.currentState.VicGetZeroGasCapacity(pool.chainconfig.Viction.VRC25RegistryContract, tx.To())
 		if cap != nil && cap.Sign() > 0 {
-			if err := ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25Contract, from, *tx.To(), tx.Data()); err == nil {
+			if err := ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25RegistryContract, from, *tx.To(), tx.Data()); err == nil {
 				return true
 			}
 		}

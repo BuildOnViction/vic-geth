@@ -67,15 +67,15 @@ func ApplySaigonHardFork(statedb *state.StateDB, victionConfig *params.VictionCo
 func ApplyAtlasHardFork(statedb *state.StateDB, victionConfig *params.VictionConfig, atlasBlock *big.Int, headBlock *big.Int) {
 	if headBlock.Cmp(atlasBlock) == 0 {
 		if victionConfig.AtlasVRC25MinCap != nil {
-			statedb.VicSetZeroGasMinCap(victionConfig.VRC25Contract, (*big.Int)(victionConfig.AtlasVRC25MinCap))
+			statedb.VicSetZeroGasMinCap(victionConfig.VRC25RegistryContract, (*big.Int)(victionConfig.AtlasVRC25MinCap))
 		}
 	}
 }
 
 // Check both *from* and *to* addresses are allowed to perform transaction.
-func ValidateVictionBlackList(config *params.ChainConfig, from common.Address, to *common.Address) (sender, receiver bool) {
-	if config.Viction == nil {
+func ValidateVictionBlackList(config *params.ChainConfig, from common.Address, to *common.Address, number *big.Int) (sender, receiver bool) {
+	if config.Viction == nil || !config.Viction.ConsensusLegacyCompat {
 		return false, false
 	}
-	return config.Viction.IsBlacklisted(from), to != nil && config.Viction.IsBlacklisted(*to)
+	return config.Viction.IsBlacklisted(from, number), to != nil && config.Viction.IsBlacklisted(*to, number)
 }

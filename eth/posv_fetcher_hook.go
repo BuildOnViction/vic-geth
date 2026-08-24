@@ -181,16 +181,10 @@ func (s *Ethereum) posvMinedBlockSelfAttest(block *types.Block) *types.Block {
 	return attested
 }
 
-// [7s62] posvPropagatedBlockSignHook fires after a propagated block is successfully
+// posvPropagatedBlockSignHook fires after a propagated block is successfully
 // imported.  It creates a BlockSigner.sign(blockNumber, blockHash) transaction and
 // injects it into the local tx pool so this validator is credited in
 // reward/penalty accounting — even when it was not the block creator.
-//
-// Mirrors victionchain's signHook in eth/backend.go.  Key differences:
-//   - Uses IsTIPSigning guard (vic-geth deletes BlockSigner state before that fork)
-//   - Uses blockchain.State().GetNonce to avoid race with async pool reset
-//   - Uses checkpoint validators for the "am I a validator?" check (no IsSigner callback)
-//   - Does NOT port the randomise-key secret/opening tx (legacy TomoX, absent in vic-geth)
 func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 	cfg := s.blockchain.Config()
 	if cfg.Posv == nil || cfg.Viction == nil {
@@ -205,7 +199,7 @@ func (s *Ethereum) posvPropagatedBlockSignHook(block *types.Block) error {
 		return nil
 	}
 
-	// [7s62] After TIP2019: reduce pool spam by submitting a sign tx only on
+	// After TIP2019: reduce pool spam by submitting a sign tx only on
 	// every MergeSignRange-th (15th) block.  Before TIP2019 every block is signed.
 	if cfg.IsTIP2019(block.Number()) && block.NumberU64()%blocksigner.MergeSignRange != 0 {
 		log.Debug("[POSV sign hook] skipped: not on MergeSignRange boundary", "block", block.NumberU64(), "mergeSignRange", blocksigner.MergeSignRange, "mod", block.NumberU64()%blocksigner.MergeSignRange)

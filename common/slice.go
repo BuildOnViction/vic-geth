@@ -1,24 +1,40 @@
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package common
 
-import (
-	"reflect"
-	"sort"
-)
-
-// Mapped to AreSimilarSlices
-// compare 2 signers lists
-// return true if they are same elements, otherwise return false
-func AreSimilarSlices(list1 []Address, list2 []Address) bool {
-	if len(list1) == 0 && len(list2) == 0 {
-		return true
+// Compare two slices have same elements but maynot in same order.
+func AreSimilarSlices[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	sort.Slice(list1, func(i, j int) bool {
-		return list1[i].String() <= list1[j].String()
-	})
-	sort.Slice(list2, func(i, j int) bool {
-		return list2[i].String() <= list2[j].String()
-	})
-	return reflect.DeepEqual(list1, list2)
+	itemCounts := make(map[T]int)
+	for _, item := range a {
+		itemCounts[item]++
+	}
+	for _, item := range b {
+		if itemCounts[item] == 0 {
+			return false
+		}
+		itemCounts[item]--
+	}
+	return true
 }
 
 // Return the forward distance from parentIndex to currentIndex on a circular list with length.
@@ -30,28 +46,31 @@ func CircularDistance(currentIndex, parentIndex, length int) int {
 }
 
 // Return index of the element e in slice s. Return -1 if not found.
-func IndexOf(list []Address, x Address) int {
-	for i, item := range list {
-		if item == x {
+func IndexOf[T comparable](s []T, e T) int {
+	for i, item := range s {
+		if item == e {
 			return i
 		}
 	}
 	return -1
 }
 
-// SetSubstract removes all occurrences of items in 'items' from 'array' and returns the new array.
-func SetSubstract(array []Address, items []Address) []Address {
-	if len(items) == 0 {
-		return array
+// Return a new slice with elements that belong to set a but not set b.
+func SetSubstract[T comparable](a, b []T) []T {
+	bmap := map[T]bool{}
+	for _, item := range b {
+		bmap[item] = true
 	}
-
-	for _, item := range items {
-		for i := len(array) - 1; i >= 0; i-- {
-			if array[i] == item {
-				array = append(array[:i], array[i+1:]...)
-			}
+	rmap := map[T]bool{}
+	res := []T{}
+	for _, item := range a {
+		if _, ok := bmap[item]; ok {
+			continue
+		}
+		if _, ok := rmap[item]; !ok {
+			rmap[item] = true
+			res = append(res, item)
 		}
 	}
-
-	return array
+	return res
 }
