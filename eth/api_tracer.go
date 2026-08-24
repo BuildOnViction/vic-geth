@@ -104,6 +104,14 @@ type txTraceTask struct {
 	feePool types.BalanceMap // Running VRC25 fee capacities as of this tx (copy)
 }
 
+// vrc25ExecutionResult extends ExecutionResult with VRC25 sponsorship metadata.
+type vrc25ExecutionResult struct {
+	*ethapi.ExecutionResult
+	IsSponsoredTx   bool            `json:"isSponsoredTx"`
+	Payer           *common.Address `json:"payer,omitempty"`
+	SponsorGasPrice *hexutil.Big    `json:"sponsorGasPrice,omitempty"`
+}
+
 // TraceChain returns the structured logs created during the execution of EVM
 // between two blocks (excluding start) and returns them as a JSON object.
 func (api *PrivateDebugAPI) TraceChain(ctx context.Context, start, end rpc.BlockNumber, config *TraceConfig) (*rpc.Subscription, error) {
@@ -862,12 +870,21 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 		if len(result.Revert()) > 0 {
 			returnVal = fmt.Sprintf("%x", result.Revert())
 		}
-		return &ethapi.ExecutionResult{
-			Gas:         result.UsedGas,
-			Failed:      result.Failed(),
-			ReturnValue: returnVal,
-			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
-		}, nil
+		res := &vrc25ExecutionResult{
+			ExecutionResult: &ethapi.ExecutionResult{
+				Gas:         result.UsedGas,
+				Failed:      result.Failed(),
+				ReturnValue: returnVal,
+				StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+			},
+			IsSponsoredTx: result.IsSponsoredTx,
+		}
+		if result.IsSponsoredTx {
+			payer := result.Payer
+			res.Payer = &payer
+			res.SponsorGasPrice = (*hexutil.Big)(result.SponsorGasPrice)
+		}
+		return res, nil
 
 	case *tracers.Tracer:
 		return tracer.GetResult()
