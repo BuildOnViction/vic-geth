@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
-	"github.com/ethereum/go-ethereum/contracts/blocksigner"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -377,12 +376,13 @@ func (s *Ethereum) PosvRandomNumber(
 		pendingTxs, _ := s.txPool.Pending()
 		nonce += uint64(len(pendingTxs[eb]))
 
-		key := viction.GenerateRandomizeKey()
-		tx, err := viction.BuildSecretTx(nonce, vicConfig.RandomizerContract, config.Posv.Epoch, key)
+		key := viction.GenerateRandomKey()
+		secret, err := viction.GenerateRandomNumber(posvConfig.Epoch, key)
 		if err != nil {
-			log.Error("[Backend][RandomNumber] Failed to build RandomizeSecret transaction", "number", number, "err", err)
+			log.Error("[Backend][RandomNumber] Failed to generate RandomNumber", "number", number, "err", err)
 			return err
 		}
+		tx := viction.CreateSetRandomizeSecretTransaction(nonce, vicConfig.RandomizerContract, secret)
 		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
 		if err != nil {
 			return err
@@ -438,7 +438,7 @@ func (s *Ethereum) PosvRandomNumber(
 		pendingTxs, _ := s.txPool.Pending()
 		nonce += uint64(len(pendingTxs[eb]))
 
-		tx := viction.BuildOpeningTx(nonce, vicConfig.RandomizerContract, key)
+		tx := viction.CreateSetRandomizeOpeningTransaction(nonce, vicConfig.RandomizerContract, key)
 		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
 		if err != nil {
 			return err
@@ -499,7 +499,7 @@ func (s *Ethereum) PosvSignBlock(
 		return err
 	}
 	nonce := statedb.GetNonce(eb)
-	tx := blocksigner.CreateTxSign(block.Number(), block.Hash(), nonce, config.Viction.ValidatorBlockSignContract)
+	tx := viction.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
 	signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
 	if err != nil {
 		return err
