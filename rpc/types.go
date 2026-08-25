@@ -26,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	mathutil "github.com/ethereum/go-ethereum/common/math"
 )
 
 // API describes the set of methods offered over the RPC interface
@@ -87,9 +88,9 @@ func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	blckNum, err := hexutil.DecodeUint64(input)
-	if err != nil {
-		return err
+	blckNum, ok := mathutil.ParseUint64(input)
+	if !ok {
+		return fmt.Errorf("invalid number")
 	}
 	if blckNum > math.MaxInt64 {
 		return fmt.Errorf("block number larger than int64")
@@ -149,9 +150,9 @@ func (bnh *BlockNumberOrHash) UnmarshalJSON(data []byte) error {
 			bnh.BlockHash = &hash
 			return nil
 		} else {
-			blckNum, err := hexutil.DecodeUint64(input)
-			if err != nil {
-				return err
+			blckNum, ok := mathutil.ParseUint64(input)
+			if !ok {
+				return fmt.Errorf("invalid number")
 			}
 			if blckNum > math.MaxInt64 {
 				return fmt.Errorf("blocknumber too high")
