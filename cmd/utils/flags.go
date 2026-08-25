@@ -771,6 +771,11 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+	// Viction-specific flags
+	NoCompatRewindFlag = cli.BoolFlag{
+		Name:  "no-compat-rewind",
+		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1617,6 +1622,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.EthDiscoveryURLs = SplitAndTrim(urls)
 		}
 	}
+	// Viction-specific flags
+	if ctx.GlobalIsSet(NoCompatRewindFlag.Name) {
+		cfg.SkipCompatRewind = ctx.GlobalBool(NoCompatRewindFlag.Name)
+	}
+
 	// Override any default configs for hard coded networks.
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
