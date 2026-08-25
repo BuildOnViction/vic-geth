@@ -355,7 +355,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signers()
+	snapshotValidators := snap.signersNext()
 	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
 		return nil
 	} else {
