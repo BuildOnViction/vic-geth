@@ -187,7 +187,7 @@ func (c *Posv) SetCheckpointSigners(chain consensus.ChainReader, header *types.H
 	if err = snap.store(c.db); err != nil {
 		return err
 	}
-	log.Info("[PoSV][Snapshot] Stored gap snapshot to disk.", "number", snap.Number, "hash", snap.Hash, "signers", common.AddressesToStrings(vs))
+	log.Info("[PoSV][Snapshot] Stored gap snapshot to disk.", "number", snap.Number, "hash", snap.Hash, "signers", len(vs))
 	return nil
 }
 
