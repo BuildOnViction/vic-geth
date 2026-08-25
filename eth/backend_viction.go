@@ -139,7 +139,7 @@ func (s *Ethereum) PosvGetValidators(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(config, vicConfig, header, chain, state)
+	return viction.GetValidators(config, vicConfig, header, state)
 }
 
 func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig) error {

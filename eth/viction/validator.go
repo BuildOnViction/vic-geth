@@ -25,7 +25,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/sortlgc"
-	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -35,19 +34,19 @@ import (
 // Return addresses of eligble validators from the state.
 func GetValidators(
 	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, stateDB *state.StateDB,
+	statedb *state.StateDB,
 ) ([]common.Address, error) {
 	contracrAddress := vicConfig.ValidatorContract
 	if contracrAddress == (common.Address{}) {
 		return []common.Address{}, ErrNoContractAddress
 	}
-	addresses := stateDB.VicGetCandidates(contracrAddress)
+	addresses := statedb.VicGetCandidates(contracrAddress)
 	candidates := []*posv.ValidatorInfo{}
 	for _, addr := range addresses {
 		if addr == (common.Address{}) {
 			continue
 		}
-		_, cap := stateDB.VicGetValidatorInfo(contracrAddress, addr)
+		_, cap := statedb.VicGetValidatorInfo(contracrAddress, addr)
 		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
 	}
 
