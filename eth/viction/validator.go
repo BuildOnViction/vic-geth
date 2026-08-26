@@ -24,26 +24,41 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
-func GetCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
+// Return map of validator-attestor pairs from checkpoint header (Both validators and attestorIndices are from checkpoint header).
+func GetCreatorAttestorPairsFromCheckpointHeader(config *params.ChainConfig, posvConfig *params.PosvConfig,
 	header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
 	number := header.Number.Uint64()
 	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, 0, ErrNoValidator
+	}
 	attestorIdxs := posv.ExtractAttestorsFromCheckpointHeader(checkpointHeader)
 	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
 }
 
-// BuildCreatorAttestorPairs computes creator-attestor pairs from an explicit
-// validator and attestor-index list.  Use GetCreatorAttestorPairs when the
-// checkpoint header's NewAttestors field is available; this variant is the
-// state-based fallback for when NewAttestors is absent.
-func BuildCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
-	number uint64, validators []common.Address, attestorIdxs []int64,
+// Return map of validator-attestor pairs from state (Validators is from checkpoint header, attestorIndices are from state).
+func GetCreatorAttestorPairsFromState(config *params.ChainConfig, posvConfig *params.PosvConfig,
+	header, checkpointHeader *types.Header,
+	statedb *state.StateDB,
 ) (map[common.Address]common.Address, uint64, error) {
+	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, 0, ErrNoValidator
+	}
+	number := header.Number.Uint64()
+	checkpointNumber := checkpointHeader.Number.Uint64()
+	attestorIdxs, err := GetAttestors(config.Viction, validators, statedb)
+	if err != nil {
+		log.Warn("[Backend][GetCreatorAttestorPairsFromState] cannot compute attestors", "checkpoint", checkpointNumber, "err", err)
+		return nil, 0, err
+	}
 	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
 }
 
