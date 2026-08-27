@@ -192,6 +192,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Set sync threshold if configured
+	eth.blockchain.SetSyncThreshold(config.SyncThreshold)
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
 		if config.SkipCompatRewind {
