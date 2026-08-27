@@ -35,7 +35,14 @@ func StorageLocationFromHash(h common.Hash) StorageLocation {
 
 // Return StorageLocation from slot number.
 func StorageLocationFromSlot(slot uint64) StorageLocation {
-	return StorageLocation(common.BigToHash(new(big.Int).SetUint64(slot)).Bytes())
+	slotHash := common.BigToHash(new(big.Int).SetUint64(slot)).Bytes()
+	return StorageLocation(slotHash)
+}
+
+// Return StorageLocation from slot number in big.Int.
+func StorageLocationFromSlotBig(slot *big.Int) StorageLocation {
+	slotHash := common.BigToHash(slot).Bytes()
+	return StorageLocation(slotHash)
 }
 
 // Return StorageLocation in big.Int format.
@@ -51,8 +58,7 @@ func (s StorageLocation) Hash() common.Hash {
 // Return StorageLocation of a struct field.
 func StorageLocationOfStructElement(structSlot StorageLocation, fieldIndex *big.Int) StorageLocation {
 	slotNum := new(big.Int).Add(structSlot.Big(), fieldIndex)
-	slotHash := slotNum.Bytes()
-	return StorageLocation(slotHash)
+	return StorageLocationFromSlotBig(slotNum)
 }
 
 // Return StorageLocation of an element in fixed-length array.
@@ -62,8 +68,7 @@ func StorageLocationOfFixedArrayElement(arraySlot StorageLocation, elementIndex 
 		new(big.Int).Div(common.Big256, new(big.Int).SetUint64(elementSize)),
 	)
 	slotNum := new(big.Int).Add(arraySlot.Big(), offset)
-	slotHash := slotNum.Bytes()
-	return StorageLocation(slotHash)
+	return StorageLocationFromSlotBig(slotNum)
 }
 
 // Return StorageLocation of an element in dynamic-length array.
@@ -78,8 +83,7 @@ func StorageLocationOfDynamicArrayElement(arraySlot StorageLocation, elementInde
 	}
 	offset := new(big.Int).Mul(new(big.Int).SetUint64(elementIndex), slotsPerElement)
 	slotNum := new(big.Int).Add(slotZero, offset)
-	slotHash := slotNum.Bytes()
-	return StorageLocation(slotHash)
+	return StorageLocationFromSlotBig(slotNum)
 }
 
 // Return StorageLocation of an element in mapping.
