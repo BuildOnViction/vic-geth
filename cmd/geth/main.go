@@ -91,7 +91,6 @@ var (
 		utils.SyncModeFlag,
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,
-		utils.NoCompatRewindFlag,
 		utils.SnapshotFlag,
 		utils.TxLookupLimitFlag,
 		utils.LightServeFlag,
@@ -162,6 +161,7 @@ var (
 		utils.GpoMaxGasPriceFlag,
 		utils.EWASMInterpreterFlag,
 		utils.EVMInterpreterFlag,
+		utils.SkipCompatRewindFlag,
 		configFileFlag,
 	}
 
