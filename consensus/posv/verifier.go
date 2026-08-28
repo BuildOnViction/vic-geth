@@ -391,7 +391,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 
 	// Current epoch checkpoint: used for authorization and attestor checks.
-	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
+	checkpointHeader := GetCheckpointHeader(c.config, header, parents, chain)
 	if checkpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader
@@ -405,7 +405,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
-	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, chain, parents)
+	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, parents, chain)
 	if prevCheckpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader
