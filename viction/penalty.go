@@ -43,7 +43,7 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	// This avoids relying on where the BlockSign tx ended up being included.
 	statedb, err := bc.State()
 	if err != nil {
-		return nil, fmt.Errorf("penalize/default: failed to get statedb at checkpoint root: %w", err)
+		return nil, fmt.Errorf("failed to get statedb at checkpoint: %w", err)
 	}
 	blockNumber := header.Number.Uint64()
 	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch

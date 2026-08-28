@@ -75,7 +75,7 @@ func (s *Ethereum) PosvGetAttestors(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestors(vicConfig, validators, state)
+	return viction.GetAttestorsFromState(vicConfig, validators, state)
 }
 
 // Get block signers from the state.
@@ -94,9 +94,7 @@ func (s *Ethereum) PosvGetBlockSignData(
 	}
 	data := []types.Transaction{}
 
-	// Block-sign txs are EVM-executed and may fail.
 	// Only successful signing txs count toward rewards and penalties.
-	//
 	// On post-Byzantium receipt format, `Receipt.Status` is the correct source
 	// of success/failure. Using `len(PostState)` is unreliable and can misclassify.
 	var receipts types.Receipts
@@ -276,7 +274,7 @@ func (s *Ethereum) PosvRandomNumber(
 		return nil
 	}
 	blockOfEpoch := number % posvConfig.Epoch
-	commitPhase := blockOfEpoch > 0 && blockOfEpoch >= vicConfig.RandomizerCommitNthBlock && blockOfEpoch < vicConfig.RandomizerRevealNthBlock
+	commitPhase := vicConfig.IsRandomizerCommitPhase(blockOfEpoch)
 	if commitPhase {
 		chaindb := s.ChainDb()
 		exists, _ := chaindb.Has(viction.RandomizeKeyName)
@@ -312,7 +310,7 @@ func (s *Ethereum) PosvRandomNumber(
 		}
 		return nil
 	}
-	openingPhase := blockOfEpoch > 0 && blockOfEpoch >= vicConfig.RandomizerRevealNthBlock && blockOfEpoch <= vicConfig.RandomizerFinaleNthBlock
+	openingPhase := vicConfig.IsRandomizerOpeningPhase(blockOfEpoch)
 	if openingPhase {
 		chaindb := s.ChainDb()
 		key, err := chaindb.Get(viction.RandomizeKeyName)

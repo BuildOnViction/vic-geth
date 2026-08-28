@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -55,10 +54,8 @@ func GetCreatorAttestorPairsFromState(config *params.ChainConfig, posvConfig *pa
 		return nil, 0, ErrNoValidator
 	}
 	number := header.Number.Uint64()
-	checkpointNumber := checkpointHeader.Number.Uint64()
-	attestorIdxs, err := GetAttestors(config.Viction, validators, statedb)
+	attestorIdxs, err := GetAttestorsFromState(config.Viction, validators, statedb)
 	if err != nil {
-		log.Warn("[Backend][GetCreatorAttestorPairsFromState] cannot compute attestors", "checkpoint", checkpointNumber, "err", err)
 		return nil, 0, err
 	}
 	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)

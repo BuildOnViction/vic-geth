@@ -94,7 +94,6 @@ func CalcRewardsForValidators(
 			signedBlockHash := common.BytesToHash(txData[len(txData)-common.HashLength:])
 			msg, err := tx.AsMessage(signer)
 			if err != nil {
-				logger.Debug("CalcRewardsForValidators: failed to get sender", "txHash", tx.Hash().Hex(), "err", err)
 				continue
 			}
 			blockSigners[signedBlockHash] = append(blockSigners[signedBlockHash], msg.From())
@@ -173,7 +172,6 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 			continue
 		}
 
-		// 		validatorRewardTotal := new(big.Int).Set(vr.Reward)
 		distributedTotal := new(big.Int)
 		validatorNested := make(map[common.Address]*big.Int)
 
@@ -224,13 +222,6 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 			addBalance(validatorNested, vicConfig.RewardFoundationAddress, new(big.Int).Set(rewardForFoundation))
 			distributedTotal.Add(distributedTotal, rewardForFoundation)
 		}
-
-		// if distributedTotal.Cmp(validatorRewardTotal) != 0 {
-		// 	missing := new(big.Int).Sub(validatorRewardTotal, distributedTotal)
-		// 	if missing.Cmp(big.NewInt(100)) > 0 {
-		// 		logger.Warn("CalcRewardsForStakeholders: significant reward distribution mismatch", "validator", validator.Hex(), "totalReward", validatorRewardTotal.String(), "distributed", distributedTotal.String(), "missing", missing.String())
-		// 	}
-		// }
 		nestedRewards[validator] = validatorNested
 	}
 

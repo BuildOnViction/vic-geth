@@ -29,7 +29,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -62,6 +61,7 @@ func CreateSetRandomizeOpeningTransaction(nonce uint64, contractAddr common.Addr
 	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
 }
 
+// Generate new 32-byte key for the randomize protocol.
 func GenerateRandomKey() []byte {
 	mathrand.Seed(time.Now().UnixNano())
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
@@ -72,6 +72,7 @@ func GenerateRandomKey() []byte {
 	return b
 }
 
+// Generate pseudo-random number and encrypt it using the given key.
 func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
 	mathrand.Seed(time.Now().UnixNano())
 	secretNumber := mathrand.Intn(int(max))
@@ -82,12 +83,13 @@ func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
 	return []byte(encrypted), nil
 }
 
-func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
+// Rerturn attestor indices from state.
+func GetAttestorsFromState(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
 	randomizes := []int64{}
 	validatorCount := int64(len(validators))
 	if validatorCount > 0 {
 		for _, validator := range validators {
-			random, err := GetRandomizeOfValidator(vicConfig, validator, state)
+			random, err := GetSubmittedRandomOfValidator(vicConfig, validator, state)
 			if err != nil {
 				return nil, err
 			}
@@ -97,14 +99,13 @@ func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, 
 		if err != nil {
 			return nil, err
 		}
-		log.Debug("[POSV randomize] computed attestor indices",
-			"validators", validatorCount, "randomizes", randomizes, "attestors", attestors)
 		return attestors, nil
 	}
 	return nil, ErrNoValidator
 }
 
-func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
+// Get submitted random number of a given validator.
+func GetSubmittedRandomOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
 	randomizeContract := vicConfig.RandomizerContract
 	if randomizeContract == (common.Address{}) {
 		return -1, ErrNoContractAddress
@@ -124,15 +125,12 @@ func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.A
 
 	result, err := DecryptRandomize(secrets, opening)
 	if err != nil {
-		log.Debug("[POSV randomize] failed to decrypt validator secret",
-			"validator", validator, "secrets", len(secretsHash), "err", err)
 		return result, err
 	}
-	log.Debug("[POSV randomize] decrypted validator random",
-		"validator", validator, "secrets", len(secretsHash), "hasOpening", openingHash != common.Hash{}, "random", result)
 	return result, nil
 }
 
+// Generate pseudo-random attestor indices based on randomizes.
 func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, error) {
 	randomSeed := int64(0)
 	for _, j := range randomizes {
