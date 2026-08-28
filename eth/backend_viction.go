@@ -21,7 +21,6 @@ package eth
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -84,15 +83,24 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	return viction.GetCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
 }
 
-// Calculate reward at the end of each epoch.
-func (s *Ethereum) PosvGetEpochReward(
+// Calculate rewards at the end of each epoch.
+func (s *Ethereum) PosvGetEpochRewards(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
-	return viction.CalcRewardPerEpoch(c, config, posvConfig, vicConfig, header, chain, statedb, s.blockchain, logger)
+	number := header.Number.Uint64()
+	// Use parent state for voter caps
+	preCheckpointHeader := chain.GetHeader(header.ParentHash, number-1)
+	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
+	if err != nil {
+		logger.Warn("[Backend][GetEpochReward]: failed to get preCheckpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
+		return nil, err
+	}
+
+	return viction.CalcRewardPerEpoch(c, config, posvConfig, vicConfig, header, chain, preCheckpointState, s.blockchain, logger)
 }
 
-// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
+// Add balance rewards to the state.
 func (s *Ethereum) PosvDistributeEpochRewards(
 	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
 ) error {
@@ -100,19 +108,8 @@ func (s *Ethereum) PosvDistributeEpochRewards(
 		return nil
 	}
 
-	number := header.Number.Uint64()
-	rewardAmount := big.NewInt(0)
-	stakeholderCount := 0
-	for addr, amount := range epochReward.StakeholderRewards {
-		if amount == nil || amount.Sign() <= 0 {
-			continue
-		}
-		state.AddBalance(addr, amount)
-		rewardAmount.Add(rewardAmount, amount)
-		stakeholderCount++
-	}
-
-	log.Info("[Backend] Distributed epoch rewards", "block", number, "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
+	rewardAmount, stakeholderCount := viction.DistributeStakeholderRewards(state, epochReward)
+	log.Info("[Backend] Distributed epoch rewards", "block", header.Number.Uint64(), "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
 	return nil
 }
 

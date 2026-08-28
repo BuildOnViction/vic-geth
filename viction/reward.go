@@ -36,24 +36,24 @@ import (
 func CalcRewardPerEpoch(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader, statedb *state.StateDB, bc *core.BlockChain, logger log.Logger,
+	chain consensus.ChainReader, preCheckpointState *state.StateDB, bc *core.BlockChain, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
-	blockNumber := header.Number.Uint64()
+	number := header.Number.Uint64()
 
-	// Skip block 900 (1*epoch); first reward at block 1800 (2*epoch)
-	if blockNumber <= posvConfig.Epoch {
+	// First epoch won't include any rewards
+	if !posvConfig.IsCheckpointBlock(number) || number <= posvConfig.Epoch {
 		return epochRewards, nil
 	}
 
 	// Get initial reward
 	initialRewardPerEpoch := (*big.Int)(vicConfig.RewardPerEpoch)
-	totalReward := CalcDefaultRewardPerBlock(initialRewardPerEpoch, blockNumber, posvConfig.BlocksPerYear())
+	totalReward := CalcDefaultRewardPerBlock(initialRewardPerEpoch, number, posvConfig.BlocksPerYear())
 
 	// Get additional reward for Saigon upgrade
 	if config.IsSaigon(header.Number) && vicConfig.SaigonRewardPerEpoch != nil {
 		saigonRewardPerEpoch := (*big.Int)(vicConfig.SaigonRewardPerEpoch)
-		saigonReward := CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, blockNumber, posvConfig.BlocksPerYear())
+		saigonReward := CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, number, posvConfig.BlocksPerYear())
 		totalReward = new(big.Int).Add(totalReward, saigonReward)
 	}
 
@@ -64,20 +64,7 @@ func CalcRewardPerEpoch(
 	}
 	epochRewards.ValidatorRewards = validatorRewards
 
-	// Use pre-transaction state for voter caps
-	parentHeader := chain.GetHeader(header.ParentHash, blockNumber-1)
-	var rewardState *state.StateDB
-	if parentHeader != nil {
-		rewardState, err = bc.StateAt(parentHeader.Root)
-		if err != nil {
-			logger.Warn("[Backend][CalcRewardPerEpoch]: failed to get parent state, falling back to current state", "block", blockNumber, "err", err)
-			rewardState = statedb
-		}
-	} else {
-		rewardState = statedb
-	}
-
-	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, rewardState, logger)
+	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -285,4 +272,19 @@ func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvCo
 	}
 
 	return stakeholderRewards, nestedRewards, nil
+}
+
+// Add balance rewards to the state.
+func DistributeStakeholderRewards(state *state.StateDB, epochReward *posv.EpochReward) (*big.Int, int) {
+	rewardAmount := big.NewInt(0)
+	stakeholderCount := 0
+	for addr, amount := range epochReward.StakeholderRewards {
+		if amount == nil || amount.Sign() <= 0 {
+			continue
+		}
+		state.AddBalance(addr, amount)
+		rewardAmount.Add(rewardAmount, amount)
+		stakeholderCount++
+	}
+	return rewardAmount, stakeholderCount
 }
