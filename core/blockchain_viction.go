@@ -26,8 +26,60 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 )
+
+// Commit native trading/lending trie nodes for the given block to their LevelDB backing stores.
+func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p == nil {
+		return nil
+	}
+
+	if bc.cacheConfig.TrieDirtyDisabled {
+		if err := p.CommitTradingState(block); err != nil {
+			return err
+		}
+		return p.CommitLendingState(block)
+	}
+	if err := p.CommitTradingStateDeferred(block); err != nil {
+		return err
+	}
+	return p.CommitLendingStateDeferred(block)
+}
+
+// Flush any in-memory trading/lending trie roots not yet committed to LevelDB.
+func (bc *BlockChain) stopViction() {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p == nil {
+		return
+	}
+	p.FlushTradingStateGCCache()
+	p.FlushLendingStateGCCache()
+}
+
+// Inject the Native Trading Engine into the Processor.
+func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok {
+		log.Error("[Blockchain][Native Trading] Engine not installed: Processor is not a *StateProcessor")
+		return
+	}
+	p.viction.SetTradingEngine(engine)
+	log.Info("[Blockchain][Native Trading] Engine installed on state processor")
+}
+
+// Inject the Native Lending Engine into the Processor.
+func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok {
+		log.Error("[Blockchain][Native Lending] Engine not installed: Processor is not a *StateProcessor")
+		return
+	}
+	p.viction.SetLendingEngine(engine)
+	log.Info("[Blockchain][Native Lending] Engine installed on state processor")
+}
 
 func (bc *BlockChain) UpdateValidators() error {
 	engine, ok := bc.Engine().(*posv.Posv)
@@ -85,6 +137,27 @@ func (bc *BlockChain) UpdateValidators() error {
 		return err
 	}
 
-	log.Info("[Blockchain] Updated validators list for next epoch", "count", len(vs))
+	log.Info("[Blockchain] Updated validators list for next epoch", "signers", len(vs))
 	return nil
+}
+
+// Check if two blocks are same path. Assume block 1 is ahead block 2.
+func (bc *BlockChain) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool {
+	h1 := bc.GetHeaderByHash(bh1)
+	h2 := bc.GetHeaderByHash(bh2)
+	if h1 == nil || h2 == nil {
+		return false
+	}
+	toLevel := h2.Number.Uint64()
+	hash1 := bh1
+
+	for h1.Number.Uint64() > toLevel {
+		hash1 = h1.ParentHash
+		h1 = bc.GetHeaderByHash(hash1)
+		if h1 == nil {
+			return false
+		}
+	}
+
+	return hash1 == bh2
 }

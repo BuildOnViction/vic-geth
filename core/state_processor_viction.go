@@ -20,6 +20,7 @@
 package core
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -27,6 +28,9 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
+	"github.com/ethereum/go-ethereum/legacy/trading/tradingstate"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -40,6 +44,14 @@ type VictionProcessor struct {
 	zeroGasCapacities          types.BalanceMap // Remaining ZeroGas capacities.
 	updatedZeroGasCapacities   types.BalanceMap // Updated ZeroGas capacities to be flushed to database.
 	totalUsedZeroGasCapacities *big.Int         // Sum of capacities used during block processing.
+
+	lendingEngine        LendingEngine
+	lendingStateDB       *lendingstate.LendingStateDB
+	lendingCommittedRoot common.Hash
+
+	tradingEngine        TradingEngine
+	tradingStateDB       *tradingstate.TradingStateDB
+	tradingCommittedRoot common.Hash
 }
 
 // Return new Processor instance for new block production.
@@ -103,7 +115,52 @@ func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.St
 	p.blockNumber = new(big.Int).Set(header.Number)
 	p.snapshotCapacities(statedb, header.Number)
 
+	p.lendingStateDB = nil
+	p.lendingCommittedRoot = common.Hash{}
+	p.tradingStateDB = nil
+	p.tradingCommittedRoot = common.Hash{}
+
 	misc.ApplyPosvHardForks(statedb, p.config, p.config.Viction, header.Number)
+
+	if p.config.IsNativeTradingEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
+		parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)
+		if parent != nil {
+			parentAuthor, _ := p.engine.Author(parent.Header())
+
+			if p.tradingEngine != nil {
+				tradingState, err := p.tradingEngine.GetTradingState(parent, parentAuthor)
+				if err != nil {
+					return fmt.Errorf("native_trading: failed to open StateDB at block %d: %w", header.Number, err)
+				}
+				p.tradingStateDB = tradingState
+
+				if header.Number.Uint64()%p.config.Posv.Epoch == 0 {
+					if err := p.tradingEngine.UpdateMediumPriceBeforeEpoch(
+						header.Number.Uint64()/p.config.Posv.Epoch,
+						tradingState, statedb,
+					); err != nil {
+						return fmt.Errorf("native_trading: failed to exec UpdateMediumPriceBeforeEpoch at block %d: %w", header.Number, err)
+					}
+				}
+			}
+
+			if p.lendingEngine != nil {
+				lendingState, err := p.lendingEngine.GetLendingState(parent, parentAuthor)
+				if err != nil {
+					return fmt.Errorf("native_lending: failed to open StateDB at block %d: %w", header.Number, err)
+				}
+				p.lendingStateDB = lendingState
+			}
+		}
+
+		if header.Number.Uint64()%p.config.Posv.Epoch == p.config.Viction.LendingLiquidateTradeBlock && p.IsLendingInitialized() {
+			_, _, _, _, _, err := p.lendingEngine.ProcessLiquidationData(header, p.chain, statedb, p.tradingStateDB, p.lendingStateDB)
+			if err != nil {
+				return fmt.Errorf("native_lending: failed to exec ProcessLiquidationData at block %d: %w", header.Number, err)
+			}
+			log.Info("[Processor][Native Lending] Epoch liquidation processed", "block", header.Number.Uint64())
+		}
+	}
 
 	signer := types.MakeSigner(p.config, header.Number)
 	types.CacheSigners(signer, block.Transactions())
@@ -111,13 +168,53 @@ func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.St
 	return nil
 }
 
-// Post block processing: - Commit ZeroGas journal to database.
+// Post block processing: - Commit Trading/Lending/ZeroGas journal to database.
 func (p *VictionProcessor) PostBlockProcess(block *types.Block, statedb *state.StateDB) error {
 	if !p.isSupported() {
 		return nil
 	}
 
 	p.flushRemainCapacities(statedb)
+
+	// IMPORTANT: tradingStateDB.Commit() must be called BEFORE IntermediateRoot().
+	// IntermediateRoot calls trie.Hash() which collapses in-memory dirty nodes into hash nodes.
+	// A subsequent trie.Commit() on a fully-hashed trie finds no dirty nodes and writes nothing to trie.Database.dirties.
+	// If Commit() runs first, it flushes dirty nodes into trie.Database.dirties; trie.Database.Commit() can then persist them to LevelDB.
+	if p.IsTradingInitialized() {
+		tradingRoot, err := p.tradingStateDB.Commit()
+		if err != nil {
+			return fmt.Errorf("native_trading: failed to commit StateDB at block %d: %w", block.NumberU64(), err)
+		}
+		p.tradingCommittedRoot = tradingRoot
+
+		blockAuthor, err := p.engine.Author(block.Header())
+		if err != nil {
+			return fmt.Errorf("native_trading: failed to resolve block author at block %d: %w", block.NumberU64(), err)
+		}
+		expectRoot := GetTradingStateRoot(block, p.config.Viction.TradingStateContract, blockAuthor, p.config)
+		if tradingRoot != expectRoot {
+			return fmt.Errorf("native_trading: state root mismatch at block %d: got %s, expected %s", block.NumberU64(), tradingRoot.Hex(), expectRoot.Hex())
+		}
+		log.Info("[Processor][Native Trading] State root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
+	}
+
+	if p.IsLendingInitialized() {
+		lendingRoot, err := p.lendingStateDB.Commit()
+		if err != nil {
+			return fmt.Errorf("native_lending: failed to commit StateDB at block %d: %w", block.NumberU64(), err)
+		}
+		p.lendingCommittedRoot = lendingRoot
+
+		blockAuthor, err := p.engine.Author(block.Header())
+		if err != nil {
+			return fmt.Errorf("native_lending: failed to resolve block author at block %d: %w", block.NumberU64(), err)
+		}
+		expectRoot := GetLendingStateRoot(block, p.config.Viction.TradingStateContract, blockAuthor, p.config)
+		if lendingRoot != expectRoot {
+			return fmt.Errorf("native_lending: state root mismatch at block %d: got %s, expected %s", block.NumberU64(), lendingRoot.Hex(), expectRoot.Hex())
+		}
+		log.Info("[Processor][Native Lending] State root verified", "block", block.NumberU64(), "root", lendingRoot.Hex())
+	}
 
 	return nil
 }
@@ -134,10 +231,8 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 			statedb.SetBalance(msg.From(), val)
 		}
 	}
-	if p.config.IsTIPBlacklist(block.Number()) {
-		if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To()); sender || receiver {
-			return ErrBlacklistedAddress
-		}
+	if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To()); sender || receiver {
+		return ErrBlacklistedAddress
 	}
 
 	return nil
@@ -154,6 +249,30 @@ func (p *VictionProcessor) ApplyNativeTransaction(tx *types.Transaction, header 
 	// 0x89 — Block signing.
 	if tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) && p.config.IsTIPSigning(header.Number) {
 		return p.applyBlockSigningTransaction(tx, header, statedb, usedGas)
+	}
+
+	// 0x91 — Trading order-matching batch.
+	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsNativeTradingEnabled(header.Number) {
+		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
+			return p.applyTradingTransaction(tx, header, statedb, usedGas, batch)
+		}
+	}
+
+	// 0x92 — Trading state root commit, verified in AfterBlockProcess.
+	if *tx.To() == vicConfig.TradingStateContract && p.config.IsNativeTradingEnabled(header.Number) {
+		return p.applyEmptyTransaction(tx, header, statedb, usedGas)
+	}
+
+	// 0x93 — Lending order-matching batch.
+	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsNativeTradingEnabled(header.Number) {
+		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
+			return p.applyLendingTransaction(tx, header, statedb, usedGas, batch)
+		}
+	}
+
+	// 0x94 — Lending finalized trade.
+	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsNativeTradingEnabled(header.Number) {
+		return p.applyEmptyTransaction(tx, header, statedb, usedGas)
 	}
 
 	return false, nil, 0, nil, nil
@@ -200,6 +319,130 @@ func (p *VictionProcessor) applyBlockSigningTransaction(tx *types.Transaction, h
 	receipt.Logs = statedb.GetLogs(tx.Hash(), header.Hash())
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 
+	return true, receipt, 0, nil, nil
+}
+
+// Process transaction as null transcation for system transactions (0x92,0x94).
+func (p *VictionProcessor) applyEmptyTransaction(tx *types.Transaction, header *types.Header, statedb *state.StateDB, usedGas *uint64) (bool, *types.Receipt, uint64, error, *big.Int) {
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	log := &types.Log{}
+	log.Address = *tx.To()
+	log.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(log)
+	receipt.Logs = statedb.GetLogs(tx.Hash(), header.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
+}
+
+// Process Trading order-matching batch transaction (0x91).
+func (p *VictionProcessor) applyTradingTransaction(tx *types.Transaction, header *types.Header, statedb *state.StateDB, usedGas *uint64, batch tradingstate.TxMatchBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+
+	if !p.config.Posv.IsCheckpointBlock(header.Number.Uint64()) && p.IsTradingInitialized() {
+		// Use the block author (recovered from header signature) as coinbase, not header.Coinbase which is zeroed in PoSV blocks.
+		// The author is the address passed to ValidateTradingOrder -> DoSettleBalance for validator fee accounting.
+		coinbase, err := p.engine.Author(header)
+		if err != nil {
+			log.Warn("[Processor][Native Trading] Failed to recover block author, using zero address", "err", err)
+		}
+		tradingEngine := p.tradingEngine
+		tradingStateDB := p.tradingStateDB
+
+		for i, txDataMatch := range batch.Data {
+			order, err := txDataMatch.DecodeOrder()
+			if err != nil {
+				log.Warn("[Processor][Native Trading] Failed to decode order, skipping", "index", i, "err", err)
+				continue
+			}
+
+			orderBook := tradingstate.GetTradingOrderBookHash(order.BaseToken, order.QuoteToken)
+
+			_, rejects, err := tradingEngine.CommitOrder(header, coinbase, p.chain, statedb, tradingStateDB, orderBook, order)
+			if err != nil {
+				return true, nil, 0, fmt.Errorf("native_trading: failed to commit order index=%d order=%s: %w", i, order.Hash.Hex(), err), nil
+			}
+
+			if len(rejects) > 0 {
+				log.Info("[Processor][Native Trading] Orders rejected", "count", len(rejects))
+			}
+		}
+	}
+
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+
+	txLog := &types.Log{}
+	txLog.Address = *tx.To()
+	txLog.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(txLog)
+	receipt.Logs = statedb.GetLogs(tx.Hash(), header.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+
+	return true, receipt, 0, nil, nil
+}
+
+// Process Lending order-matching batch transaction (0x93).
+func (p *VictionProcessor) applyLendingTransaction(tx *types.Transaction, header *types.Header, statedb *state.StateDB, usedGas *uint64, batch lendingstate.TxLendingBatch) (bool, *types.Receipt, uint64, error, *big.Int) {
+	var root []byte
+	if p.config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(p.config.IsEIP158(header.Number)).Bytes()
+	}
+
+	if !p.config.Posv.IsCheckpointBlock(header.Number.Uint64()) && p.IsLendingInitialized() {
+		// Use the block author (recovered from header signature) as coinbase, not header.Coinbase which is zeroed in PoSV blocks.
+		// The author is the address passed to ValidateLendingOrder -> DoSettleBalance for validator fee accounting.
+		coinbase, err := p.engine.Author(header)
+		if err != nil {
+			log.Warn("[Processor][Native Lending] Failed to recover block author, using zero address", "err", err)
+		}
+		lendingStateDB := p.lendingStateDB
+		tradingStateDB := p.tradingStateDB
+
+		for i, order := range batch.Data {
+			if order == nil {
+				continue
+			}
+			lendingOrderBook := lendingstate.GetLendingOrderBookHash(order.LendingToken, order.Term)
+			_, rejects, err := p.lendingEngine.CommitOrder(
+				header, coinbase, p.chain, statedb,
+				lendingStateDB, tradingStateDB, lendingOrderBook, order,
+			)
+			if err != nil {
+				return true, nil, 0, fmt.Errorf("native_lending: failed to commit order index=%d order=%s: %w", i, order.Hash.Hex(), err), nil
+			}
+			if len(rejects) > 0 {
+				log.Info("[Processor][Native Lending] Orders rejected", "count", len(rejects))
+			}
+		}
+	}
+
+	receipt := types.NewReceipt(root, false, *usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = 0
+	txLog := &types.Log{}
+	txLog.Address = *tx.To()
+	txLog.BlockNumber = header.Number.Uint64()
+	statedb.AddLog(txLog)
+	receipt.Logs = statedb.GetLogs(tx.Hash(), header.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 	return true, receipt, 0, nil, nil
 }
 

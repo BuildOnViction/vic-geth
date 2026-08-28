@@ -29,7 +29,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/viction"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/legacy/lending"
+	"github.com/ethereum/go-ethereum/legacy/trading"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -142,18 +146,35 @@ func (s *Ethereum) PosvGetValidators(
 	return viction.GetValidators(config, vicConfig, header, state)
 }
 
-func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig) error {
-	if chainConfig.Posv == nil {
+// Attach services required by Viction blockchain.
+func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
+	if !chainConfig.IsPosv() {
 		return nil
 	}
 
-	posvEngine, ok := eth.engine.(*posv.Posv)
+	posvEngine, ok := s.engine.(*posv.Posv)
 	if !ok {
-		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", eth.engine)
+		return fmt.Errorf("posv config present but engine is %T, expected *posv.Posv", s.engine)
 	}
 
-	posvEngine.SetBackend(eth)
+	posvEngine.SetBackend(s)
 	log.Info("[Backend] Set current backend reference to PoSV engine.")
 
+	tradingStatedb, err := openTradingDatabase(stack)
+	if err != nil {
+		log.Error("failed to open Trading database", "err", err)
+		return nil
+	}
+	tradingEngine := trading.NewWithDB(tradingStatedb, s.blockchain.Config())
+	s.blockchain.SetTradingEngine(tradingEngine)
+
+	lendingEngine := lending.New(tradingStatedb, tradingEngine, s.blockchain.Config())
+	s.blockchain.SetLendingEngine(lendingEngine)
+
 	return nil
+}
+
+// Open Trading LevelDB for storing trasnsient data required for native trading/lending engine
+func openTradingDatabase(stack *node.Node) (ethdb.Database, error) {
+	return stack.OpenDatabase("trading", 256, 256, "eth/db/trading/", false)
 }
