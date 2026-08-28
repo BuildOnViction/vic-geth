@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// Get penalty list for an epoch using default rule.
 func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
 	chain consensus.ChainReader,
@@ -87,6 +88,7 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	return validators, nil
 }
 
+// Get penalty list for an epoch using TIPSigning rule.
 func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
 	chain consensus.ChainReader,

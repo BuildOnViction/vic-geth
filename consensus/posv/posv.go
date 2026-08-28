@@ -371,7 +371,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	c.lock.RUnlock()
 
 	// Set the correct difficulty
-	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+	checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	header.Difficulty = c.calcDifficulty(signer, parent, validators)
 
@@ -514,7 +514,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		if parent == nil {
 			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
 		}
-		checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+		checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 		validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 		index := common.IndexOf(validators, signer)
 		if index == -1 {
@@ -568,7 +568,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 
 // Return difficulty for a new block.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+	checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	return c.calcDifficulty(c.signer, parent, validators)
 }

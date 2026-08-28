@@ -204,7 +204,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 			if current == nil {
 				return false
 			}
-			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, eth.blockchain, nil)
+			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, nil, eth.blockchain)
 			if cp == nil {
 				return false
 			}

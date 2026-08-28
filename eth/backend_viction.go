@@ -11,13 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/viction"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/legacy/lending"
 	"github.com/ethereum/go-ethereum/legacy/trading"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/viction"
 )
 
 // Create a new block with attestor's signature. Only accept non-attested block.
@@ -45,7 +45,7 @@ func (s *Ethereum) PosvAttestBlock(
 	if err != nil {
 		return nil, nil
 	}
-	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.blockchain, nil)
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.blockchain)
 	valAttPairs, _, err := s.PosvGetCreatorAttestorPairs(config, posvConfig, config.Viction, header, checkpointHeader)
 	if err != nil {
 		return nil, nil

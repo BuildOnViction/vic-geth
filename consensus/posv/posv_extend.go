@@ -278,7 +278,11 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 }
 
 // Return header of neareast checkpoint block before the given header. If the header is also a checkpoint block, return the header itself.
-func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
+func GetCheckpointHeader(
+	posvConfig *params.PosvConfig,
+	header *types.Header, parents []*types.Header,
+	chain consensus.ChainHeaderReader,
+) *types.Header {
 	blockNumber := header.Number.Uint64()
 	if blockNumber%posvConfig.Epoch == 0 {
 		return header
