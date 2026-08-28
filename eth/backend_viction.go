@@ -1,6 +1,7 @@
 package eth
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
 
@@ -37,7 +38,7 @@ func (s *Ethereum) PosvAttestBlock(
 	if len(header.Attestor) == posv.ExtraSeal {
 		return nil, nil
 	}
-	eb, err := s.Etherbase()
+	eb, wallet, err := s.getEtherbaseWallet()
 	if err != nil || eb.IsZero() {
 		return nil, nil
 	}
@@ -52,10 +53,6 @@ func (s *Ethereum) PosvAttestBlock(
 	}
 	assigned, ok := valAttPairs[creator]
 	if !ok || eb != assigned {
-		return nil, nil
-	}
-	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-	if wallet == nil || err != nil {
 		return nil, nil
 	}
 	sig, err := wallet.SignData(accounts.Account{Address: eb}, accounts.MimetypePosv, posv.PosvRLP(header))
@@ -288,32 +285,16 @@ func (s *Ethereum) PosvRandomNumber(
 			return nil
 		}
 
-		eb, err := s.Etherbase()
-		// Only validator can sign block.
+		eb, wallet, err := s.getEtherbaseWallet()
 		if err != nil || eb.IsZero() {
 			return nil
 		}
-		snap, err := c.GetSnapshot(s.blockchain, block.Header())
-		if err != nil {
-			return nil
-		}
-		if _, ok := snap.Signers[eb]; !ok {
+		if !s.isEligibleValidator(c, eb, block.Header()) {
 			log.Debug("[Backend][RandomNumber] Not a validator in this epoch", "etherbase", eb, "number", number)
 			return nil
 		}
-		wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-		if wallet == nil || err != nil {
-			log.Warn("[Backend][RandomNumber] Etherbase key is not available", "etherbase", eb, "err", err)
-			return nil
-		}
 
-		statedb, err := s.blockchain.State()
-		if err != nil {
-			return err
-		}
-		nonce := statedb.GetNonce(eb)
-		pendingTxs, _ := s.txPool.Pending()
-		nonce += uint64(len(pendingTxs[eb]))
+		nonce := s.nextNonce(eb)
 
 		key := viction.GenerateRandomKey()
 		secret, err := viction.GenerateRandomNumber(posvConfig.Epoch, key)
@@ -322,23 +303,13 @@ func (s *Ethereum) PosvRandomNumber(
 			return err
 		}
 		tx := viction.CreateSetRandomizeSecretTransaction(nonce, vicConfig.RandomizerContract, secret)
-		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
-		if err != nil {
-			return err
-		}
-		if err := s.txPool.AddLocal(signedTx); err != nil {
-			if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
-				log.Info("[Backend][RandomNumber] RandomizeSecret transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
-				return nil
-			}
-			log.Warn("[Backend][RandomNumber] Failed to submit RandomizeSecret transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+		if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "RandomNumber"); err != nil {
 			return err
 		}
 		if err := chaindb.Put(viction.RandomizeKeyName, key); err != nil {
 			log.Error("[Backend][RandomNumber] Failed to store RandomizeKey to database", "number", number, "err", err)
 			return err
 		}
-		log.Info("[Backend][RandomNumber] Submitted RandomizeSecret transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
 		return nil
 	}
 	openingPhase := blockOfEpoch > 0 && blockOfEpoch >= vicConfig.RandomizerRevealNthBlock && blockOfEpoch <= vicConfig.RandomizerFinaleNthBlock
@@ -350,50 +321,24 @@ func (s *Ethereum) PosvRandomNumber(
 			return nil
 		}
 
-		eb, err := s.Etherbase()
-		// Only validator can sign block.
+		eb, wallet, err := s.getEtherbaseWallet()
 		if err != nil || eb.IsZero() {
 			return nil
 		}
-		snap, err := c.GetSnapshot(s.blockchain, block.Header())
-		if err != nil {
-			return nil
-		}
-		if _, ok := snap.Signers[eb]; !ok {
+		if !s.isEligibleValidator(c, eb, block.Header()) {
 			log.Debug("[Backend][RandomNumber] Not a validator in this epoch", "etherbase", eb, "number", number)
 			return nil
 		}
-		wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-		if wallet == nil || err != nil {
-			log.Warn("[Backend][RandomNumber] Etherbase key is not available", "etherbase", eb, "err", err)
-			return nil
-		}
 
-		statedb, err := s.blockchain.State()
-		if err != nil {
-			return err
-		}
-		nonce := statedb.GetNonce(eb)
-		pendingTxs, _ := s.txPool.Pending()
-		nonce += uint64(len(pendingTxs[eb]))
+		nonce := s.nextNonce(eb)
 
 		tx := viction.CreateSetRandomizeOpeningTransaction(nonce, vicConfig.RandomizerContract, key)
-		signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
-		if err != nil {
-			return err
-		}
-		if err := s.txPool.AddLocal(signedTx); err != nil {
-			if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
-				log.Info("[Backend][RandomNumber] RandomizeOpening transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
-				return nil
-			}
-			log.Warn("[Backend][RandomNumber] Failed to submit RandomizeOpening transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+		if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "RandomNumber"); err != nil {
 			return err
 		}
 		if err := chaindb.Delete(viction.RandomizeKeyName); err != nil {
 			log.Error("[Backend][RandomNumber] Failed to delete RandomizeKey in database", "number", number, "err", err)
 		}
-		log.Info("[Backend][RandomNumber] Submitted RandomizeSecret transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
 	}
 	return nil
 }
@@ -414,44 +359,31 @@ func (s *Ethereum) PosvSignBlock(
 		return nil
 	}
 
-	eb, err := s.Etherbase()
-	// Only validator can sign block.
+	eb, wallet, err := s.getEtherbaseWallet()
 	if err != nil || eb.IsZero() {
 		return nil
 	}
-	snap, err := c.GetSnapshot(s.blockchain, block.Header())
-	if err != nil {
-		return nil
-	}
-	if _, ok := snap.Signers[eb]; !ok {
+	if !s.isEligibleValidator(c, eb, block.Header()) {
 		log.Debug("[Backend][SignBlock] Not a validator in this epoch", "etherbase", eb, "number", block.NumberU64())
 		return nil
 	}
-	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-	if wallet == nil || err != nil {
-		log.Warn("[Backend][SignBlock] Etherbase key is not available", "etherbase", eb, "err", err)
-		return nil
-	}
 
-	statedb, err := s.blockchain.State()
-	if err != nil {
-		return err
-	}
-	nonce := statedb.GetNonce(eb)
-	tx := viction.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
-	signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, config.ChainID)
-	if err != nil {
-		return err
-	}
-	if err := s.txPool.AddLocal(signedTx); err != nil {
-		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
-			log.Info("[Backend][SignBlock] BlockSign transaction is duplicated", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
+	nonce := s.nextNonce(eb)
+	pendingTxs, _ := s.txPool.Pending()
+
+	expectedData := viction.CreateBlockSignData(block.Number(), block.Hash())
+	contractAddr := config.Viction.ValidatorBlockSignContract
+	for _, tx := range pendingTxs[eb] {
+		if tx.To() != nil && *tx.To() == contractAddr && bytes.Equal(tx.Data(), expectedData) {
+			log.Info("[Backend][SignBlock] Skipped. BlockSign transaction already exists in pool", number, "blockHash", block.Hash(), "etherbase", eb, "nonce", tx.Nonce())
 			return nil
 		}
-		log.Warn("[Backend][SignBlock] Failed to submit BlockSign transaction", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce, "err", err)
+	}
+
+	tx := viction.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
+	if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "SignBlock"); err != nil {
 		return err
 	}
-	log.Info("[Backend][SignBlock] Submitted BlockSign transaction", "number", number, "blockHash", block.Hash(), "etherbase", eb, "txHash", signedTx.Hash(), "nonce", nonce)
 	return nil
 }
 
@@ -482,6 +414,62 @@ func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node
 	lendingEngine := lending.New(tradingStatedb, tradingEngine, s.blockchain.Config())
 	s.blockchain.SetLendingEngine(lendingEngine)
 
+	return nil
+}
+
+// Get current etherbase altogether with it signing wallet.
+func (s *Ethereum) getEtherbaseWallet() (common.Address, accounts.Wallet, error) {
+	eb, err := s.Etherbase()
+	if err != nil || eb.IsZero() {
+		return common.Address{}, nil, err
+	}
+	wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+	if wallet == nil || err != nil {
+		return common.Address{}, nil, err
+	}
+	return eb, wallet, nil
+}
+
+// Check if given etherbase is eligble signer for given header.
+func (s *Ethereum) isEligibleValidator(c *posv.Posv, eb common.Address, header *types.Header) bool {
+	snap, err := c.GetSnapshot(s.blockchain, header)
+	if err != nil {
+		return false
+	}
+	_, ok := snap.Signers[eb]
+	return ok
+}
+
+// Return available nonce for the given address, with txPool awareness.
+func (s *Ethereum) nextNonce(addr common.Address) uint64 {
+	statedb, err := s.blockchain.State()
+	if err != nil {
+		return 0
+	}
+	nonce := statedb.GetNonce(addr)
+	pendingTxs, _ := s.txPool.Pending()
+	nonce += uint64(len(pendingTxs[addr]))
+	return nonce
+}
+
+// Sign and submit given transaction to local txPool.
+func (s *Ethereum) signAndSubmitTransaction(eb common.Address, wallet accounts.Wallet, tx *types.Transaction, chainID *big.Int, txLabel string) error {
+	signedTx, err := wallet.SignTx(accounts.Account{Address: eb}, tx, chainID)
+	if err != nil {
+		return err
+	}
+	if err := s.txPool.AddLocal(signedTx); err != nil {
+		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+			log.Info(fmt.Sprintf("[Backend][%s] Transaction is duplicated", txLabel),
+				"txHash", signedTx.Hash(), "etherbase", eb, "nonce", signedTx.Nonce())
+			return nil
+		}
+		log.Warn(fmt.Sprintf("[Backend][%s] Failed to submit transaction", txLabel),
+			"txHash", signedTx.Hash(), "etherbase", eb, "nonce", signedTx.Nonce(), "err", err)
+		return err
+	}
+	log.Info(fmt.Sprintf("[Backend][%s] Submitted transaction", txLabel),
+		"txHash", signedTx.Hash(), "etherbase", eb, "nonce", signedTx.Nonce())
 	return nil
 }
 
