@@ -162,6 +162,7 @@ var (
 		utils.EWASMInterpreterFlag,
 		utils.EVMInterpreterFlag,
 		utils.SkipCompatRewindFlag,
+		utils.SyncThresholdFlag,
 		configFileFlag,
 	}
 

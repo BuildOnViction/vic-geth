@@ -743,6 +743,11 @@ var (
 		Name:  "skip-compat-rewind",
 		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
 	}
+	SyncThresholdFlag = cli.Uint64Flag{
+		Name:  "sync-threshold",
+		Usage: "Maximum block height the node will accept (0 = no limit)",
+		Value: 0,
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1624,6 +1629,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Viction-specific flags
 	if ctx.GlobalIsSet(SkipCompatRewindFlag.Name) {
 		cfg.SkipCompatRewind = ctx.GlobalBool(SkipCompatRewindFlag.Name)
+	}
+	if ctx.GlobalIsSet(SyncThresholdFlag.Name) {
+		cfg.SyncThreshold = ctx.GlobalUint64(SyncThresholdFlag.Name)
 	}
 
 	// Override any default configs for hard coded networks.
