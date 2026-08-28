@@ -158,27 +158,27 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	return viction.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
 }
 
-// Calculate reward at the end of each epoch.
-func (s *Ethereum) PosvGetEpochReward(
+// Calculate rewards at the end of each epoch.
+func (s *Ethereum) PosvGetEpochRewards(
 	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
-	blockNumber := header.Number.Uint64()
+	number := header.Number.Uint64()
 
-	// Skip block 900 (1*epoch); first reward at block 1800 (2*epoch)
-	if blockNumber <= posvConfig.Epoch {
+	// First epoch won't include any rewards
+	if !posvConfig.IsCheckpointBlock(number) || number <= posvConfig.Epoch {
 		return epochRewards, nil
 	}
 
 	// Get initial reward
 	initialRewardPerEpoch := (*big.Int)(vicConfig.RewardPerEpoch)
-	totalReward := viction.CalcDefaultRewardPerBlock(initialRewardPerEpoch, blockNumber, posvConfig.BlocksPerYear())
+	totalReward := viction.CalcDefaultRewardPerBlock(initialRewardPerEpoch, number, posvConfig.BlocksPerYear())
 
 	// Get additional reward for Saigon upgrade
 	if config.IsSaigon(header.Number) && vicConfig.SaigonRewardPerEpoch != nil {
 		saigonRewardPerEpoch := (*big.Int)(vicConfig.SaigonRewardPerEpoch)
-		saigonReward := viction.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, blockNumber, posvConfig.BlocksPerYear())
+		saigonReward := viction.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, number, posvConfig.BlocksPerYear())
 		totalReward = new(big.Int).Add(totalReward, saigonReward)
 	}
 
@@ -189,20 +189,15 @@ func (s *Ethereum) PosvGetEpochReward(
 	}
 	epochRewards.ValidatorRewards = validatorRewards
 
-	// Use pre-transaction state for voter caps
-	parentHeader := chain.GetHeader(header.ParentHash, blockNumber-1)
-	var rewardState *state.StateDB
-	if parentHeader != nil {
-		rewardState, err = s.BlockChain().StateAt(parentHeader.Root)
-		if err != nil {
-			logger.Warn("PosvGetEpochReward: failed to get parent state, falling back to current state", "block", blockNumber, "err", err)
-			rewardState = statedb
-		}
-	} else {
-		rewardState = statedb
+	// Use parent state for voter caps
+	preCheckpointHeader := chain.GetHeader(header.ParentHash, number-1)
+	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
+	if err != nil {
+		logger.Warn("[Backend][GetEpochReward]: failed to get preCheckpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
+		return epochRewards, err
 	}
 
-	stakeholderRewards, nestedRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, rewardState, logger)
+	stakeholderRewards, nestedRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +209,7 @@ func (s *Ethereum) PosvGetEpochReward(
 
 // Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
 func (s *Ethereum) PosvDistributeEpochRewards(
-	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
+	header *types.Header, epochReward *posv.EpochReward, state *state.StateDB,
 ) error {
 	if state == nil || epochReward == nil {
 		return nil

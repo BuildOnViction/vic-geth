@@ -446,11 +446,11 @@ func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header
 			if !ok {
 				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
 			}
-			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
+			epochReward, err := c.backend.PosvGetEpochRewards(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
 			}
-			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			err = c.backend.PosvDistributeEpochRewards(header, epochReward, state)
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
 			}

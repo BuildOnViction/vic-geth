@@ -93,7 +93,7 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 		return nil, err
 	}
 
-	epochReward, err := s.eth.PosvGetEpochReward(
+	epochReward, err := s.eth.PosvGetEpochRewards(
 		engine,
 		cfg,
 		cfg.Posv,

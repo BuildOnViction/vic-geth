@@ -101,15 +101,15 @@ type PosvBackend interface {
 		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
 	) (map[common.Address]common.Address, uint64, error)
 
-	// Calculate and distribute reward at the end of each epoch.
-	PosvGetEpochReward(
+	// Calculate rewards at the end of each epoch.
+	PosvGetEpochRewards(
 		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
 		chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
 	) (*EpochReward, error)
 
 	// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
 	PosvDistributeEpochRewards(
-		header *types.Header, state *state.StateDB, epochReward *EpochReward,
+		header *types.Header, epochReward *EpochReward, state *state.StateDB,
 	) error
 
 	// Penalize validators for creating bad block or not creating block at all.
