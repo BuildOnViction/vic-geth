@@ -293,6 +293,25 @@ func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, ch
 	return nil
 }
 
+// Get penalty list from headers for previous epochs.
+func GetPenaltiesFromHeaders(
+	posvConfig *params.PosvConfig,
+	number, epochCount uint64,
+	chain consensus.ChainHeaderReader,
+) [][]common.Address {
+	results := make([][]common.Address, 0)
+	for i := uint64(1); i <= epochCount; i++ {
+		if number <= (i * posvConfig.Epoch) {
+			continue
+		}
+		prevCheckpointBlockNumber := number - (i * posvConfig.Epoch)
+		prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+		penalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
+		results = append(results, penalties)
+	}
+	return results
+}
+
 // ecrecover2 extracts the Ethereum account address from a Attestor header.
 func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	// If the signature's already cached, return that

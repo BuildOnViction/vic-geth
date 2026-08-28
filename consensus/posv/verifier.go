@@ -268,25 +268,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		return nil
 	}
 
-	// Remove penalized validators from validator list.
-	removePenaltizedValidators := func(validators []common.Address) ([]common.Address, error) {
-		for i := uint64(1); i <= config.Viction.PenaltyEpochCount; i++ {
-			if number <= (i * posvConfig.Epoch) {
-				continue
-			}
-			prevCheckpointBlockNumber := number - (i * posvConfig.Epoch)
-			prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-			if prevCheckpointHeader == nil {
-				return nil, errCannotGetCheckpointHeader
-			}
-			prevPenalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
-			if len(prevPenalties) > 0 {
-				validators = common.SetSubstract(validators, prevPenalties)
-			}
-		}
-		return validators, nil
-	}
-
 	// Check that validators in the header (remote) can be recomputed from local state.
 	validateRemoteHeader := func(remoteHeader *types.Header, localValidators []common.Address) error {
 		// Validate penalties
@@ -307,7 +288,12 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if len(penalties) > 0 {
 			validators = common.SetSubstract(validators, penalties)
 		}
-		validators, err = removePenaltizedValidators(validators)
+		previousPenalties := GetPenaltiesFromHeaders(posvConfig, number, config.Viction.PenaltyEpochCount, chain)
+		for _, penalties := range previousPenalties {
+			if len(penalties) > 0 {
+				validators = common.SetSubstract(validators, penalties)
+			}
+		}
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local validators", "number", number)
 			return err
