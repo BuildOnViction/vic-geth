@@ -1,4 +1,7 @@
 // Copyright 2016 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -58,23 +61,25 @@ var VersionWithMeta = func() string {
 // e.g. "1.8.11-dea1ce05" for stable releases, or
 // "1.8.13-unstable-21c059b6" for unstable releases
 func ArchiveVersion(gitCommit string) string {
-	vsn := VersionWithMeta
+	vsn := Version
 	if VictionMeta != "stable" {
 		vsn += "-" + VictionMeta
 	}
 	if len(gitCommit) >= 8 {
 		vsn += "-" + gitCommit[:8]
 	}
+	vsn += ApiVersion
 	return vsn
 }
 
 func VersionWithCommit(gitCommit, gitDate string) string {
-	vsn := VersionWithMeta
+	vsn := Version
 	if len(gitCommit) >= 8 {
 		vsn += "-" + gitCommit[:8]
 	}
 	if (VictionMeta != "stable") && (gitDate != "") {
 		vsn += "-" + gitDate
 	}
+	vsn += ApiVersion
 	return vsn
 }
