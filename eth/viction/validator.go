@@ -21,8 +21,10 @@ package viction
 
 import (
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -62,6 +64,43 @@ func GetCreatorAttestorPairsFromState(config *params.ChainConfig, posvConfig *pa
 	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
 }
 
+// Return validator list from state.
+func GetValidatorsFromState(
+	vicConfig *params.VictionConfig, useStableSort bool,
+	statedb *state.StateDB,
+) ([]common.Address, error) {
+	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
+	candidates := []*posv.ValidatorInfo{}
+	for _, addr := range addresses {
+		if addr == (common.Address{}) {
+			continue
+		}
+		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
+		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
+	}
+
+	if useStableSort {
+		sort.SliceStable(candidates, func(i, j int) bool {
+			return candidates[i].Capacity.Cmp(candidates[j].Capacity) >= 0
+		})
+	} else {
+		sortlgc.Slice(candidates, func(i, j int) bool {
+			return candidates[i].Capacity.Cmp(candidates[j].Capacity) >= 0
+		})
+	}
+
+	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
+	if len(candidates) > validatorMaxCountInt {
+		candidates = candidates[:validatorMaxCountInt]
+	}
+	validators := []common.Address{}
+	for _, candidate := range candidates {
+		validators = append(validators, candidate.Address)
+	}
+	return validators, nil
+}
+
+// Return validator-attestor pairs from validator list and attestor indices.
 func getCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
 	number uint64, validators []common.Address, attestorIdxs []int64,
 ) (map[common.Address]common.Address, uint64, error) {

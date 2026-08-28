@@ -3,11 +3,9 @@ package eth
 import (
 	"fmt"
 	"math/big"
-	"sort"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
@@ -264,43 +262,11 @@ func (s *Ethereum) PosvGetValidators(
 		return []common.Address{}, fmt.Errorf("blockchain not initialized (block %v)", header.Number)
 	}
 
-	state, err := bc.StateAt(header.Root)
+	statedb, err := bc.StateAt(header.Root)
 	if err != nil {
 		return []common.Address{}, fmt.Errorf("failed to get state at header root (block %v): %v", header.Number, err)
 	}
-	contracrAddress := vicConfig.ValidatorContract
-	if contracrAddress == (common.Address{}) {
-		return []common.Address{}, viction.ErrNoContractAddress
-	}
-	addresses := state.VicGetCandidates(contracrAddress)
-	candidates := []*posv.ValidatorInfo{}
-	for _, addr := range addresses {
-		if addr == (common.Address{}) {
-			continue
-		}
-		_, cap := state.VicGetValidatorInfo(contracrAddress, addr)
-		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
-	}
-
-	if s.blockchain.Config().IsAtlas(header.Number) {
-		sort.SliceStable(candidates, func(i, j int) bool {
-			return candidates[i].Capacity.Cmp(candidates[j].Capacity) >= 0
-		})
-	} else {
-		sortlgc.Slice(candidates, func(i, j int) bool {
-			return candidates[i].Capacity.Cmp(candidates[j].Capacity) >= 0
-		})
-	}
-
-	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
-	if len(candidates) > validatorMaxCountInt {
-		candidates = candidates[:validatorMaxCountInt]
-	}
-	validators := []common.Address{}
-	for _, candidate := range candidates {
-		validators = append(validators, candidate.Address)
-	}
-	return validators, nil
+	return viction.GetValidatorsFromState(vicConfig, s.blockchain.Config().IsAtlas(header.Number), statedb)
 }
 
 // Create new Randomize transaction and submit to TxPool.
