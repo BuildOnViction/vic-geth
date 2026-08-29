@@ -28,7 +28,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"strconv"
+
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -120,4 +128,40 @@ func GenerateSequence(start, step, repeat int64) []int64 {
 	}
 
 	return s
+}
+
+// Check if given etherbase is eligble signer for given snapshot.
+func IsEligibleValidator(etherbase common.Address, snapshot *posv.Snapshot) bool {
+	_, ok := snapshot.Signers[etherbase]
+	return ok
+}
+
+// Return available nonce for the given address, with txPool awareness.
+func NextNonce(addr common.Address, blockchain *core.BlockChain, txPool *core.TxPool) uint64 {
+	statedb, err := blockchain.State()
+	if err != nil {
+		return 0
+	}
+	nonce := statedb.GetNonce(addr)
+	pendingTxs, _ := txPool.Pending(false)
+	nonce += uint64(len(pendingTxs[addr]))
+	return nonce
+}
+
+// Sign and submit given transaction to local txPool.
+func SignAndSubmitTransaction(etherbase common.Address, wallet accounts.Wallet, transaction *types.Transaction, chainID *big.Int, txPool *core.TxPool, label string) error {
+	signedTransaction, err := wallet.SignTx(accounts.Account{Address: etherbase}, transaction, chainID)
+	if err != nil {
+		return err
+	}
+	if err := txPool.AddLocal(signedTransaction); err != nil {
+		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+			log.Info(fmt.Sprintf("[%s] Transaction is duplicated", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce())
+			return nil
+		}
+		log.Warn(fmt.Sprintf("[%s] Failed to submit transaction", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce(), "err", err)
+		return err
+	}
+	log.Info(fmt.Sprintf("[%s] Submitted transaction", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce())
+	return nil
 }

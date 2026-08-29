@@ -20,13 +20,17 @@
 package viction
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
 )
@@ -95,4 +99,46 @@ func GetBlockSignData(
 	}
 	blksigCache.Add(blockHash, data)
 	return data, nil
+}
+
+// Create new BlockSign transaction and submit it to TxPool.
+func SubmitBlockSignTransaction(
+	block *types.Block,
+	snapshot *posv.Snapshot,
+	config *params.ChainConfig,
+	victionConfig *params.VictionConfig,
+	blockchain *core.BlockChain,
+	etherbase common.Address,
+	wallet accounts.Wallet,
+	txPool *core.TxPool,
+) error {
+	number := block.NumberU64()
+	// Pre-TIP2019: Emit SignBlock transaction every block.
+	// TIP2019: Emit SignBlock transaction every *vicConfig.ValidatorSignInterval* blocks.
+	if config.IsTIP2019(block.Number()) && number%victionConfig.ValidatorSignInterval != 0 {
+		return nil
+	}
+	if etherbase.IsZero() {
+		return nil
+	}
+	if !IsEligibleValidator(etherbase, snapshot) {
+		return nil
+	}
+
+	nonce := NextNonce(etherbase, blockchain, txPool)
+	pendingTxs, _ := txPool.Pending(false)
+	expectedData := CreateBlockSignData(block.Number(), block.Hash())
+	contractAddr := victionConfig.ValidatorBlockSignContract
+	for _, transaction := range pendingTxs[etherbase] {
+		if transaction.To() != nil && *transaction.To() == contractAddr && bytes.Equal(transaction.Data(), expectedData) {
+			log.Info("[SignBlock] Skipped. BlockSign transaction already exists in pool", number, "blockHash", block.Hash(), "etherbase", etherbase, "nonce", transaction.Nonce())
+			return nil
+		}
+	}
+
+	transaction := CreateBlockSignTransaction(nonce, victionConfig.ValidatorBlockSignContract, block.Number(), block.Hash())
+	if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "SignBlock"); err != nil {
+		return err
+	}
+	return nil
 }

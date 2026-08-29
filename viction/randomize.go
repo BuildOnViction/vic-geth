@@ -25,9 +25,14 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -165,4 +170,74 @@ func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, e
 	}
 
 	return attestorIndices, nil
+}
+
+// Crate new Randomize transaction and submit it to TxPool.
+func SubmitRandomNumberTransaction(
+	block *types.Block,
+	snapshot *posv.Snapshot,
+	config *params.ChainConfig,
+	posvConfig *params.PosvConfig,
+	victionConfig *params.VictionConfig,
+	blockchain *core.BlockChain,
+	chaindb ethdb.KeyValueStore,
+	etherbase common.Address,
+	wallet accounts.Wallet,
+	txPool *core.TxPool,
+) error {
+	number := block.NumberU64()
+	if !config.IsTIPRandomize(block.Number()) {
+		return nil
+	}
+	if etherbase.IsZero() {
+		return nil
+	}
+	if !IsEligibleValidator(etherbase, snapshot) {
+		return nil
+	}
+
+	blockOfEpoch := number % posvConfig.Epoch
+	commitPhase := victionConfig.IsRandomizerCommitPhase(blockOfEpoch)
+	if commitPhase {
+		exists, _ := chaindb.Has(RandomizeKeyName)
+		if exists {
+			// Already committed this epoch.
+			return nil
+		}
+
+		nonce := NextNonce(etherbase, blockchain, txPool)
+		key := GenerateRandomKey()
+		secret, err := GenerateRandomNumber(posvConfig.Epoch, key)
+		if err != nil {
+			log.Error("[RandomNumber] Failed to generate RandomNumber", "number", number, "err", err)
+			return err
+		}
+		transaction := CreateSetRandomizeSecretTransaction(nonce, victionConfig.RandomizerContract, secret)
+		if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "RandomNumber"); err != nil {
+			return err
+		}
+		if err := chaindb.Put(RandomizeKeyName, key); err != nil {
+			log.Error("[RandomNumber] Failed to store RandomizeKey to database", "number", number, "err", err)
+			return err
+		}
+		return nil
+	}
+	openingPhase := victionConfig.IsRandomizerOpeningPhase(blockOfEpoch)
+	if openingPhase {
+		key, err := chaindb.Get(RandomizeKeyName)
+		if err != nil || len(key) == 0 {
+			// Either already revealed or never committed in this epoch.
+			return nil
+		}
+
+		nonce := NextNonce(etherbase, blockchain, txPool)
+		transaction := CreateSetRandomizeOpeningTransaction(nonce, victionConfig.RandomizerContract, key)
+		if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "RandomNumber"); err != nil {
+			return err
+		}
+		if err := chaindb.Delete(RandomizeKeyName); err != nil {
+			log.Error("[RandomNumber] Failed to delete RandomizeKey in database", "number", number, "err", err)
+		}
+	}
+	return nil
 }

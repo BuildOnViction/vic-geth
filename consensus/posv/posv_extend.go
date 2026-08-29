@@ -259,7 +259,7 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 func GetCheckpointHeader(
 	posvConfig *params.PosvConfig,
 	header *types.Header, parents []*types.Header,
-	chain consensus.ChainHeaderReader,
+	chainHReader consensus.ChainHeaderReader,
 ) *types.Header {
 	blockNumber := header.Number.Uint64()
 	if blockNumber%posvConfig.Epoch == 0 {
@@ -268,7 +268,7 @@ func GetCheckpointHeader(
 	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
 
 	// Try canonical DB first (covers prior epochs already committed).
-	if h := chain.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
+	if h := chainHReader.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
 		return h
 	}
 	for _, parent := range parents {
