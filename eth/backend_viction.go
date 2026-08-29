@@ -38,43 +38,33 @@ const recentBlockSigners = 10500 // Number of recent block sign transactions to 
 func (s *Ethereum) PosvGetAttestors(
 	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 ) ([]int64, error) {
-	state, err := s.blockchain.State()
+	state, err := s.BlockChain().State()
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestors(vicConfig, validators, state)
+	return viction.GetAttestorsFromState(vicConfig, validators, state)
 }
 
 // Get creator-attestor pairs from the state.
 func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
-	number := header.Number.Uint64()
-	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
-	attestorIdxs := posv.ExtractAttestorsFromCheckpointHeader(checkpointHeader)
-	pairs, offset, err := viction.GetCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
-	if err != viction.ErrInvalidAttestorList {
-		// Either success or a non-recoverable error — propagate as-is.
+	if config.Viction == nil || checkpointHeader == nil {
+		return nil, 0, viction.ErrInvalidAttestorList
+	}
+	pairs, offset, err := viction.GetCreatorAttestorPairsFromCheckpointHeader(config, config.Posv, header, checkpointHeader)
+	if err == nil || err != viction.ErrNoValidator {
 		return pairs, offset, err
 	}
 
-	// Try to rebuild create-attestor pairs from state.
-	if checkpointHeader == nil {
-		return nil, 0, err
-	}
+	number := header.Number.Uint64()
 	checkpointNumber := checkpointHeader.Number.Uint64()
-	stateAtCheckpoint, err2 := s.blockchain.StateAt(checkpointHeader.Root)
-	if err2 != nil {
-		log.Warn("[Backend][GetCreatorAttestorPairs] fallback: failed to get state at checkpoint", "checkpoint", checkpointNumber, "err", err2)
+	log.Warn("[Backend][GetCreatorAttestorPairs] Get Creator-Attestor Pairs from checkpoint header failed. Retry with state", "checkpoint", checkpointNumber, "number", number)
+	stateAtCheckpoint, err := s.blockchain.StateAt(checkpointHeader.Root)
+	if err != nil {
 		return nil, 0, err
 	}
-	attestorIdxs, err2 = viction.GetAttestors(victionConfig, validators, stateAtCheckpoint)
-	if err2 != nil {
-		log.Warn("[Backend][GetCreatorAttestorPairs] fallback: cannot compute attestors", "checkpoint", checkpointNumber, "err", err2)
-		return nil, 0, err
-	}
-	log.Warn("[Backend][GetCreatorAttestorPairs] rebuild creator-attestor pairs from state", "checkpoint", checkpointNumber, "number", number)
-	return viction.GetCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+	return viction.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
 }
 
 // Calculate rewards at the end of each epoch.
@@ -133,6 +123,7 @@ func (s *Ethereum) PosvGetValidators(
 	return viction.GetValidators(config, vicConfig, header, state)
 }
 
+// Attach services required by Viction blockchain.
 func (eth *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig) error {
 	if chainConfig.Posv == nil {
 		return nil

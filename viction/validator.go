@@ -31,6 +31,38 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// Return map of validator-attestor pairs from checkpoint header (Both validators and attestorIndices are from checkpoint header).
+func GetCreatorAttestorPairsFromCheckpointHeader(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
+	header, checkpointHeader *types.Header,
+) (map[common.Address]common.Address, uint64, error) {
+	number := header.Number.Uint64()
+	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, 0, ErrNoValidator
+	}
+	attestorIdxs := posv.ExtractAttestorsFromCheckpointHeader(checkpointHeader)
+	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+}
+
+// Return map of validator-attestor pairs from state (Validators is from checkpoint header, attestorIndices are from state).
+func GetCreatorAttestorPairsFromState(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
+	header, checkpointHeader *types.Header,
+	statedb *state.StateDB,
+) (map[common.Address]common.Address, uint64, error) {
+	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, 0, ErrNoValidator
+	}
+	number := header.Number.Uint64()
+	attestorIdxs, err := GetAttestorsFromState(config.Viction, validators, statedb)
+	if err != nil {
+		return nil, 0, err
+	}
+	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+}
+
 // Return addresses of eligble validators from the state.
 func GetValidators(
 	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
@@ -71,8 +103,9 @@ func GetValidators(
 	return validators, nil
 }
 
-// Return Create-Attestor mapping from validators list and randomized attestors indices.
-func GetCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
+// Return validator-attestor pairs from validator list and attestor indices.
+func getCreatorAttestorPairs(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
 	number uint64, validators []common.Address, attestorIdxs []int64,
 ) (map[common.Address]common.Address, uint64, error) {
 	results := map[common.Address]common.Address{}
