@@ -20,12 +20,70 @@
 package viction
 
 import (
+	"fmt"
+	"math/big"
 	"math/rand"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 )
+
+var (
+	RandomizeKeyName = []byte("randomizeKey")
+)
+
+// Serialize `Randomize.setSecret“ function call data.
+func CreateSetRandomizeSecretData(secret []byte) []byte {
+	data := common.Hex2Bytes("34d38600") // setSecret(bytes32[])
+	data = append(data, common.LeftPadBytes(big.NewInt(32).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(1).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes([]byte(secret), 32)...)
+	return data
+}
+
+// Create `Randomize.setSecret` transaction.
+func CreateSetRandomizeSecretTransaction(nonce uint64, contractAddr common.Address, secret []byte) *types.Transaction {
+	data := CreateSetRandomizeSecretData(secret)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}
+
+// Serialize `Randomize.setOpening` function call data.
+func CreateSetRandomizeOpeningData(key []byte) []byte {
+	data := common.Hex2Bytes("e11f5ba2") // setOpening(bytes32)
+	data = append(data, key...)
+	return data
+}
+
+// Create `Randomize.setOpening` transaction.
+func CreateSetRandomizeOpeningTransaction(nonce uint64, contractAddr common.Address, key []byte) *types.Transaction {
+	data := CreateSetRandomizeOpeningData(key)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}
+
+// Generate new 32-byte key for the randomize protocol.
+func GenerateRandomKey() []byte {
+	rand.Seed(time.Now().UnixNano())
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return b
+}
+
+// Generate pseudo-random number and encrypt it using the given key.
+func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
+	rand.Seed(time.Now().UnixNano())
+	secretNumber := rand.Intn(int(max))
+	encrypted, err := EncryptAesCfb(key, fmt.Sprintf("%d", secretNumber))
+	if err != nil {
+		return nil, fmt.Errorf("encrypt secret: %w", err)
+	}
+	return []byte(encrypted), nil
+}
 
 // Rerturn attestor indices from state.
 func GetAttestorsFromState(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {

@@ -21,13 +21,29 @@ package viction
 
 import (
 	"fmt"
+	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
 )
+
+// Serialize `BlockSign.sign` function call data.
+func CreateBlockSignData(blockNumber *big.Int, blockHash common.Hash) []byte {
+	data := common.Hex2Bytes("e341eaa4") // sign(uint256,bytes32)
+	data = append(data, common.LeftPadBytes(blockNumber.Bytes(), 32)...)
+	data = append(data, blockHash.Bytes()...)
+	return data
+}
+
+// Create `BlockSign.sign` transaction.
+func CreateBlockSignTransaction(nonce uint64, contractAddr common.Address, blockNumber *big.Int, blockHash common.Hash) *types.Transaction {
+	data := CreateBlockSignData(blockNumber, blockHash)
+	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
+}
 
 // Get block signers for a given block from the state. Results are cached by block hash.
 func GetBlockSignData(
@@ -36,7 +52,7 @@ func GetBlockSignData(
 	chain consensus.ChainReader, bc *core.BlockChain, blksigCache *lru.ARCCache,
 ) ([]types.Transaction, error) {
 	if header == nil {
-		return nil, fmt.Errorf("getblocksigndata: header is nil")
+		return nil, nil
 	}
 	blockHash := header.Hash()
 	if signers, ok := blksigCache.Get(blockHash); ok {
@@ -44,28 +60,22 @@ func GetBlockSignData(
 			return signers, nil
 		}
 	}
-	blockNumber := header.Number
-	block := chain.GetBlock(blockHash, blockNumber.Uint64())
+	number := header.Number
+	block := chain.GetBlock(blockHash, number.Uint64())
 	if block == nil {
-		return nil, fmt.Errorf("getblocksigndata: block body not found (number=%d hash=%s)", blockNumber, blockHash)
+		return nil, fmt.Errorf("block %d (%s) body not found", number, blockHash)
 	}
+
 	data := []types.Transaction{}
-
-	// Successful signing txs count toward rewards and penalties, failed txs don't.
+	// Successful signing transactions count toward rewards and penalties, failed transactions don't.
 	// On post-Byzantium receipt format, `Receipt.Status` is the correct source of success/failure. Using `len(PostState)` is unreliable and can misclassify.
-	var receipts types.Receipts
-	if config != nil {
-		receipts = bc.GetReceiptsByHash(blockHash)
-	}
-	txs := block.Transactions()
-	if receipts != nil && len(receipts) != len(txs) {
-		return nil, fmt.Errorf(
-			"getblocksigndata: receipts/tx count mismatch (number=%d hash=%s txs=%d receipts=%d)",
-			blockNumber.Uint64(), blockHash, len(txs), len(receipts),
-		)
+	transactions := block.Transactions()
+	receipts := bc.GetReceiptsByHash(blockHash)
+	if len(transactions) != len(receipts) {
+		return nil, fmt.Errorf("block %d (%s) has mismatched number of transactions and receipts", number.Uint64(), blockHash)
 	}
 
-	for i, tx := range txs {
+	for i, tx := range transactions {
 		if !tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) {
 			continue
 		}
