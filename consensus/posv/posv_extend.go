@@ -96,7 +96,7 @@ type PosvBackend interface {
 	PosvGetEpochRewards(
 		header *types.Header,
 		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
-		chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
+		chainReader consensus.ChainReader, state *state.StateDB, logger log.Logger,
 	) (*EpochReward, error)
 
 	// Add balance rewards to the state.
@@ -109,14 +109,14 @@ type PosvBackend interface {
 	PosvGetPenalties(
 		header *types.Header, validators []common.Address,
 		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
-		chain consensus.ChainReader,
+		chainReader consensus.ChainReader,
 	) ([]common.Address, error)
 
 	// Get eligble validators from the state.
 	PosvGetValidators(
 		header *types.Header,
 		config *params.ChainConfig, victionConfig *params.VictionConfig,
-		chain consensus.ChainReader,
+		chainReader consensus.ChainReader,
 	) ([]common.Address, error)
 }
 

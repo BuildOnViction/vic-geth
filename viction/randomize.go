@@ -86,12 +86,16 @@ func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
 }
 
 // Rerturn attestor indices from state.
-func GetAttestorsFromState(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
+func GetAttestorsFromState(
+	validators []common.Address,
+	victionConfig *params.VictionConfig,
+	state *state.StateDB,
+) ([]int64, error) {
 	randomizes := []int64{}
 	validatorCount := int64(len(validators))
 	if validatorCount > 0 {
 		for _, validator := range validators {
-			random, err := GetSubmittedRandomOfValidator(vicConfig, validator, state)
+			random, err := GetSubmittedRandomOfValidator(validator, victionConfig, state)
 			if err != nil {
 				return nil, err
 			}
@@ -107,8 +111,12 @@ func GetAttestorsFromState(vicConfig *params.VictionConfig, validators []common.
 }
 
 // Get submitted random number of a given validator.
-func GetSubmittedRandomOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
-	randomizeContract := vicConfig.RandomizerContract
+func GetSubmittedRandomOfValidator(
+	validator common.Address,
+	victionConfig *params.VictionConfig,
+	state *state.StateDB,
+) (int64, error) {
+	randomizeContract := victionConfig.RandomizerContract
 	if randomizeContract == (common.Address{}) {
 		return -1, ErrNoContractAddress
 	}

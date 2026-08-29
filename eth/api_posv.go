@@ -62,7 +62,7 @@ func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Addre
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(chainConfig, chainConfig.Viction, block.Header(), statedb)
+	return viction.GetValidators(block.Header(), chainConfig, chainConfig.Viction, statedb)
 }
 
 type PublicPosvDebugAPI struct {

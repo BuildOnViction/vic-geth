@@ -47,9 +47,9 @@ func CreateBlockSignTransaction(nonce uint64, contractAddr common.Address, block
 
 // Get block signers for a given block from the state. Results are cached by block hash.
 func GetBlockSignData(
-	config *params.ChainConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader, bc *core.BlockChain, blksigCache *lru.ARCCache,
+	config *params.ChainConfig, victionConfig *params.VictionConfig,
+	chainReader consensus.ChainReader, blockchain *core.BlockChain, blksigCache *lru.ARCCache,
 ) ([]types.Transaction, error) {
 	if header == nil {
 		return nil, nil
@@ -61,7 +61,7 @@ func GetBlockSignData(
 		}
 	}
 	number := header.Number
-	block := chain.GetBlock(blockHash, number.Uint64())
+	block := chainReader.GetBlock(blockHash, number.Uint64())
 	if block == nil {
 		return nil, fmt.Errorf("block %d (%s) body not found", number, blockHash)
 	}
@@ -70,13 +70,13 @@ func GetBlockSignData(
 	// Successful signing transactions count toward rewards and penalties, failed transactions don't.
 	// On post-Byzantium receipt format, `Receipt.Status` is the correct source of success/failure. Using `len(PostState)` is unreliable and can misclassify.
 	transactions := block.Transactions()
-	receipts := bc.GetReceiptsByHash(blockHash)
+	receipts := blockchain.GetReceiptsByHash(blockHash)
 	if len(transactions) != len(receipts) {
 		return nil, fmt.Errorf("block %d (%s) has mismatched number of transactions and receipts", number.Uint64(), blockHash)
 	}
 
 	for i, tx := range transactions {
-		if !tx.IsSigningTransaction(vicConfig.ValidatorBlockSignContract) {
+		if !tx.IsSigningTransaction(victionConfig.ValidatorBlockSignContract) {
 			continue
 		}
 		if receipts != nil && i < len(receipts) {

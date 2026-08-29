@@ -35,9 +35,9 @@ import (
 
 // Return reward amount per block based on current block number, including default and Saigon rules.
 func CalcRewardPerEpoch(
-	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader, preCheckpointState *state.StateDB, bc *core.BlockChain, blkSigCache *lru.ARCCache, logger log.Logger,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+	chainReader consensus.ChainReader, preCheckpointState *state.StateDB, blockchain *core.BlockChain, blksigCache *lru.ARCCache, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
 	number := header.Number.Uint64()
@@ -48,24 +48,24 @@ func CalcRewardPerEpoch(
 	}
 
 	// Get initial reward
-	initialRewardPerEpoch := (*big.Int)(vicConfig.RewardPerEpoch)
+	initialRewardPerEpoch := (*big.Int)(victionConfig.RewardPerEpoch)
 	totalReward := CalcDefaultRewardPerBlock(initialRewardPerEpoch, number, posvConfig.BlocksPerYear())
 
 	// Get additional reward for Saigon upgrade
-	if config.IsSaigon(header.Number) && vicConfig.SaigonRewardPerEpoch != nil {
-		saigonRewardPerEpoch := (*big.Int)(vicConfig.SaigonRewardPerEpoch)
+	if config.IsSaigon(header.Number) && victionConfig.SaigonRewardPerEpoch != nil {
+		saigonRewardPerEpoch := (*big.Int)(victionConfig.SaigonRewardPerEpoch)
 		saigonReward := CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, number, posvConfig.BlocksPerYear())
 		totalReward = new(big.Int).Add(totalReward, saigonReward)
 	}
 
 	// Calculate rewards for validators and stakeholders
-	validatorRewards, err := CalcRewardsForValidators(config, posvConfig, vicConfig, header, totalReward, chain, bc, blkSigCache, logger)
+	validatorRewards, err := CalcRewardsForValidators(config, posvConfig, victionConfig, header, totalReward, chainReader, blockchain, blksigCache, logger)
 	if err != nil {
 		return nil, err
 	}
 	epochRewards.ValidatorRewards = validatorRewards
 
-	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
+	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(header, validatorRewards, config, posvConfig, victionConfig, preCheckpointState, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +104,9 @@ func CalcSaigonRewardPerBlock(rewardPerEpoch *big.Int, saigonBlock *big.Int, num
 
 // Return reward amount for all validators in a given epoch.
 func CalcRewardsForValidators(
-	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	header *types.Header, rewardPerEpoch *big.Int,
-	chain consensus.ChainReader, bc *core.BlockChain, blkSigCache *lru.ARCCache, logger log.Logger,
+	chainReader consensus.ChainReader, blockchain *core.BlockChain, blksigCache *lru.ARCCache, logger log.Logger,
 ) (map[common.Address]*posv.ValidatorReward, error) {
 	blockNumber := header.Number.Uint64()
 	prevCheckpoint := blockNumber - (posvConfig.Epoch * 2)
@@ -119,14 +119,14 @@ func CalcRewardsForValidators(
 	signersByBlockHash := make(map[common.Hash][]common.Address)
 	h := header
 	for i := prevCheckpoint + (posvConfig.Epoch * 2) - 1; i >= startBlockNumber; i-- {
-		h = chain.GetHeader(h.ParentHash, i)
+		h = chainReader.GetHeader(h.ParentHash, i)
 		if h == nil {
 			break
 		}
 		blockHashes[i] = h.Hash()
 
 		// Use GetBlockSignData so that pre-TIPSigning blocks are filtered by receipt status
-		txs, err := GetBlockSignData(config, vicConfig, h, chain, bc, blkSigCache)
+		txs, err := GetBlockSignData(h, config, victionConfig, chainReader, blockchain, blksigCache)
 		if err != nil {
 			return nil, err
 		}
@@ -145,14 +145,14 @@ func CalcRewardsForValidators(
 		}
 	}
 
-	prevHeader := chain.GetHeader(h.ParentHash, prevCheckpoint)
+	prevHeader := chainReader.GetHeader(h.ParentHash, prevCheckpoint)
 	if prevHeader == nil {
 		return validatorRewards, nil
 	}
 	validators := posv.ExtractValidatorsFromCheckpointHeader(prevHeader)
 
 	for i := startBlockNumber; i <= endBlockNumber; i++ {
-		if i%vicConfig.ValidatorSignInterval == 0 || !config.IsTIP2019(new(big.Int).SetUint64(i)) {
+		if i%victionConfig.ValidatorSignInterval == 0 || !config.IsTIP2019(new(big.Int).SetUint64(i)) {
 			signers := signersByBlockHash[blockHashes[i]]
 			if len(signers) == 0 {
 				continue
@@ -196,16 +196,16 @@ func CalcRewardsForValidators(
 
 // Return reward amount for all stakeholders in a given epoch.
 func CalcRewardsForStakeholders(
-	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header, validatorRewards map[common.Address]*posv.ValidatorReward,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	statedb *state.StateDB, logger log.Logger,
 ) (map[common.Address]*big.Int, map[common.Address]map[common.Address]*big.Int, error) {
 	stakeholderRewards := make(map[common.Address]*big.Int)
 	nestedRewards := make(map[common.Address]map[common.Address]*big.Int)
 	blockNumber := header.Number.Uint64()
-	rewardValidatorPercent := vicConfig.RewardValidatorPercent
-	rewardVoterPercent := vicConfig.RewardVoterPercent
-	rewardFoundationPercent := vicConfig.RewardFoundationPercent
+	rewardValidatorPercent := victionConfig.RewardValidatorPercent
+	rewardVoterPercent := victionConfig.RewardVoterPercent
+	rewardFoundationPercent := victionConfig.RewardFoundationPercent
 
 	addBalance := func(mapping map[common.Address]*big.Int, addr common.Address, amount *big.Int) {
 		if mapping[addr] == nil {
@@ -223,14 +223,14 @@ func CalcRewardsForStakeholders(
 		distributedTotal := new(big.Int)
 		validatorNested := make(map[common.Address]*big.Int)
 
-		owner, _ := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, validator)
+		owner, _ := statedb.VicGetValidatorInfo(victionConfig.ValidatorContract, validator)
 		rewardForOwner := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardValidatorPercent))
 		rewardForOwner.Div(rewardForOwner, common.Big100)
 		addBalance(stakeholderRewards, owner, rewardForOwner)
 		addBalance(validatorNested, owner, new(big.Int).Set(rewardForOwner))
 		distributedTotal.Add(distributedTotal, rewardForOwner)
 
-		voters := statedb.VicGetValidatorVoters(vicConfig.ValidatorContract, validator)
+		voters := statedb.VicGetValidatorVoters(victionConfig.ValidatorContract, validator)
 		voterRewardDistributed := new(big.Int)
 		if len(voters) > 0 {
 			totalVoterReward := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardVoterPercent))
@@ -243,7 +243,7 @@ func CalcRewardsForStakeholders(
 				if _, ok := voterCaps[voteAddr]; ok && tip2019Block != nil && tip2019Block.Uint64() <= blockNumber {
 					continue
 				}
-				voterCap := statedb.VicGetValidatorVoterCap(vicConfig.ValidatorContract, validator, voteAddr)
+				voterCap := statedb.VicGetValidatorVoterCap(victionConfig.ValidatorContract, validator, voteAddr)
 				totalCap.Add(totalCap, voterCap)
 				voterCaps[voteAddr] = voterCap
 			}
@@ -263,11 +263,11 @@ func CalcRewardsForStakeholders(
 		}
 		distributedTotal.Add(distributedTotal, voterRewardDistributed)
 
-		if vicConfig.RewardFoundationAddress != (common.Address{}) && rewardFoundationPercent > 0 {
+		if victionConfig.RewardFoundationAddress != (common.Address{}) && rewardFoundationPercent > 0 {
 			rewardForFoundation := new(big.Int).Mul(vr.Reward, new(big.Int).SetUint64(rewardFoundationPercent))
 			rewardForFoundation.Div(rewardForFoundation, common.Big100)
-			addBalance(stakeholderRewards, vicConfig.RewardFoundationAddress, rewardForFoundation)
-			addBalance(validatorNested, vicConfig.RewardFoundationAddress, new(big.Int).Set(rewardForFoundation))
+			addBalance(stakeholderRewards, victionConfig.RewardFoundationAddress, rewardForFoundation)
+			addBalance(validatorNested, victionConfig.RewardFoundationAddress, new(big.Int).Set(rewardForFoundation))
 			distributedTotal.Add(distributedTotal, rewardForFoundation)
 		}
 

@@ -43,7 +43,7 @@ func (s *Ethereum) PosvGetAttestors(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestorsFromState(victionConfig, validators, state)
+	return viction.GetAttestorsFromState(validators, victionConfig, state)
 }
 
 // Get creator-attestor pairs from the state.
@@ -73,17 +73,17 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 func (s *Ethereum) PosvGetEpochRewards(
 	header *types.Header,
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
-	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
+	chainReader consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	number := header.Number.Uint64()
-	preCheckpointHeader := chain.GetHeader(header.ParentHash, number-1)
+	preCheckpointHeader := chainReader.GetHeader(header.ParentHash, number-1)
 	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
 	if err != nil {
 		logger.Warn("[Backend] Get preCheckpoint state failed. Fallback to checkpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
 		preCheckpointState = statedb
 	}
 
-	return viction.CalcRewardPerEpoch(config, posvConfig, victionConfig, header, chain, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
+	return viction.CalcRewardPerEpoch(header, config, posvConfig, victionConfig, chainReader, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
 }
 
 // Add balance rewards to the state.
@@ -104,19 +104,19 @@ func (s *Ethereum) PosvDistributeEpochRewards(
 func (s *Ethereum) PosvGetPenalties(
 	header *types.Header, validators []common.Address,
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
-	chain consensus.ChainReader,
+	chainReader consensus.ChainReader,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
-		return viction.PenalizeValidatorsTIPSigning(config, posvConfig, victionConfig, header, validators, chain, s.BlockChain(), s.blockSignersCache)
+		return viction.PenalizeValidatorsTIPSigning(header, validators, config, posvConfig, victionConfig, chainReader, s.BlockChain(), s.blockSignersCache)
 	}
-	return viction.PenalizeValidatorsDefault(config, posvConfig, victionConfig, header, chain, s.BlockChain())
+	return viction.PenalizeValidatorsDefault(header, config, posvConfig, victionConfig, chainReader, s.BlockChain())
 }
 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(
 	header *types.Header,
 	config *params.ChainConfig, victionConfig *params.VictionConfig,
-	chain consensus.ChainReader,
+	chainReader consensus.ChainReader,
 ) ([]common.Address, error) {
 	if header == nil {
 		return []common.Address{}, viction.ErrNilHeader
@@ -125,7 +125,7 @@ func (s *Ethereum) PosvGetValidators(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(config, victionConfig, header, statedb)
+	return viction.GetValidators(header, config, victionConfig, statedb)
 }
 
 // Attach services required by Viction blockchain.

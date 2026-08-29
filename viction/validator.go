@@ -56,7 +56,7 @@ func GetCreatorAttestorPairsFromState(
 		return nil, 0, ErrNoValidator
 	}
 	number := header.Number.Uint64()
-	attestorIdxs, err := GetAttestorsFromState(config.Viction, validators, statedb)
+	attestorIdxs, err := GetAttestorsFromState(validators, config.Viction, statedb)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -65,10 +65,11 @@ func GetCreatorAttestorPairsFromState(
 
 // Return addresses of eligble validators from the state.
 func GetValidators(
-	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	header *types.Header,
+	config *params.ChainConfig, victionConfig *params.VictionConfig,
 	statedb *state.StateDB,
 ) ([]common.Address, error) {
-	contracrAddress := vicConfig.ValidatorContract
+	contracrAddress := victionConfig.ValidatorContract
 	if contracrAddress == (common.Address{}) {
 		return []common.Address{}, ErrNoContractAddress
 	}
@@ -92,7 +93,7 @@ func GetValidators(
 		})
 	}
 
-	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
+	validatorMaxCountInt := int(victionConfig.ValidatorMaxCount)
 	if len(candidates) > validatorMaxCountInt {
 		candidates = candidates[:validatorMaxCountInt]
 	}
