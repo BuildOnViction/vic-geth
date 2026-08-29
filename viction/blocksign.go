@@ -59,9 +59,9 @@ func GetBlockSignData(
 		return nil, nil
 	}
 	blockHash := header.Hash()
-	if signers, ok := blksigCache.Get(blockHash); ok {
-		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
-			return signers, nil
+	if cachedTxs, ok := blksigCache.Get(blockHash); ok {
+		if signTxs, ok := cachedTxs.([]types.Transaction); ok && signTxs != nil {
+			return signTxs, nil
 		}
 	}
 	number := header.Number
@@ -70,7 +70,7 @@ func GetBlockSignData(
 		return nil, fmt.Errorf("block %d (%s) body not found", number, blockHash)
 	}
 
-	data := []types.Transaction{}
+	signTxs := []types.Transaction{}
 	// Successful signing transactions count toward rewards and penalties, failed transactions don't.
 	// On post-Byzantium receipt format, `Receipt.Status` is the correct source of success/failure. Using `len(PostState)` is unreliable and can misclassify.
 	transactions := block.Transactions()
@@ -95,10 +95,10 @@ func GetBlockSignData(
 				continue
 			}
 		}
-		data = append(data, *tx)
+		signTxs = append(signTxs, *tx)
 	}
-	blksigCache.Add(blockHash, data)
-	return data, nil
+	blksigCache.Add(blockHash, signTxs)
+	return signTxs, nil
 }
 
 // Create new BlockSign transaction and submit it to TxPool.
@@ -114,7 +114,7 @@ func SubmitBlockSignTransaction(
 ) error {
 	number := block.NumberU64()
 	// Pre-TIP2019: Emit SignBlock transaction every block.
-	// TIP2019: Emit SignBlock transaction every *vicConfig.ValidatorSignInterval* blocks.
+	// TIP2019: Emit SignBlock transaction every *victionConfig.ValidatorSignInterval* blocks.
 	if config.IsTIP2019(block.Number()) && number%victionConfig.ValidatorSignInterval != 0 {
 		return nil
 	}

@@ -40,7 +40,7 @@ var (
 	RandomizeKeyName = []byte("randomizeKey")
 )
 
-// Serialize `Randomize.setSecret“ function call data.
+// Serialize `Randomize.setSecret` function call data.
 func CreateSetRandomizeSecretData(secret []byte) []byte {
 	data := common.Hex2Bytes("34d38600") // setSecret(bytes32[])
 	data = append(data, common.LeftPadBytes(big.NewInt(32).Bytes(), 32)...)
@@ -90,17 +90,17 @@ func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
 	return []byte(encrypted), nil
 }
 
-// Rerturn attestor indices from state.
+// Return attestor indices from state.
 func GetAttestorsFromState(
 	validators []common.Address,
 	victionConfig *params.VictionConfig,
-	state *state.StateDB,
+	statedb *state.StateDB,
 ) ([]int64, error) {
 	randomizes := []int64{}
 	validatorCount := int64(len(validators))
 	if validatorCount > 0 {
 		for _, validator := range validators {
-			random, err := GetSubmittedRandomOfValidator(validator, victionConfig, state)
+			random, err := GetSubmittedRandomOfValidator(validator, victionConfig, statedb)
 			if err != nil {
 				return nil, err
 			}
@@ -119,15 +119,15 @@ func GetAttestorsFromState(
 func GetSubmittedRandomOfValidator(
 	validator common.Address,
 	victionConfig *params.VictionConfig,
-	state *state.StateDB,
+	statedb *state.StateDB,
 ) (int64, error) {
 	randomizeContract := victionConfig.RandomizerContract
 	if randomizeContract == (common.Address{}) {
-		return -1, ErrNoContractAddress
+		return 0, ErrNoContractAddress
 	}
 
-	secretsHash := state.VictionGetSecrets(randomizeContract, validator)
-	openingHash := state.VictionGetSecretOpening(randomizeContract, validator)
+	secretsHash := statedb.VictionGetSecrets(randomizeContract, validator)
+	openingHash := statedb.VictionGetSecretOpening(randomizeContract, validator)
 
 	// Convert []common.Hash to [][32]byte
 	secrets := make([][32]byte, len(secretsHash))
@@ -146,15 +146,15 @@ func GetSubmittedRandomOfValidator(
 }
 
 // Generate pseudo-random attestor indices based on randomizes.
-func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, error) {
+func GetAttestorsFromRandomize(randomizes []int64, validatorsCount int64) ([]int64, error) {
 	randomSeed := int64(0)
 	for _, j := range randomizes {
 		randomSeed += j
 	}
 	rand.Seed(randomSeed)
 
-	randArray := GenerateSequence(0, 1, signersLen)
-	attestorIndices := make([]int64, signersLen)
+	randArray := GenerateSequence(0, 1, validatorsCount)
+	attestorIndices := make([]int64, validatorsCount)
 	attestorIndex := int64(0)
 	for i := len(randArray) - 1; i >= 0; i-- {
 		blockLength := len(randArray) - 1
@@ -172,7 +172,7 @@ func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, e
 	return attestorIndices, nil
 }
 
-// Crate new Randomize transaction and submit it to TxPool.
+// Create new Randomize transaction and submit it to TxPool.
 func SubmitRandomNumberTransaction(
 	block *types.Block,
 	snapshot *posv.Snapshot,

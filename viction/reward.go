@@ -33,7 +33,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
-// Return reward amount per block based on current block number, including default and Saigon rules.
+// Return reward amount per epoch based on current block number, including default and Saigon rules.
 func CalcRewardPerEpoch(
 	header *types.Header,
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
@@ -75,7 +75,7 @@ func CalcRewardPerEpoch(
 	return epochRewards, nil
 }
 
-// Return reward amount per block following default rule based on current block number.
+// Return reward amount per epoch following default rule based on current block number.
 func CalcDefaultRewardPerBlock(rewardPerEpoch *big.Int, number uint64, blockPerYear uint64) *big.Int {
 	if blockPerYear*8 <= number {
 		return big.NewInt(0)
@@ -89,7 +89,7 @@ func CalcDefaultRewardPerBlock(rewardPerEpoch *big.Int, number uint64, blockPerY
 	return new(big.Int).Set(rewardPerEpoch)
 }
 
-// Return reward amount per block following Saigon rule based on current block number.
+// Return reward amount per epoch following Saigon rule based on current block number.
 func CalcSaigonRewardPerBlock(rewardPerEpoch *big.Int, saigonBlock *big.Int, number uint64, blockPerYear uint64) *big.Int {
 	numberBig := new(big.Int).SetUint64(number)
 	yearsFromHardfork := new(big.Int).Div(new(big.Int).Sub(numberBig, saigonBlock), new(big.Int).SetUint64(blockPerYear))
@@ -108,8 +108,8 @@ func CalcRewardsForValidators(
 	header *types.Header, rewardPerEpoch *big.Int,
 	chainReader consensus.ChainReader, blockchain *core.BlockChain, blksigCache *lru.ARCCache, logger log.Logger,
 ) (map[common.Address]*posv.ValidatorReward, error) {
-	blockNumber := header.Number.Uint64()
-	prevCheckpoint := blockNumber - (posvConfig.Epoch * 2)
+	number := header.Number.Uint64()
+	prevCheckpoint := number - (posvConfig.Epoch * 2)
 	startBlockNumber := prevCheckpoint + 1
 	endBlockNumber := startBlockNumber + posvConfig.Epoch - 1
 	validatorRewards := make(map[common.Address]*posv.ValidatorReward)
@@ -160,19 +160,19 @@ func CalcRewardsForValidators(
 
 			authorizedSigners := make(map[common.Address]bool)
 			for _, v := range validators {
-				for _, signer := range signers {
-					if signer == v {
-						authorizedSigners[signer] = true
+				for _, signerAddr := range signers {
+					if signerAddr == v {
+						authorizedSigners[signerAddr] = true
 						break
 					}
 				}
 			}
 
-			for signer := range authorizedSigners {
-				if vr, exist := validatorRewards[signer]; exist {
+			for signerAddr := range authorizedSigners {
+				if vr, exist := validatorRewards[signerAddr]; exist {
 					vr.Sign++
 				} else {
-					validatorRewards[signer] = &posv.ValidatorReward{
+					validatorRewards[signerAddr] = &posv.ValidatorReward{
 						Sign:   1,
 						Reward: new(big.Int),
 					}
@@ -202,7 +202,7 @@ func CalcRewardsForStakeholders(
 ) (map[common.Address]*big.Int, map[common.Address]map[common.Address]*big.Int, error) {
 	stakeholderRewards := make(map[common.Address]*big.Int)
 	nestedRewards := make(map[common.Address]map[common.Address]*big.Int)
-	blockNumber := header.Number.Uint64()
+	number := header.Number.Uint64()
 	rewardValidatorPercent := victionConfig.RewardValidatorPercent
 	rewardVoterPercent := victionConfig.RewardVoterPercent
 	rewardFoundationPercent := victionConfig.RewardFoundationPercent
@@ -240,7 +240,7 @@ func CalcRewardsForStakeholders(
 
 			tip2019Block := config.TIP2019Block
 			for _, voteAddr := range voters {
-				if _, ok := voterCaps[voteAddr]; ok && tip2019Block != nil && tip2019Block.Uint64() <= blockNumber {
+				if _, ok := voterCaps[voteAddr]; ok && tip2019Block != nil && tip2019Block.Uint64() <= number {
 					continue
 				}
 				voterCap := statedb.VicGetValidatorVoterCap(victionConfig.ValidatorContract, validator, voteAddr)

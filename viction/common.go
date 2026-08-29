@@ -50,10 +50,10 @@ var (
 	ErrNoContractAddress = errors.New("contract address is not set")
 
 	// ErrNoValidator is when the list of validator is empty.
-	ErrNoValidator = errors.New("no validator existed")
+	ErrNoValidator = errors.New("no validators exist")
 )
 
-// Decrypt encrypted data using AES CFB mode,
+// Decrypt encrypted data using AES CFB mode.
 func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext, _ := base64.URLEncoding.DecodeString(cryptoText)
 
@@ -75,7 +75,7 @@ func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	// XORKeyStream can work in-place if the two arguments are the same.
 	stream.XORKeyStream(ciphertext, ciphertext)
 
-	return fmt.Sprintf("%s", ciphertext), nil
+	return string(ciphertext), nil
 }
 
 // Decrypt randomize using secret and opening pair.
@@ -86,7 +86,7 @@ func DecryptRandomize(secrets [][32]byte, opening [32]byte) (int64, error) {
 			trimSecret := bytes.TrimLeft(secret[:], "\x00")
 			decryptSecret, err := DecryptAesCfb(opening[:], string(trimSecret))
 			if err != nil {
-				return -1, err
+				return 0, err
 			}
 			intNumber, err := strconv.ParseInt(decryptSecret, 10, 64)
 			if err == nil {
@@ -130,9 +130,9 @@ func GenerateSequence(start, step, repeat int64) []int64 {
 	return s
 }
 
-// Check if given etherbase is eligble signer for given snapshot.
-func IsEligibleValidator(etherbase common.Address, snapshot *posv.Snapshot) bool {
-	_, ok := snapshot.Signers[etherbase]
+// Check if given addr is eligible signer for given snapshot.
+func IsEligibleValidator(addr common.Address, snapshot *posv.Snapshot) bool {
+	_, ok := snapshot.Signers[addr]
 	return ok
 }
 

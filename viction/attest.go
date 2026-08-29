@@ -43,11 +43,11 @@ func AttestBlock(
 	if len(header.Attestor) == posv.ExtraSeal {
 		return nil, nil
 	}
-	sigcache, err := lru.NewARC(128)
+	sigCache, err := lru.NewARC(128)
 	if err != nil {
 		return nil, nil
 	}
-	creator, err := posv.Ecrecover(header, sigcache)
+	creator, err := posv.Ecrecover(header, sigCache)
 	if err != nil {
 		return nil, nil
 	}
