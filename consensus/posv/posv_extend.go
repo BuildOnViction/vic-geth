@@ -85,12 +85,6 @@ type PosvBackend interface {
 		vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
 	) ([]int64, error)
 
-	// Get block signers from the state.
-	PosvGetBlockSignData(
-		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader,
-	) ([]types.Transaction, error)
-
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(
 		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
@@ -122,27 +116,7 @@ type PosvBackend interface {
 
 // Return Ethereum address recovered from the signature in header's Attestor field.
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
-	return ecrecover2(header, c.attestSignatures)
-}
-
-// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
-func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader) ([]types.Transaction, error) {
-	if header == nil {
-		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
-	}
-	blockHash := header.Hash()
-	if signers, ok := c.blockSigners.Get(blockHash); ok {
-		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
-			return signers, nil
-		}
-	}
-	signers, err := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
-	if err != nil {
-		return nil, err
-	}
-	c.blockSigners.Add(blockHash, signers)
-	return signers, nil
+	return Ecrecover2(header, c.attestSignatures)
 }
 
 // GetSnapshot returns the snapshot for the given block, exposing the full set validators regardless of penalty status.
@@ -316,8 +290,8 @@ func GetPenaltiesFromHeaders(
 	return results
 }
 
-// ecrecover2 extracts the Ethereum account address from a Attestor header.
-func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+// Ecrecover2 extracts the Ethereum account address from a Attestor header.
+func Ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	// If the signature's already cached, return that
 	hash := header.Hash()
 

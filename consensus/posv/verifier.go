@@ -419,7 +419,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 
 	// Validate creator
-	creator, err := ecrecover(header, c.signatures)
+	creator, err := Ecrecover(header, c.signatures)
 	if err != nil {
 		return err
 	}

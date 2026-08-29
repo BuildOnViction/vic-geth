@@ -48,11 +48,10 @@ import (
 )
 
 const (
-	checkpointInterval   = 1024  // Number of blocks after which to save the vote snapshot to the database
-	inmemorySnapshots    = 128   // Number of recent vote snapshots to keep in memory
-	inmemorySignatures   = 4096  // Number of recent block signatures to keep in memory
-	recentBlockSigners   = 10500 // Number of recent block sign transactions to keep in memory
-	recentVerifiedBlocks = 256   // Number of recent blocks to cache verfication results
+	checkpointInterval   = 1024 // Number of blocks after which to save the vote snapshot to the database
+	inmemorySnapshots    = 128  // Number of recent vote snapshots to keep in memory
+	inmemorySignatures   = 4096 // Number of recent block signatures to keep in memory
+	recentVerifiedBlocks = 256  // Number of recent blocks to cache verfication results
 )
 
 // PoSV proof-of-stake protocol constants.
@@ -144,8 +143,8 @@ var (
 // SignerFn hashes and signs the data to be signed by a backing account.
 type SignerFn func(signer accounts.Account, mimeType string, message []byte) ([]byte, error)
 
-// ecrecover extracts the Ethereum account address from a signed header.
-func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+// Ecrecover extracts the Ethereum account address from a signed header.
+func Ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	// If the signature's already cached, return that
 	hash := header.Hash()
 	if address, known := sigcache.Get(hash); known {
@@ -179,7 +178,6 @@ type Posv struct {
 	signatures       *lru.ARCCache // Signatures of recent blocks to speed up mining
 	attestSignatures *lru.ARCCache // Signatures of recent blocks to speed up mining
 	verifiedBlocks   *lru.ARCCache // Status of recent blocks to speed up synching
-	blockSigners     *lru.ARCCache // Cache of block signers for recent blocks to speed up calculation
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
@@ -204,7 +202,6 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	signatures, _ := lru.NewARC(inmemorySignatures)
 	attestSignatures, _ := lru.NewARC(inmemorySignatures)
 	verifiedBlocks, _ := lru.NewARC(recentVerifiedBlocks)
-	blockSigners, _ := lru.NewARC(recentBlockSigners)
 
 	return &Posv{
 		config: &conf,
@@ -214,7 +211,6 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 		signatures:       signatures,
 		attestSignatures: attestSignatures,
 		verifiedBlocks:   verifiedBlocks,
-		blockSigners:     blockSigners,
 
 		proposals: make(map[common.Address]bool),
 	}
@@ -229,7 +225,7 @@ func (c *Posv) SetBackend(backend PosvBackend) {
 // Author implements consensus.Engine, returning the Ethereum address recovered
 // from the signature in the header's extra-data section.
 func (c *Posv) Author(header *types.Header) (common.Address, error) {
-	return ecrecover(header, c.signatures)
+	return Ecrecover(header, c.signatures)
 }
 
 // snapshot retrieves the authorization snapshot at a given point in time.

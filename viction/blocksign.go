@@ -26,17 +26,24 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
-// Get block signers from the state.
+// Get block signers for a given block from the state. Results are cached by block hash.
 func GetBlockSignData(
-	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, bc *core.BlockChain,
+	config *params.ChainConfig, vicConfig *params.VictionConfig,
+	header *types.Header,
+	chain consensus.ChainReader, bc *core.BlockChain, blksigCache *lru.ARCCache,
 ) ([]types.Transaction, error) {
 	if header == nil {
 		return nil, fmt.Errorf("getblocksigndata: header is nil")
 	}
 	blockHash := header.Hash()
+	if signers, ok := blksigCache.Get(blockHash); ok {
+		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
+			return signers, nil
+		}
+	}
 	blockNumber := header.Number
 	block := chain.GetBlock(blockHash, blockNumber.Uint64())
 	if block == nil {
@@ -44,11 +51,8 @@ func GetBlockSignData(
 	}
 	data := []types.Transaction{}
 
-	// Block-sign txs are EVM-executed and may fail.
-	// Only successful signing txs count toward rewards and penalties.
-	//
-	// On post-Byzantium receipt format, `Receipt.Status` is the correct source
-	// of success/failure. Using `len(PostState)` is unreliable and can misclassify.
+	// Successful signing txs count toward rewards and penalties, failed txs don't.
+	// On post-Byzantium receipt format, `Receipt.Status` is the correct source of success/failure. Using `len(PostState)` is unreliable and can misclassify.
 	var receipts types.Receipts
 	if config != nil {
 		receipts = bc.GetReceiptsByHash(blockHash)
@@ -79,5 +83,6 @@ func GetBlockSignData(
 		}
 		data = append(data, *tx)
 	}
+	blksigCache.Add(blockHash, data)
 	return data, nil
 }

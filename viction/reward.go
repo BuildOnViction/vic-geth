@@ -30,13 +30,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 // Return reward amount per block based on current block number, including default and Saigon rules.
 func CalcRewardPerEpoch(
-	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader, preCheckpointState *state.StateDB, bc *core.BlockChain, logger log.Logger,
+	chain consensus.ChainReader, preCheckpointState *state.StateDB, bc *core.BlockChain, blkSigCache *lru.ARCCache, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	epochRewards := &posv.EpochReward{}
 	number := header.Number.Uint64()
@@ -58,13 +59,13 @@ func CalcRewardPerEpoch(
 	}
 
 	// Calculate rewards for validators and stakeholders
-	validatorRewards, err := CalcRewardsForValidators(c, config, posvConfig, vicConfig, header, totalReward, chain, logger)
+	validatorRewards, err := CalcRewardsForValidators(config, posvConfig, vicConfig, header, totalReward, chain, bc, blkSigCache, logger)
 	if err != nil {
 		return nil, err
 	}
 	epochRewards.ValidatorRewards = validatorRewards
 
-	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
+	stakeholderRewards, nestedRewards, err := CalcRewardsForStakeholders(config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +104,9 @@ func CalcSaigonRewardPerBlock(rewardPerEpoch *big.Int, saigonBlock *big.Int, num
 
 // Return reward amount for all validators in a given epoch.
 func CalcRewardsForValidators(
-	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header, rewardPerEpoch *big.Int, chain consensus.ChainReader, logger log.Logger,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	header *types.Header, rewardPerEpoch *big.Int,
+	chain consensus.ChainReader, bc *core.BlockChain, blkSigCache *lru.ARCCache, logger log.Logger,
 ) (map[common.Address]*posv.ValidatorReward, error) {
 	blockNumber := header.Number.Uint64()
 	prevCheckpoint := blockNumber - (posvConfig.Epoch * 2)
@@ -114,7 +116,7 @@ func CalcRewardsForValidators(
 	signCountTotal := uint64(0)
 
 	blockHashes := map[uint64]common.Hash{}
-	blockSigners := make(map[common.Hash][]common.Address)
+	signersByBlockHash := make(map[common.Hash][]common.Address)
 	h := header
 	for i := prevCheckpoint + (posvConfig.Epoch * 2) - 1; i >= startBlockNumber; i-- {
 		h = chain.GetHeader(h.ParentHash, i)
@@ -123,8 +125,8 @@ func CalcRewardsForValidators(
 		}
 		blockHashes[i] = h.Hash()
 
-		// Use GetSignDataForBlock so that pre-TIPSigning blocks are filtered by receipt status
-		txs, err := c.GetSignDataForBlock(config, vicConfig, h, chain)
+		// Use GetBlockSignData so that pre-TIPSigning blocks are filtered by receipt status
+		txs, err := GetBlockSignData(config, vicConfig, h, chain, bc, blkSigCache)
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +139,9 @@ func CalcRewardsForValidators(
 			signedBlockHash := common.BytesToHash(txData[len(txData)-common.HashLength:])
 			msg, err := tx.AsMessage(signer, nil)
 			if err != nil {
-				logger.Debug("[Backend][CalcRewardsForValidators] failed to get sender", "txHash", tx.Hash().Hex(), "err", err)
 				continue
 			}
-			blockSigners[signedBlockHash] = append(blockSigners[signedBlockHash], msg.From())
+			signersByBlockHash[signedBlockHash] = append(signersByBlockHash[signedBlockHash], msg.From())
 		}
 	}
 
@@ -152,7 +153,7 @@ func CalcRewardsForValidators(
 
 	for i := startBlockNumber; i <= endBlockNumber; i++ {
 		if i%vicConfig.ValidatorSignInterval == 0 || !config.IsTIP2019(new(big.Int).SetUint64(i)) {
-			signers := blockSigners[blockHashes[i]]
+			signers := signersByBlockHash[blockHashes[i]]
 			if len(signers) == 0 {
 				continue
 			}
@@ -194,8 +195,10 @@ func CalcRewardsForValidators(
 }
 
 // Return reward amount for all stakeholders in a given epoch.
-func CalcRewardsForStakeholders(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header, validatorRewards map[common.Address]*posv.ValidatorReward, statedb *state.StateDB, logger log.Logger,
+func CalcRewardsForStakeholders(
+	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	header *types.Header, validatorRewards map[common.Address]*posv.ValidatorReward,
+	statedb *state.StateDB, logger log.Logger,
 ) (map[common.Address]*big.Int, map[common.Address]map[common.Address]*big.Int, error) {
 	stakeholderRewards := make(map[common.Address]*big.Int)
 	nestedRewards := make(map[common.Address]map[common.Address]*big.Int)

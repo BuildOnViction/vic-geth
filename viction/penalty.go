@@ -29,13 +29,14 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 // Return addresses of penaltized validators following default rule based on current block number.
 func PenalizeValidatorsDefault(
-	bc *core.BlockChain, c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
-	chain consensus.ChainReader,
+	chain consensus.ChainReader, bc *core.BlockChain,
 ) ([]common.Address, error) {
 	if bc == nil {
 		return []common.Address{}, fmt.Errorf("penalize/default: blockchain not initialized (block %v)", header.Number)
@@ -91,10 +92,9 @@ func PenalizeValidatorsDefault(
 
 // Return addresses of penaltized validators following TIPSigning rule based on current block number.
 func PenalizeValidatorsTIPSigning(
-	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header,
-	chain consensus.ChainReader,
-	validators []common.Address,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+	header *types.Header, validators []common.Address,
+	chain consensus.ChainReader, bc *core.BlockChain, blockSigners *lru.ARCCache,
 ) ([]common.Address, error) {
 	blockNumber := header.Number.Uint64()
 	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch
@@ -106,13 +106,14 @@ func PenalizeValidatorsTIPSigning(
 	}
 
 	// Count number of blocks mined by each validator
+	sigCache, _ := lru.NewARC(int(posvConfig.Epoch))
 	epochBlockHashes := make([]common.Hash, posvConfig.Epoch)
 	blockMiningCounts := map[common.Address]uint64{}
 	epochBlockHashes[0] = header.ParentHash
 	parentHash := header.ParentHash
 	for i := uint64(1); i < posvConfig.Epoch; i++ {
 		parentHeader := chain.GetHeaderByHash(parentHash)
-		miner, _ := c.Author(parentHeader)
+		miner, _ := posv.Ecrecover(parentHeader, sigCache)
 		if count, ok := blockMiningCounts[miner]; ok {
 			blockMiningCounts[miner] = count + 1
 		} else {
@@ -165,7 +166,7 @@ func PenalizeValidatorsTIPSigning(
 			if blockNumber%vicConfig.ValidatorSignInterval == 0 {
 				mapBlockHash[blockHash] = true
 			}
-			txs, err := c.GetSignDataForBlock(config, vicConfig, header, chain)
+			txs, err := GetBlockSignData(config, vicConfig, header, chain, bc, blockSigners)
 			if err != nil {
 				return []common.Address{}, err
 			}

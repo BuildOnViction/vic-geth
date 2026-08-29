@@ -32,6 +32,8 @@ import (
 	"github.com/ethereum/go-ethereum/viction"
 )
 
+const recentBlockSigners = 10500 // Number of recent block sign transactions to keep in memory
+
 // Get attestors from list of validators.
 func (s *Ethereum) PosvGetAttestors(
 	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
@@ -41,14 +43,6 @@ func (s *Ethereum) PosvGetAttestors(
 		return nil, err
 	}
 	return viction.GetAttestors(vicConfig, validators, state)
-}
-
-// Get block signers from the state.
-func (s *Ethereum) PosvGetBlockSignData(
-	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader,
-) ([]types.Transaction, error) {
-	return viction.GetBlockSignData(config, vicConfig, header, chain, s.blockchain)
 }
 
 // Get creator-attestor pairs from the state.
@@ -97,7 +91,7 @@ func (s *Ethereum) PosvGetEpochRewards(
 		return nil, err
 	}
 
-	return viction.CalcRewardPerEpoch(c, config, posvConfig, vicConfig, header, chain, preCheckpointState, s.blockchain, logger)
+	return viction.CalcRewardPerEpoch(config, posvConfig, vicConfig, header, chain, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
 }
 
 // Add balance rewards to the state.
@@ -119,9 +113,9 @@ func (s *Ethereum) PosvGetPenalties(
 	chain consensus.ChainReader, validators []common.Address,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
-		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, validators)
+		return viction.PenalizeValidatorsTIPSigning(config, posvConfig, vicConfig, header, validators, chain, s.BlockChain(), s.blockSignersCache)
 	}
-	return viction.PenalizeValidatorsDefault(s.BlockChain(), c, config, posvConfig, vicConfig, header, chain)
+	return viction.PenalizeValidatorsDefault(config, posvConfig, vicConfig, header, chain, s.BlockChain())
 }
 
 // Get eligble validators from the state.
