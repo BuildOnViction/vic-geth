@@ -82,34 +82,40 @@ type ValidatorInfo struct {
 type PosvBackend interface {
 	// Get attestors from list of validators.
 	PosvGetAttestors(
-		vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+		header *types.Header, validators []common.Address,
+		victionConfig *params.VictionConfig,
 	) ([]int64, error)
 
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(
-		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
+		header, checkpointHeader *types.Header,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	) (map[common.Address]common.Address, uint64, error)
 
 	// Calculate rewards at the end of each epoch.
 	PosvGetEpochRewards(
-		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
+		header *types.Header,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 		chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
 	) (*EpochReward, error)
 
 	// Add balance rewards to the state.
 	PosvDistributeEpochRewards(
-		header *types.Header, state *state.StateDB, epochReward *EpochReward,
+		header *types.Header, epochReward *EpochReward,
+		state *state.StateDB,
 	) error
 
 	// Penalize validators for creating bad block or not creating block at all.
 	PosvGetPenalties(
-		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader, validators []common.Address,
+		header *types.Header, validators []common.Address,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+		chain consensus.ChainReader,
 	) ([]common.Address, error)
 
 	// Get eligble validators from the state.
 	PosvGetValidators(
-		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+		header *types.Header,
+		config *params.ChainConfig, victionConfig *params.VictionConfig,
 		chain consensus.ChainReader,
 	) ([]common.Address, error)
 }

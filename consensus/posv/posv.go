@@ -378,7 +378,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 		log.Info("[PoSV] Preparing checkpoint block", "number", number)
 		validators := snap.signers()
 		// Remove penalized validators in current epoch
-		penalties, err := c.backend.PosvGetPenalties(c, chain.Config(), c.config, chain.Config().Viction, header, chain, validators)
+		penalties, err := c.backend.PosvGetPenalties(header, validators, chain.Config(), c.config, chain.Config().Viction, chain)
 		if err != nil {
 			log.Error("[POSV] prepare: Failed to get penalties", "number", number, "err", err)
 			return err
@@ -403,7 +403,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 			header.Extra = append(header.Extra, validator[:]...)
 		}
 		// Write list of attestors to NewAttestors field
-		attestors, err := c.backend.PosvGetAttestors(chain.Config().Viction, header, validators)
+		attestors, err := c.backend.PosvGetAttestors(header, validators, chain.Config().Viction)
 		if err != nil {
 			return err
 		}
@@ -439,11 +439,11 @@ func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header
 			if !ok {
 				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
 			}
-			epochReward, err := c.backend.PosvGetEpochRewards(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
+			epochReward, err := c.backend.PosvGetEpochRewards(header, config, config.Posv, config.Viction, chain, state, log.Root())
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
 			}
-			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			err = c.backend.PosvDistributeEpochRewards(header, epochReward, state)
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
 			}

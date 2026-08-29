@@ -271,7 +271,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 	// Check that validators in the header (remote) can be recomputed from local state.
 	validateRemoteHeader := func(remoteHeader *types.Header, localValidators []common.Address) error {
 		// Validate penalties
-		penalties, err := c.backend.PosvGetPenalties(c, config, posvConfig, victionConfig, remoteHeader, chain, localValidators)
+		penalties, err := c.backend.PosvGetPenalties(remoteHeader, localValidators, config, posvConfig, victionConfig, chain)
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local penalties", "number", number)
 			return err
@@ -305,7 +305,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 
 		// Validate new attestors
-		attestors, err := c.backend.PosvGetAttestors(victionConfig, remoteHeader, validators)
+		attestors, err := c.backend.PosvGetAttestors(remoteHeader, validators, victionConfig)
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local new attestors", "number", number)
 			return err
@@ -356,7 +356,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if gapHeader == nil {
 			continue
 		}
-		validators, err := c.backend.PosvGetValidators(config, victionConfig, gapHeader, chain)
+		validators, err := c.backend.PosvGetValidators(gapHeader, config, victionConfig, chain)
 		if err == nil && len(validators) > 0 {
 			contractValidators = validators
 			break
@@ -464,7 +464,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		if err != nil {
 			return err
 		}
-		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(config, posvConfig, victionConfig, header, checkpointHeader)
+		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(header, checkpointHeader, config, posvConfig, victionConfig)
 		if err != nil {
 			return err
 		}

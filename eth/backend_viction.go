@@ -36,18 +36,20 @@ const recentBlockSigners = 10500 // Number of recent block sign transactions to 
 
 // Get attestors from list of validators.
 func (s *Ethereum) PosvGetAttestors(
-	vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+	header *types.Header, validators []common.Address,
+	victionConfig *params.VictionConfig,
 ) ([]int64, error) {
 	state, err := s.BlockChain().State()
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestorsFromState(vicConfig, validators, state)
+	return viction.GetAttestorsFromState(victionConfig, validators, state)
 }
 
 // Get creator-attestor pairs from the state.
 func (s *Ethereum) PosvGetCreatorAttestorPairs(
-	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
+	header, checkpointHeader *types.Header,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 ) (map[common.Address]common.Address, uint64, error) {
 	if config.Viction == nil || checkpointHeader == nil {
 		return nil, 0, viction.ErrInvalidAttestorList
@@ -69,7 +71,8 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 
 // Calculate rewards at the end of each epoch.
 func (s *Ethereum) PosvGetEpochRewards(
-	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
+	header *types.Header,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	number := header.Number.Uint64()
@@ -80,12 +83,13 @@ func (s *Ethereum) PosvGetEpochRewards(
 		preCheckpointState = statedb
 	}
 
-	return viction.CalcRewardPerEpoch(config, posvConfig, vicConfig, header, chain, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
+	return viction.CalcRewardPerEpoch(config, posvConfig, victionConfig, header, chain, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
 }
 
 // Add balance rewards to the state.
 func (s *Ethereum) PosvDistributeEpochRewards(
-	header *types.Header, state *state.StateDB, epochReward *posv.EpochReward,
+	header *types.Header, epochReward *posv.EpochReward,
+	state *state.StateDB,
 ) error {
 	if state == nil || epochReward == nil {
 		return nil
@@ -98,18 +102,20 @@ func (s *Ethereum) PosvDistributeEpochRewards(
 
 // Penalize validators for creating bad block or not creating block at all.
 func (s *Ethereum) PosvGetPenalties(
-	c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader, validators []common.Address,
+	header *types.Header, validators []common.Address,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+	chain consensus.ChainReader,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
-		return viction.PenalizeValidatorsTIPSigning(config, posvConfig, vicConfig, header, validators, chain, s.BlockChain(), s.blockSignersCache)
+		return viction.PenalizeValidatorsTIPSigning(config, posvConfig, victionConfig, header, validators, chain, s.BlockChain(), s.blockSignersCache)
 	}
-	return viction.PenalizeValidatorsDefault(config, posvConfig, vicConfig, header, chain, s.BlockChain())
+	return viction.PenalizeValidatorsDefault(config, posvConfig, victionConfig, header, chain, s.BlockChain())
 }
 
 // Get eligble validators from the state.
 func (s *Ethereum) PosvGetValidators(
-	config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
+	header *types.Header,
+	config *params.ChainConfig, victionConfig *params.VictionConfig,
 	chain consensus.ChainReader,
 ) ([]common.Address, error) {
 	if header == nil {
@@ -119,7 +125,7 @@ func (s *Ethereum) PosvGetValidators(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(config, vicConfig, header, statedb)
+	return viction.GetValidators(config, victionConfig, header, statedb)
 }
 
 // Attach services required by Viction blockchain.
