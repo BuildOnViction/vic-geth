@@ -134,10 +134,8 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 			statedb.SetBalance(msg.From(), val)
 		}
 	}
-	if p.config.IsTIPBlacklist(block.Number()) {
-		if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To()); sender || receiver {
-			return ErrBlacklistedAddress
-		}
+	if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To(), header.Number); sender || receiver {
+		return ErrBlacklistedAddress
 	}
 
 	return nil

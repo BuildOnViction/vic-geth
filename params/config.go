@@ -315,9 +315,7 @@ var (
 		TIP2019Block:          big.NewInt(0),
 		TIPSigningBlock:       big.NewInt(0),
 		TIPRandomizeBlock:     big.NewInt(0),
-		TIPBlacklistBlock:     big.NewInt(0),
 		TIPGasPriceBlock:      big.NewInt(0),
-		TIPSignerCheckBlock:   big.NewInt(0),
 		TIPNativeTradingBlock: big.NewInt(0),
 		TIPNativeLendingBlock: big.NewInt(0),
 		TIP2021Block:          big.NewInt(0),
@@ -441,9 +439,7 @@ type ChainConfig struct {
 	TIP2019Block          *big.Int `json:"tip2019Block,omitempty"`
 	TIPSigningBlock       *big.Int `json:"tipSigningBlock,omitempty"`
 	TIPRandomizeBlock     *big.Int `json:"tipRandomizeBlock,omitempty"`
-	TIPBlacklistBlock     *big.Int `json:"tipBlacklistBlock,omitempty"`
 	TIPGasPriceBlock      *big.Int `json:"tipGasPriceBlock,omitempty"`
-	TIPSignerCheckBlock   *big.Int `json:"tipSignerCheckBlock,omitempty"`
 	TIPNativeTradingBlock *big.Int `json:"tipNativeTradingBlock,omitempty"`
 	TIPNativeLendingBlock *big.Int `json:"tipNativeLendingBlock,omitempty"`
 	TIP2021Block          *big.Int `json:"tip2021Block,omitempty"`
@@ -594,19 +590,9 @@ func (c *ChainConfig) IsTIPRandomize(num *big.Int) bool {
 	return isForked(c.TIPRandomizeBlock, num)
 }
 
-// IsTIPBlacklist returns whether num is either equal to the TIPBlacklist fork block or greater.
-func (c *ChainConfig) IsTIPBlacklist(num *big.Int) bool {
-	return isForked(c.TIPBlacklistBlock, num)
-}
-
 // IsTIPGasPrice returns whether num is greater than the TIPGasPrice fork block.
 func (c *ChainConfig) IsTIPGasPrice(num *big.Int) bool {
 	return isForkedExclusive(c.TIPGasPriceBlock, num)
-}
-
-// IsTIPSignerCheck returns whether num is either equal to the TIPSignerCheck fork block or greater.
-func (c *ChainConfig) IsTIPSignerCheck(num *big.Int) bool {
-	return isForked(c.TIPSignerCheckBlock, num)
 }
 
 // IsTIPNativeTrading returns whether num is either equal to the TIPNativeTrading fork block or greater.
@@ -733,9 +719,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "tip2019Block", block: c.TIP2019Block},
 		{name: "tipSigningBlock", block: c.TIPSigningBlock},
 		{name: "tipRandomizeBlock", block: c.TIPRandomizeBlock},
-		{name: "tipBlacklistBlock", block: c.TIPBlacklistBlock, optional: true},
 		{name: "tipGasPriceBlock", block: c.TIPGasPriceBlock},
-		{name: "tipSignerCheckBlock", block: c.TIPSignerCheckBlock, optional: true},
 		{name: "tipNativeTradingBlock", block: c.TIPNativeTradingBlock, optional: true},
 		{name: "tipNativeLendingBlock", block: c.TIPNativeLendingBlock, optional: true},
 		{name: "tip2021Block", block: c.TIP2021Block, optional: true},
@@ -809,14 +793,8 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock, head) {
 		return newCompatError("TIPRandomize fork block", c.TIPRandomizeBlock, newcfg.TIPRandomizeBlock)
 	}
-	if isForkIncompatible(c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock, head) {
-		return newCompatError("TIPBlacklist fork block", c.TIPBlacklistBlock, newcfg.TIPBlacklistBlock)
-	}
 	if isForkIncompatible(c.TIPGasPriceBlock, newcfg.TIPGasPriceBlock, head) {
 		return newCompatError("TIPGasPrice fork block", c.TIPGasPriceBlock, newcfg.TIPGasPriceBlock)
-	}
-	if isForkIncompatible(c.TIPSignerCheckBlock, newcfg.TIPSignerCheckBlock, head) {
-		return newCompatError("TIPSignerCheck fork block", c.TIPSignerCheckBlock, newcfg.TIPSignerCheckBlock)
 	}
 	if isForkIncompatible(c.TIPNativeTradingBlock, newcfg.TIPNativeTradingBlock, head) {
 		return newCompatError("TIPNativeTrading fork block", c.TIPNativeTradingBlock, newcfg.TIPNativeTradingBlock)
@@ -939,7 +917,7 @@ type Rules struct {
 	IsBerlin, IsLondon, IsCatalyst                          bool
 
 	IsTIP2019, IsTIPSigning, IsTIPRandomize           bool
-	IsTIPBlacklist, IsTIPGasPrice, IsTIPSignerCheck   bool
+	IsTIPGasPrice                                     bool
 	IsTIPNativeTrading, IsTIPNativeLending, IsTIP2021 bool
 
 	IsSaigon, IsAtlas, IsAtlasRefresh, IsPrometheus bool
@@ -968,9 +946,7 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsTIP2019:          c.IsTIP2019(num),
 		IsTIPSigning:       c.IsTIPSigning(num),
 		IsTIPRandomize:     c.IsTIPRandomize(num),
-		IsTIPBlacklist:     c.IsTIPBlacklist(num),
 		IsTIPGasPrice:      c.IsTIPGasPrice(num),
-		IsTIPSignerCheck:   c.IsTIPSignerCheck(num),
 		IsTIPNativeTrading: c.IsTIPNativeTrading(num),
 		IsTIPNativeLending: c.IsTIPNativeLending(num),
 		IsTIP2021:          c.IsTIP2021(num),
