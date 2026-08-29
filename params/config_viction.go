@@ -128,10 +128,22 @@ func (c *VictionConfig) IsBypassValidatorBlock(number uint64) bool {
 	return victionBypassValidators[number]
 }
 
+// Check if current blockOfEpoch is in secret committing phase.
+func (c *VictionConfig) IsRandomizerCommitPhase(blockOfEpoch uint64) bool {
+	return blockOfEpoch > 0 && blockOfEpoch >= c.RandomizerCommitNthBlock && blockOfEpoch < c.RandomizerRevealNthBlock
+}
+
+// Check if current blockOfEpoch is in secret revealing phase.
+func (c *VictionConfig) IsRandomizerOpeningPhase(blockOfEpoch uint64) bool {
+	return blockOfEpoch > 0 && blockOfEpoch >= c.RandomizerRevealNthBlock && blockOfEpoch <= c.RandomizerFinaleNthBlock
+}
+
+// Check if PoSV configuration is available.
 func (c *ChainConfig) IsPosv() bool {
 	return c.Posv != nil
 }
 
+// Check if Viction configuration is available.
 func (c *ChainConfig) IsViction() bool {
 	return c.Viction != nil
 }

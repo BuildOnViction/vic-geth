@@ -53,6 +53,9 @@ var (
 
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
+	// ErrNoAttestorSignature is returned if a block's attestor signature is missing.
+	ErrNoAttestorSignature = errors.New("no attestor signature in header")
+
 	errNoBackend = errors.New("backend reference is not available")
 
 	errNoChainReader = errors.New("chain reader is not available")
