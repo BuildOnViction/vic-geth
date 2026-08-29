@@ -59,7 +59,7 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 
 	number := header.Number.Uint64()
 	checkpointNumber := checkpointHeader.Number.Uint64()
-	log.Warn("[Backend][GetCreatorAttestorPairs] Get Creator-Attestor Pairs from checkpoint header failed. Retry with state", "checkpoint", checkpointNumber, "number", number)
+	log.Warn("[Backend] Get Creator-Attestor Pairs from checkpoint header failed. Retry with state", "checkpoint", checkpointNumber, "number", number)
 	stateAtCheckpoint, err := s.blockchain.StateAt(checkpointHeader.Root)
 	if err != nil {
 		return nil, 0, err
@@ -73,12 +73,11 @@ func (s *Ethereum) PosvGetEpochRewards(
 	chain consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	number := header.Number.Uint64()
-	// Use parent state for voter caps
 	preCheckpointHeader := chain.GetHeader(header.ParentHash, number-1)
 	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
 	if err != nil {
-		logger.Warn("[Backend][GetEpochReward]: failed to get preCheckpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
-		return nil, err
+		logger.Warn("[Backend] Get preCheckpoint state failed. Fallback to checkpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
+		preCheckpointState = statedb
 	}
 
 	return viction.CalcRewardPerEpoch(config, posvConfig, vicConfig, header, chain, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
@@ -116,11 +115,11 @@ func (s *Ethereum) PosvGetValidators(
 	if header == nil {
 		return []common.Address{}, viction.ErrNilHeader
 	}
-	state, err := s.blockchain.StateAt(header.Root)
+	statedb, err := s.blockchain.StateAt(header.Root)
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(config, vicConfig, header, state)
+	return viction.GetValidators(config, vicConfig, header, statedb)
 }
 
 // Attach services required by Viction blockchain.
