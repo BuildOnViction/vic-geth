@@ -1925,6 +1925,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		if err != nil {
 			return it.index, err
 		}
+		// Commit native trading/lending trie nodes to their LevelDB backing stores.
+		// This must happen after writeBlockWithState so the next block's *beforeProcess* can open the trading/lending trie from the correct root.
+		if err := bc.commitNativeExchangeState(block); err != nil {
+			return it.index, err
+		}
 		// Update the metrics touched during block commit
 		accountCommitTimer.Update(statedb.AccountCommits)   // Account commits are complete, we can mark them
 		storageCommitTimer.Update(statedb.StorageCommits)   // Storage commits are complete, we can mark them
