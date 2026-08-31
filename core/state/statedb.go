@@ -117,6 +117,8 @@ type StateDB struct {
 	SnapshotAccountReads time.Duration
 	SnapshotStorageReads time.Duration
 	SnapshotCommits      time.Duration
+
+	legacyRevert bool // Whether to use legacy revert behavior (victionchain) or not (geth)
 }
 
 // New creates a new state from a given trie.
@@ -146,6 +148,7 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 			sdb.snapStorage = make(map[common.Hash]map[common.Hash][]byte)
 		}
 	}
+	sdb.legacyRevert = true
 	return sdb, nil
 }
 
@@ -770,7 +773,7 @@ func (s *StateDB) RevertToSnapshot(revid int) {
 	snapshot := s.validRevisions[idx].journalIndex
 
 	// Replay the journal to undo changes and remove invalidated snapshots
-	s.journal.revert(s, snapshot)
+	s.journal.revert(s, snapshot, s.legacyRevert)
 	s.validRevisions = s.validRevisions[:idx]
 }
 
