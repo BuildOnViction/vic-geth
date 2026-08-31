@@ -24,14 +24,12 @@ import (
 	"fmt"
 )
 
-// TryGetBestLeftKeyAndValue returns the leftmost (smallest key) leaf in the trie.
-//
-// Returns (nil, nil, nil) when the trie is empty.
-// Propagates any underlying database error (e.g. MissingNodeError) encountered
-// while resolving hash nodes from disk.
-//
-// The returned key is in keybyte (non-hex) encoding, matching the original
-// key passed to TryUpdate.
+// TryGetBestLeftKeyAndValue returns the key and value of the leftmost
+// leaf in the trie. The returned key is in keybyte encoding, matching
+// the keys passed to TryUpdate.
+// The value bytes must not be modified by the caller.
+// If the trie is empty, both return values are nil.
+// If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
 	key, value, newroot, didResolve, err := t.tryGetBestLeftKeyAndValue(t.root, []byte{})
 	if err == nil && didResolve {
@@ -46,6 +44,10 @@ func (t *Trie) TryGetBestLeftKeyAndValue() ([]byte, []byte, error) {
 	return hexToKeybytes(key), value, nil
 }
 
+// tryGetBestLeftKeyAndValue returns the leftmost leaf of the subtrie below
+// origNode, carrying the hex-encoded key path accumulated in prefix. It
+// resolves hash nodes on the way down and links the loaded children back
+// into the trie on the way up.
 func (t *Trie) tryGetBestLeftKeyAndValue(origNode node, prefix []byte) (key []byte, value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
@@ -87,10 +89,12 @@ func (t *Trie) tryGetBestLeftKeyAndValue(origNode node, prefix []byte) (key []by
 	}
 }
 
-// TryGetBestRightKeyAndValue returns the rightmost (largest key) leaf in the trie.
-//
-// Returns (nil, nil, nil) when the trie is empty.
-// Propagates any underlying database error encountered while resolving hash nodes.
+// TryGetBestRightKeyAndValue returns the key and value of the rightmost
+// leaf in the trie. The returned key is in keybyte encoding, matching
+// the keys passed to TryUpdate.
+// The value bytes must not be modified by the caller.
+// If the trie is empty, both return values are nil.
+// If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
 	key, value, newroot, didResolve, err := t.tryGetBestRightKeyAndValue(t.root, []byte{})
 	if err == nil && didResolve {
@@ -105,6 +109,10 @@ func (t *Trie) TryGetBestRightKeyAndValue() ([]byte, []byte, error) {
 	return hexToKeybytes(key), value, nil
 }
 
+// tryGetBestRightKeyAndValue returns the rightmost leaf of the subtrie below
+// origNode, carrying the hex-encoded key path accumulated in prefix. It
+// resolves hash nodes on the way down and links the loaded children back
+// into the trie on the way up.
 func (t *Trie) tryGetBestRightKeyAndValue(origNode node, prefix []byte) (key []byte, value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
@@ -146,12 +154,13 @@ func (t *Trie) tryGetBestRightKeyAndValue(origNode node, prefix []byte) (key []b
 	}
 }
 
-// TryGetAllLeftKeyAndValue returns all leaves whose hex-encoded key is strictly
-// less than the hex-encoded form of limit (limit[0 : len-1] in hex).
-//
-// The limit byte slice is in keybyte encoding (same as TryUpdate keys).
-// Returns (nil, nil, nil) when no matching leaves exist.
-// Propagates any underlying database error encountered while resolving hash nodes.
+// TryGetAllLeftKeyAndValue returns the keys and values of all leaves whose
+// hex-encoded key is strictly less than the hex-encoded form of limit.
+// The limit and the returned keys are in keybyte encoding, matching the
+// keys passed to TryUpdate.
+// The value bytes must not be modified by the caller.
+// If no leaf matches, no keys or values are returned.
+// If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error) {
 	hexLimit := keybytesToHex(limit)
 	hexLimit = hexLimit[0 : len(hexLimit)-1] // strip trailing 0x10 terminator
@@ -170,6 +179,11 @@ func (t *Trie) TryGetAllLeftKeyAndValue(limit []byte) ([][]byte, [][]byte, error
 	return keys, values, nil
 }
 
+// tryGetAllLeftKeyAndValue returns the keys and values of all leaves in the
+// subtrie below origNode whose hex-encoded key is strictly less than limit,
+// carrying the hex-encoded key path accumulated in prefix. It resolves hash
+// nodes on the way down and links the loaded children back into the trie on
+// the way up.
 func (t *Trie) tryGetAllLeftKeyAndValue(origNode node, prefix []byte, limit []byte) (keys [][]byte, values [][]byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
