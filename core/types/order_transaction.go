@@ -1,4 +1,4 @@
-// Copyright 2016 The go-ethereum Authors
+// Copyright 2014 The go-ethereum Authors
 // (original work)
 // Copyright 2025 The Viction Authors
 // (modifications)
@@ -21,19 +21,16 @@ package types
 
 import (
 	"container/heap"
-	"crypto/ecdsa"
 	"errors"
-	"fmt"
 	"io"
 	"math/big"
-	"strconv"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 )
+
+//go:generate gencodec -type txdata -field-override txdataMarshaling -out gen_tx_json.go
 
 var (
 	// ErrInvalidOrderSig invalidate signer
@@ -54,7 +51,7 @@ const (
 // OrderTransaction order transaction
 type OrderTransaction struct {
 	data ordertxdata
-
+	// caches
 	hash atomic.Value
 	size atomic.Value
 	from atomic.Value
@@ -72,15 +69,16 @@ type ordertxdata struct {
 	Side            string         `json:"side,omitempty"`
 	Type            string         `json:"type,omitempty"`
 	OrderID         uint64         `json:"orderid,omitempty"`
-
+	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
 	R *big.Int `json:"r" gencodec:"required"`
 	S *big.Int `json:"s" gencodec:"required"`
 
+	// This is only used when marshaling to JSON.
 	Hash common.Hash `json:"hash"`
 }
 
-// Check if the order is cancelled.
+// IsCancelledOrder check if tx is cancelled transaction
 func (tx *OrderTransaction) IsCancelledOrder() bool {
 	if tx.Status() == OrderStatusCancelled {
 		return true
@@ -88,17 +86,17 @@ func (tx *OrderTransaction) IsCancelledOrder() bool {
 	return false
 }
 
-// Check if the order is a Limit Order type.
-func (tx *OrderTransaction) IsLoTypeOrder() bool {
-	if tx.Type() == OrderTypeLo {
+// IsMoTypeOrder check if tx type is MO Order
+func (tx *OrderTransaction) IsMoTypeOrder() bool {
+	if tx.Type() == OrderTypeMo {
 		return true
 	}
 	return false
 }
 
-// Check if the order is a Market Order type.
-func (tx *OrderTransaction) IsMoTypeOrder() bool {
-	if tx.Type() == OrderTypeMo {
+// IsLoTypeOrder check if tx type is LO Order
+func (tx *OrderTransaction) IsLoTypeOrder() bool {
+	if tx.Type() == OrderTypeLo {
 		return true
 	}
 	return false
@@ -120,6 +118,7 @@ func (tx *OrderTransaction) DecodeRLP(s *rlp.Stream) error {
 	return err
 }
 
+// Nonce return nonce of account
 func (tx *OrderTransaction) Nonce() uint64                   { return tx.data.AccountNonce }
 func (tx *OrderTransaction) Quantity() *big.Int              { return tx.data.Quantity }
 func (tx *OrderTransaction) Price() *big.Int                 { return tx.data.Price }
@@ -350,184 +349,4 @@ func (t *OrderTransactionByNonce) Shift() {
 // and hence all subsequent ones should be discarded from the same account.
 func (t *OrderTransactionByNonce) Pop() {
 	heap.Pop(&t.heads)
-}
-
-// OrderSigner interface for order transaction
-type OrderSigner interface {
-	// Equal returns true if the given signer is the same as the receiver.
-	Equal(OrderSigner) bool
-
-	// Hash returns the hash to be signed.
-	Hash(tx *OrderTransaction) common.Hash
-
-	// Sender returns the sender address of the transaction.
-	Sender(tx *OrderTransaction) (common.Address, error)
-
-	// SignatureValues returns the raw R, S, V values corresponding to the
-	// given signature.
-	SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error)
-}
-
-type ordersigCache struct {
-	signer OrderSigner
-	from   common.Address
-}
-
-// OrderSender returns the address derived from the signature (V, R, S) using secp256k1
-// elliptic curve and an error if it failed deriving or upon an incorrect
-// signature.
-//
-// Sender may cache the address, allowing it to be used regardless of
-// signing method. The cache is invalidated if the cached signer does
-// not match the signer used in the current call.
-func OrderSender(signer OrderSigner, tx *OrderTransaction) (common.Address, error) {
-	if sc := tx.from.Load(); sc != nil {
-		sigCache := sc.(ordersigCache)
-		// If the signer used to derive from in a previous
-		// call is not the same as used current, invalidate
-		// the cache.
-		if sigCache.signer.Equal(signer) {
-			return sigCache.from, nil
-		}
-	}
-
-	addr, err := signer.Sender(tx)
-	if err != nil {
-		return common.Address{}, err
-	}
-	tx.from.Store(ordersigCache{signer: signer, from: addr})
-	return addr, nil
-}
-
-// OrderSignTx signs the order transaction using the given order signer and private key
-func OrderSignTx(tx *OrderTransaction, s OrderSigner, prv *ecdsa.PrivateKey) (*OrderTransaction, error) {
-	h := s.Hash(tx)
-	message := crypto.Keccak256(
-		[]byte("\x19Ethereum Signed Message:\n32"),
-		h.Bytes(),
-	)
-
-	sig, err := crypto.Sign(message[:], prv)
-	if err != nil {
-		return nil, err
-	}
-	return tx.WithSignature(s, sig)
-}
-
-// OrderTxSigner signer
-type OrderTxSigner struct{}
-
-// Equal compare two signer
-func (ordersign OrderTxSigner) Equal(s2 OrderSigner) bool {
-	_, ok := s2.(OrderTxSigner)
-	return ok
-}
-
-// SignatureValues returns signature values. This signature needs to be in the [R || S || V] format where V is 0 or 1.
-func (ordersign OrderTxSigner) SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error) {
-	if len(sig) != 65 {
-		panic(fmt.Sprintf("wrong size for signature: got %d, want 65", len(sig)))
-	}
-	r = new(big.Int).SetBytes(sig[:32])
-	s = new(big.Int).SetBytes(sig[32:64])
-	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
-	return r, s, v, nil
-}
-
-// OrderCreateHash hash of new order
-func (ordersign OrderTxSigner) OrderCreateHash(tx *OrderTransaction) common.Hash {
-	sha := sha3.NewLegacyKeccak256()
-	sha.Write(tx.ExchangeAddress().Bytes())
-	sha.Write(tx.UserAddress().Bytes())
-	sha.Write(tx.BaseToken().Bytes())
-	sha.Write(tx.QuoteToken().Bytes())
-	sha.Write(common.BigToHash(tx.Quantity()).Bytes())
-	if tx.IsLoTypeOrder() {
-		if tx.Price() != nil {
-			sha.Write(common.BigToHash(tx.Price()).Bytes())
-		}
-	}
-	sha.Write(common.BigToHash(tx.EncodedSide()).Bytes())
-	sha.Write([]byte(tx.Status()))
-	sha.Write([]byte(tx.Type()))
-	sha.Write(common.BigToHash(big.NewInt(int64(tx.Nonce()))).Bytes())
-	return common.BytesToHash(sha.Sum(nil))
-}
-
-// OrderCancelHash hash of cancelled order
-func (ordersign OrderTxSigner) OrderCancelHash(tx *OrderTransaction) common.Hash {
-	sha := sha3.NewLegacyKeccak256()
-	sha.Write(tx.OrderHash().Bytes())
-	sha.Write(common.BigToHash(big.NewInt(int64(tx.Nonce()))).Bytes())
-	sha.Write(tx.UserAddress().Bytes())
-	sha.Write(common.BigToHash(big.NewInt(int64(tx.OrderID()))).Bytes())
-	sha.Write([]byte(tx.Status()))
-	sha.Write(tx.ExchangeAddress().Bytes())
-	sha.Write(tx.BaseToken().Bytes())
-	sha.Write(tx.QuoteToken().Bytes())
-
-	return common.BytesToHash(sha.Sum(nil))
-}
-
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (ordersign OrderTxSigner) Hash(tx *OrderTransaction) common.Hash {
-	if tx.IsCancelledOrder() {
-		return ordersign.OrderCancelHash(tx)
-	}
-	return ordersign.OrderCreateHash(tx)
-}
-
-// MarshalSignature encode signature
-func MarshalSignature(R, S, V *big.Int) ([]byte, error) {
-	sigBytes1 := common.BigToHash(R).Bytes()
-	sigBytes2 := common.BigToHash(S).Bytes()
-	v := big.NewInt(0)
-	v.Sub(V, big.NewInt(27))
-
-	bigstr := v.String()
-	n, err := strconv.ParseInt(bigstr, 10, 8)
-	if err != nil {
-		return nil, err
-	}
-	sigBytes3 := byte(n)
-	sigBytes := append([]byte{}, sigBytes1...)
-	sigBytes = append(sigBytes, sigBytes2...)
-	sigBytes = append(sigBytes, sigBytes3)
-
-	return sigBytes, nil
-}
-
-// Sender get signer from
-func (ordersign OrderTxSigner) Sender(tx *OrderTransaction) (common.Address, error) {
-
-	message := crypto.Keccak256(
-		[]byte("\x19Ethereum Signed Message:\n32"),
-		ordersign.Hash(tx).Bytes(),
-	)
-	V, R, S := tx.Signature()
-
-	sigBytes, err := MarshalSignature(R, S, V)
-	if err != nil {
-		return common.Address{}, err
-	}
-	pubKey, err := crypto.SigToPub(message, sigBytes)
-	if err != nil {
-		return common.Address{}, err
-	}
-	address := crypto.PubkeyToAddress(*pubKey)
-	return address, nil
-
-}
-
-// CacheOrderSigner cache signed order
-func CacheOrderSigner(signer OrderSigner, tx *OrderTransaction) {
-	if tx == nil {
-		return
-	}
-	addr, err := signer.Sender(tx)
-	if err != nil {
-		return
-	}
-	tx.from.Store(ordersigCache{signer: signer, from: addr})
 }
