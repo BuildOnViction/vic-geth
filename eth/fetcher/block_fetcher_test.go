@@ -574,6 +574,23 @@ func TestQueueGapFill(t *testing.T) {
 	verifyChainHeight(t, tester, uint64(len(hashes)-1))
 }
 
+// posvTestBackend is a mock PoSV backend controlling how propagated blocks
+// without attestor signatures are attested by the fetcher.
+type posvTestBackend struct {
+	attest func(block *types.Block) (*types.Block, error)
+}
+
+func (b *posvTestBackend) PosvAttestBlock(block *types.Block) (*types.Block, error) {
+	if b.attest == nil {
+		return nil, nil
+	}
+	return b.attest(block)
+}
+
+func (b *posvTestBackend) PosvRandomNumber(block *types.Block) error { return nil }
+
+func (b *posvTestBackend) PosvSignBlock(block *types.Block) error { return nil }
+
 func TestAppendAttestorHookUnchangedBlock(t *testing.T) {
 	hashes, blocks := makeChain(1, 0, genesis)
 	original := blocks[hashes[0]]
@@ -640,6 +657,12 @@ func TestAppendAttestorHookMutatedBlock(t *testing.T) {
 		}
 		return nil
 	}
+	tester.fetcher.SetPosvBackend(&posvTestBackend{attest: func(block *types.Block) (*types.Block, error) {
+		if block.Hash() != original.Hash() {
+			t.Fatalf("backend received unexpected block hash, got %s, want %s", block.Hash(), original.Hash())
+		}
+		return mutated, nil
+	}})
 
 	tester.fetcher.Enqueue("valid", original)
 	verifyImportEvent(t, imported, true)
@@ -682,9 +705,10 @@ func TestAppendAttestorHookError(t *testing.T) {
 	}
 }
 
-// POSV: when we are not the attestor, the block is still imported without M2
-// attestation (for compatibility with victionchain). The creator-signed block
-// is also relayed so the assigned attestor can receive it through the mesh.
+// POSV: when this node is not the assigned attestor (the backend returns no
+// attested block), the fetcher relays the creator-signed block to other peers
+// so the assigned attestor can receive it through the mesh, and skips the
+// local import (the block hash changes once M2 is appended).
 func TestAppendAttestorHookSkipImportStillRelays(t *testing.T) {
 	hashes, blocks := makeChain(1, 0, genesis)
 	original := blocks[hashes[0]]
@@ -697,6 +721,7 @@ func TestAppendAttestorHookSkipImportStillRelays(t *testing.T) {
 	tester.fetcher.verifyHeader = func(header *types.Header) error {
 		return posv.ErrNoAttestorSignature
 	}
+	tester.fetcher.SetPosvBackend(&posvTestBackend{})
 
 	tester.fetcher.Enqueue("valid", original)
 	// Block should NOT be imported when this node is not the assigned attestor.

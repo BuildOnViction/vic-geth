@@ -881,8 +881,10 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		go f.broadcastBlock(block, false)
 
 		// PoSV: Submit scheduled transactions to txpool.
-		f.posvBackend.PosvSignBlock(block)
-		f.posvBackend.PosvRandomNumber(block)
+		if f.posvBackend != nil {
+			f.posvBackend.PosvSignBlock(block)
+			f.posvBackend.PosvRandomNumber(block)
+		}
 
 		// Invoke the testing hook if needed
 		if f.importedHook != nil {

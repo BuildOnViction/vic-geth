@@ -29,56 +29,57 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 )
 
-// Get penalty list for an epoch using default rule.
-func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
+// Return addresses of penaltized validators following default rule based on current block number.
+func PenalizeValidatorsDefault(
 	header *types.Header,
-	chain consensus.ChainReader,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+	chainReader consensus.ChainReader, blockchain *core.BlockChain,
 ) ([]common.Address, error) {
-	if bc == nil {
-		return []common.Address{}, fmt.Errorf("blockchain not initialized (block %v)", header.Number)
+	if blockchain == nil {
+		return nil, fmt.Errorf("penalize/default: blockchain not initialized (block %v)", header.Number)
 	}
 	// Viction reads signers from the contract using the state trie at the checkpoint block.
 	// This avoids relying on where the BlockSign tx ended up being included.
-	statedb, err := bc.State()
+	statedb, err := blockchain.State()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get statedb at checkpoint: %w", err)
+		return nil, fmt.Errorf("penalize/default: failed to get statedb at checkpoint root: %w", err)
 	}
-	blockNumber := header.Number.Uint64()
-	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch
-	penalties := []common.Address{}
+	number := header.Number.Uint64()
+	prevCheckpointBlockNumber := number - posvConfig.Epoch
 
 	// First epoch doesn't have penalty
 	if prevCheckpointBlockNumber <= 0 {
-		return penalties, nil
+		return []common.Address{}, nil
 	}
 
-	prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+	prevCheckpointHeader := chainReader.GetHeaderByNumber(prevCheckpointBlockNumber)
 	validators := posv.ExtractValidatorsFromCheckpointHeader(prevCheckpointHeader)
 	if len(validators) == 0 {
-		return penalties, nil
+		return []common.Address{}, nil
 	}
 
-	for i := prevCheckpointBlockNumber; i < blockNumber; i++ {
+	for i := prevCheckpointBlockNumber; i < number; i++ {
 		// Only check blocks that can be signed (sign interval) and/or pre-TIP blocks.
-		if i%vicConfig.ValidatorSignInterval != 0 && config != nil && config.IsTIP2019(big.NewInt(int64(i))) {
+		if i%victionConfig.ValidatorSignInterval != 0 && config != nil && config.IsTIP2019(big.NewInt(int64(i))) {
 			continue
 		}
 
-		h := chain.GetHeaderByNumber(i)
+		h := chainReader.GetHeaderByNumber(i)
 		if h == nil {
 			continue
 		}
-		blk := bc.GetBlock(h.Hash(), i)
+		blk := blockchain.GetBlock(h.Hash(), i)
 		if blk == nil {
 			continue
 		}
 
-		signers := statedb.GetSigners(vicConfig.ValidatorBlockSignContract, blk)
-		for _, signer := range signers {
+		signers := statedb.GetSigners(victionConfig.ValidatorBlockSignContract, blk)
+		for _, signerAddr := range signers {
 			for j, addr := range validators {
-				if signer == addr {
+				if signerAddr == addr {
 					validators = append(validators[:j], validators[j+1:]...)
 				}
 			}
@@ -88,14 +89,14 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	return validators, nil
 }
 
-// Get penalty list for an epoch using TIPSigning rule.
-func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
-	header *types.Header,
-	chain consensus.ChainReader,
-	validators []common.Address,
+// Return addresses of penaltized validators following TIPSigning rule based on current block number.
+func PenalizeValidatorsTIPSigning(
+	header *types.Header, validators []common.Address,
+	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+	chainReader consensus.ChainReader, blockchain *core.BlockChain, blksigCache *lru.ARCCache,
 ) ([]common.Address, error) {
-	blockNumber := header.Number.Uint64()
-	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch
+	number := header.Number.Uint64()
+	prevCheckpointBlockNumber := number - posvConfig.Epoch
 	penalties := []common.Address{}
 
 	// First epoch doesn't have penalty
@@ -104,13 +105,17 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	}
 
 	// Count number of blocks mined by each validator
+	sigCache, _ := lru.NewARC(int(posvConfig.Epoch))
 	epochBlockHashes := make([]common.Hash, posvConfig.Epoch)
 	blockMiningCounts := map[common.Address]uint64{}
 	epochBlockHashes[0] = header.ParentHash
 	parentHash := header.ParentHash
 	for i := uint64(1); i < posvConfig.Epoch; i++ {
-		parentHeader := chain.GetHeaderByHash(parentHash)
-		miner, _ := c.Author(parentHeader)
+		parentHeader := chainReader.GetHeaderByHash(parentHash)
+		if parentHeader == nil {
+			return nil, fmt.Errorf("required header unavailable (%s)", parentHash.Hex())
+		}
+		miner, _ := posv.Ecrecover(parentHeader, sigCache)
 		if count, ok := blockMiningCounts[miner]; ok {
 			blockMiningCounts[miner] = count + 1
 		} else {
@@ -121,7 +126,7 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	}
 
 	// Penalize validators didn't create block or lower than required
-	prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+	prevCheckpointHeader := chainReader.GetHeaderByNumber(prevCheckpointBlockNumber)
 	preValidators := posv.ExtractValidatorsFromCheckpointHeader(prevCheckpointHeader)
 	for _, validator := range preValidators {
 		if _, exist := blockMiningCounts[validator]; !exist {
@@ -129,22 +134,25 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 		}
 	}
 	for miner, count := range blockMiningCounts {
-		if count < vicConfig.ValidatorMinBlockPerEpochCount {
+		if count < victionConfig.ValidatorMinBlockPerEpochCount {
 			penalties = append(penalties, miner)
 		}
 	}
 
 	// Get list of previously penalized validators for BlockSign check
 	comebackCheckpointBlockNumber := uint64(0)
-	comebackLength := (vicConfig.PenaltyEpochCount + 1) * posvConfig.Epoch
-	if blockNumber > comebackLength {
-		comebackCheckpointBlockNumber = blockNumber - comebackLength
+	comebackLength := (victionConfig.PenaltyEpochCount + 1) * posvConfig.Epoch
+	if number > comebackLength {
+		comebackCheckpointBlockNumber = number - comebackLength
 	}
 	comebacks := []common.Address{}
 	if comebackCheckpointBlockNumber > 0 {
-		combackHeader := chain.GetHeaderByNumber(comebackCheckpointBlockNumber)
-		penalties := posv.DecodePenaltiesFromHeader(combackHeader.Penalties)
-		for _, p := range penalties {
+		comebackHeader := chainReader.GetHeaderByNumber(comebackCheckpointBlockNumber)
+		if comebackHeader == nil {
+			return nil, fmt.Errorf("required checkpoint header unavailable (%d)", comebackCheckpointBlockNumber)
+		}
+		prevPenalties := posv.DecodePenaltiesFromHeader(comebackHeader.Penalties)
+		for _, p := range prevPenalties {
 			for _, addr := range validators {
 				if p == addr {
 					comebacks = append(comebacks, p)
@@ -155,19 +163,19 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 
 	// If penalized validators has BlockSign recently, remove them from penalties
 	mapBlockHash := map[common.Hash]bool{}
-	for i := int(vicConfig.PenaltyComebackBlockCount) - 1; i >= 0; i-- {
+	for i := int(victionConfig.PenaltyComebackBlockCount) - 1; i >= 0; i-- {
 		if len(comebacks) > 0 {
-			blockNumber := header.Number.Uint64() - uint64(i) - 1
-			header := chain.GetHeaderByNumber(blockNumber)
+			signBlockNumber := number - uint64(i) - 1
+			signHeader := chainReader.GetHeaderByNumber(signBlockNumber)
 			blockHash := epochBlockHashes[i]
-			if blockNumber%vicConfig.ValidatorSignInterval == 0 {
+			if signBlockNumber%victionConfig.ValidatorSignInterval == 0 {
 				mapBlockHash[blockHash] = true
 			}
-			txs, err := c.GetSignDataForBlock(config, vicConfig, header, chain)
+			txs, err := GetBlockSignData(signHeader, config, victionConfig, chainReader, blockchain, blksigCache)
 			if err != nil {
-				return []common.Address{}, err
+				return nil, err
 			}
-			signer := types.MakeSigner(config, big.NewInt(int64(blockNumber)))
+			signer := types.MakeSigner(config, big.NewInt(int64(signBlockNumber)))
 			// Check for BlockSign of specific signer
 			for _, tx := range txs {
 				signedBlockHash := common.BytesToHash(tx.Data()[len(tx.Data())-32:])
@@ -190,7 +198,7 @@ func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posv
 	}
 
 	penalties = append(penalties, comebacks...)
-	if config.IsTIPRandomize(big.NewInt(int64(blockNumber))) {
+	if config.IsTIPRandomize(big.NewInt(int64(number))) {
 		return penalties, nil
 	}
 	return comebacks, nil

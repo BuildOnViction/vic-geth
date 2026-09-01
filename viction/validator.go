@@ -32,7 +32,8 @@ import (
 )
 
 // Return map of validator-attestor pairs from checkpoint header (Both validators and attestorIndices are from checkpoint header).
-func GetCreatorAttestorPairsFromCheckpointHeader(config *params.ChainConfig, posvConfig *params.PosvConfig,
+func GetCreatorAttestorPairsFromCheckpointHeader(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
 	header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
 	number := header.Number.Uint64()
@@ -40,12 +41,13 @@ func GetCreatorAttestorPairsFromCheckpointHeader(config *params.ChainConfig, pos
 	if len(validators) == 0 {
 		return nil, 0, ErrNoValidator
 	}
-	attestorIdxs := posv.ExtractAttestorsFromCheckpointHeader(checkpointHeader)
-	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+	attestorIndices := posv.ExtractAttestorsFromCheckpointHeader(checkpointHeader)
+	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIndices)
 }
 
 // Return map of validator-attestor pairs from state (Validators is from checkpoint header, attestorIndices are from state).
-func GetCreatorAttestorPairsFromState(config *params.ChainConfig, posvConfig *params.PosvConfig,
+func GetCreatorAttestorPairsFromState(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
 	header, checkpointHeader *types.Header,
 	statedb *state.StateDB,
 ) (map[common.Address]common.Address, uint64, error) {
@@ -54,29 +56,34 @@ func GetCreatorAttestorPairsFromState(config *params.ChainConfig, posvConfig *pa
 		return nil, 0, ErrNoValidator
 	}
 	number := header.Number.Uint64()
-	attestorIdxs, err := GetAttestorsFromState(config.Viction, validators, statedb)
+	attestorIndices, err := GetAttestorsFromState(validators, config.Viction, statedb)
 	if err != nil {
 		return nil, 0, err
 	}
-	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIdxs)
+	return getCreatorAttestorPairs(config, posvConfig, number, validators, attestorIndices)
 }
 
-// Return validator list from state.
-func GetValidatorsFromState(
-	vicConfig *params.VictionConfig, useStableSort bool,
+// Return addresses of eligible validators from the state.
+func GetValidators(
+	header *types.Header,
+	config *params.ChainConfig, victionConfig *params.VictionConfig,
 	statedb *state.StateDB,
 ) ([]common.Address, error) {
-	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
+	contractAddress := victionConfig.ValidatorContract
+	if contractAddress == (common.Address{}) {
+		return nil, ErrNoContractAddress
+	}
+	addresses := statedb.VicGetCandidates(contractAddress)
 	candidates := []*posv.ValidatorInfo{}
 	for _, addr := range addresses {
 		if addr == (common.Address{}) {
 			continue
 		}
-		_, cap := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
-		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: cap})
+		_, capacity := statedb.VicGetValidatorInfo(contractAddress, addr)
+		candidates = append(candidates, &posv.ValidatorInfo{Address: addr, Capacity: capacity})
 	}
 
-	if useStableSort {
+	if config.IsAtlas(header.Number) {
 		sort.SliceStable(candidates, func(i, j int) bool {
 			return candidates[i].Capacity.Cmp(candidates[j].Capacity) >= 0
 		})
@@ -86,7 +93,7 @@ func GetValidatorsFromState(
 		})
 	}
 
-	validatorMaxCountInt := int(vicConfig.ValidatorMaxCount)
+	validatorMaxCountInt := int(victionConfig.ValidatorMaxCount)
 	if len(candidates) > validatorMaxCountInt {
 		candidates = candidates[:validatorMaxCountInt]
 	}
@@ -98,12 +105,13 @@ func GetValidatorsFromState(
 }
 
 // Return validator-attestor pairs from validator list and attestor indices.
-func getCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.PosvConfig,
-	number uint64, validators []common.Address, attestorIdxs []int64,
+func getCreatorAttestorPairs(
+	config *params.ChainConfig, posvConfig *params.PosvConfig,
+	number uint64, validators []common.Address, attestorIndices []int64,
 ) (map[common.Address]common.Address, uint64, error) {
 	results := map[common.Address]common.Address{}
 	validatorCount := uint64(len(validators))
-	attestorCount := uint64(len(attestorIdxs))
+	attestorCount := uint64(len(attestorIndices))
 	offset := uint64(0)
 	if validatorCount > attestorCount {
 		return nil, offset, ErrInvalidAttestorList
@@ -113,7 +121,7 @@ func getCreatorAttestorPairs(config *params.ChainConfig, posvConfig *params.Posv
 			offset = ((number % posvConfig.Epoch) / validatorCount) % validatorCount
 		}
 		for i, val := range validators {
-			attIdx := uint64(attestorIdxs[i]) % validatorCount
+			attIdx := uint64(attestorIndices[i]) % validatorCount
 			attIdx = (attIdx + offset) % validatorCount
 			results[val] = validators[attIdx]
 		}
