@@ -331,6 +331,9 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 		return errNoChainReader
 	}
 
+	// Mark as PoSV block
+	header.Posv = true
+
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}

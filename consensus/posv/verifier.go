@@ -294,10 +294,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 				validators = common.SetSubstract(validators, penalties)
 			}
 		}
-		if err != nil {
-			log.Error("[PoSV] verify header: cannot get local validators", "number", number)
-			return err
-		}
 		remoteValidators := ExtractValidatorsFromCheckpointHeader(remoteHeader)
 		if !common.AreSimilarSlices(remoteValidators, validators) {
 			log.Error("[PoSV] verify header: validators mismatch", "number", number, "local", validators, "header", remoteValidators)
