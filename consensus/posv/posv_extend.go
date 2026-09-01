@@ -53,6 +53,11 @@ var (
 
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
+	errNilHeader = errors.New("header is nil")
+
+	// ErrNoAttestorSignature is returned if a block's attestor signature is missing.
+	ErrNoAttestorSignature = errors.New("no attestor signature in header")
+
 	errNoBackend = errors.New("backend reference is not available")
 
 	errNoChainReader = errors.New("chain reader is not available")
@@ -295,6 +300,10 @@ func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, ch
 
 // ecrecover2 extracts the Ethereum account address from a Attestor header.
 func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+	if header == nil {
+		return common.Address{}, errNilHeader
+	}
+
 	// If the signature's already cached, return that
 	hash := header.Hash()
 
