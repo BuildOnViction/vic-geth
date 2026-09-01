@@ -54,10 +54,12 @@ type StateProcessor struct {
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config:  config,
-		bc:      bc,
-		engine:  engine,
-		viction: NewVictionProcessor(config, bc, engine),
+		config:        config,
+		bc:            bc,
+		engine:        engine,
+		viction:       NewVictionProcessor(config, bc, engine),
+		tradingTriegc: prque.New(nil),
+		lendingTriegc: prque.New(nil),
 	}
 }
 
