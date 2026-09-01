@@ -112,6 +112,9 @@ func PenalizeValidatorsTIPSigning(
 	parentHash := header.ParentHash
 	for i := uint64(1); i < posvConfig.Epoch; i++ {
 		parentHeader := chain.GetHeaderByHash(parentHash)
+		if parentHeader == nil {
+			return nil, fmt.Errorf("required header unavailable (%s)", parentHash.Hex())
+		}
 		miner, _ := c.Author(parentHeader)
 		if count, ok := blockMiningCounts[miner]; ok {
 			blockMiningCounts[miner] = count + 1
@@ -145,6 +148,9 @@ func PenalizeValidatorsTIPSigning(
 	comebacks := []common.Address{}
 	if comebackCheckpointBlockNumber > 0 {
 		combackHeader := chain.GetHeaderByNumber(comebackCheckpointBlockNumber)
+		if combackHeader == nil {
+			return nil, fmt.Errorf("required checkpoint header unavailable (%d)", comebackCheckpointBlockNumber)
+		}
 		penalties := posv.DecodePenaltiesFromHeader(combackHeader.Penalties)
 		for _, p := range penalties {
 			for _, addr := range validators {
