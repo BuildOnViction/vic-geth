@@ -50,7 +50,7 @@ func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
 }
 
 // Flush any in-memory trading/lending trie roots not yet committed to LevelDB.
-func (bc *BlockChain) stopViction() {
+func (bc *BlockChain) flushNativeExchangeCache() {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok || p == nil {
 		return
@@ -63,22 +63,22 @@ func (bc *BlockChain) stopViction() {
 func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain][Native Trading] Engine not installed: Processor is not a *StateProcessor")
+		log.Error("[Blockchain] Native Trading engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetTradingEngine(engine)
-	log.Info("[Blockchain][Native Trading] Engine installed on state processor")
+	log.Info("[Blockchain] Native Trading engine has been installed on state processor")
 }
 
 // Inject the Native Lending Engine into the Processor.
 func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain][Native Lending] Engine not installed: Processor is not a *StateProcessor")
+		log.Error("[Blockchain] Native Lending engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetLendingEngine(engine)
-	log.Info("[Blockchain][Native Lending] Engine installed on state processor")
+	log.Info("[Blockchain] Native Lending engine has been installed on state processor")
 }
 
 func (bc *BlockChain) UpdateValidators() error {

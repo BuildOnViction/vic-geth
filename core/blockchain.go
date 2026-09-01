@@ -1040,6 +1040,10 @@ func (bc *BlockChain) Stop() {
 			log.Error("Dangling trie nodes after full cleanup")
 		}
 	}
+
+	// Flush any pending native trading/lending trie roots that haven't reached the
+	// TriesInMemory commit threshold yet.
+	bc.flushNativeExchangeCache()
 	// Ensure all live cached entries be saved into disk, so that we can skip
 	// cache warmup when node restarts.
 	if bc.cacheConfig.TrieCleanJournal != "" {

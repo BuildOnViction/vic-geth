@@ -158,7 +158,7 @@ func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.St
 			if err != nil {
 				return fmt.Errorf("native_lending: failed to exec ProcessLiquidationData at block %d: %w", header.Number, err)
 			}
-			log.Info("[Processor][Native Lending] Epoch liquidation processed", "block", header.Number.Uint64())
+			log.Info("[NativeLending] Epoch liquidation processed", "block", header.Number.Uint64())
 		}
 	}
 
@@ -195,7 +195,7 @@ func (p *VictionProcessor) PostBlockProcess(block *types.Block, statedb *state.S
 		if tradingRoot != expectRoot {
 			return fmt.Errorf("native_trading: state root mismatch at block %d: got %s, expected %s", block.NumberU64(), tradingRoot.Hex(), expectRoot.Hex())
 		}
-		log.Info("[Processor][Native Trading] State root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
+		log.Info("[NativeTrading] State root verified", "block", block.NumberU64(), "root", tradingRoot.Hex())
 	}
 
 	if p.IsLendingInitialized() {
@@ -213,7 +213,7 @@ func (p *VictionProcessor) PostBlockProcess(block *types.Block, statedb *state.S
 		if lendingRoot != expectRoot {
 			return fmt.Errorf("native_lending: state root mismatch at block %d: got %s, expected %s", block.NumberU64(), lendingRoot.Hex(), expectRoot.Hex())
 		}
-		log.Info("[Processor][Native Lending] State root verified", "block", block.NumberU64(), "root", lendingRoot.Hex())
+		log.Info("[NativeLending] State root verified", "block", block.NumberU64(), "root", lendingRoot.Hex())
 	}
 
 	return nil
@@ -358,7 +358,7 @@ func (p *VictionProcessor) applyTradingTransaction(tx *types.Transaction, header
 		// The author is the address passed to ValidateTradingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("[Processor][Native Trading] Failed to recover block author, using zero address", "err", err)
+			log.Warn("[NativeTrading] Failed to recover block author, using zero address", "err", err)
 		}
 		tradingEngine := p.tradingEngine
 		tradingStateDB := p.tradingStateDB
@@ -366,7 +366,7 @@ func (p *VictionProcessor) applyTradingTransaction(tx *types.Transaction, header
 		for i, txDataMatch := range batch.Data {
 			order, err := txDataMatch.DecodeOrder()
 			if err != nil {
-				log.Warn("[Processor][Native Trading] Failed to decode order, skipping", "index", i, "err", err)
+				log.Warn("[NativeTrading] Failed to decode order, skipping", "index", i, "err", err)
 				continue
 			}
 
@@ -378,7 +378,7 @@ func (p *VictionProcessor) applyTradingTransaction(tx *types.Transaction, header
 			}
 
 			if len(rejects) > 0 {
-				log.Info("[Processor][Native Trading] Orders rejected", "count", len(rejects))
+				log.Info("[NativeTrading] Orders rejected", "count", len(rejects))
 			}
 		}
 	}
@@ -411,7 +411,7 @@ func (p *VictionProcessor) applyLendingTransaction(tx *types.Transaction, header
 		// The author is the address passed to ValidateLendingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("[Processor][Native Lending] Failed to recover block author, using zero address", "err", err)
+			log.Warn("[NativeLending] Failed to recover block author, using zero address", "err", err)
 		}
 		lendingStateDB := p.lendingStateDB
 		tradingStateDB := p.tradingStateDB
@@ -429,7 +429,7 @@ func (p *VictionProcessor) applyLendingTransaction(tx *types.Transaction, header
 				return true, nil, 0, fmt.Errorf("native_lending: failed to commit order index=%d order=%s: %w", i, order.Hash.Hex(), err), nil
 			}
 			if len(rejects) > 0 {
-				log.Info("[Processor][Native Lending] Orders rejected", "count", len(rejects))
+				log.Info("[NativeLending] Orders rejected", "count", len(rejects))
 			}
 		}
 	}
