@@ -67,7 +67,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							return
 						default:
 						}
-						if retryCount > 120 {
+						if retryCount > 600 {
 							break
 						}
 						cb := cbc.CurrentBlock()
@@ -84,7 +84,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							retryCount++
 							lastcheck = time.Now()
 						}
-						time.Sleep(250 * time.Millisecond)
+						time.Sleep(300 * time.Millisecond)
 					}
 				}
 			}
