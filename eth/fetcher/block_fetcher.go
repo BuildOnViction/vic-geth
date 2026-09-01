@@ -773,7 +773,7 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 			return
 		}
 		// Validate the header and if something went wrong, drop the peer
-		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock {
+		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock && err != posv.ErrNoAttestorSignature {
 			log.Debug("Propagated header verification failed", "peer", peer, "number", header.Number, "hash", hash, "err", err)
 			f.dropPeer(peer)
 			return
@@ -857,7 +857,7 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 			}
 			if attestedBlock == nil {
 				// This node is not attestor for this block, continue broadcast the block to other peers.
-				log.Info("[Fetcher] Relay propagated block to other peers", "peer", peer, "number", block.NumberU64(), "hash", hash)
+				log.Debug("[Fetcher] Relay propagated block to other peers", "peer", peer, "number", block.NumberU64(), "hash", hash)
 				go f.broadcastBlock(block, true)
 				return
 			} else {
@@ -882,8 +882,10 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		go f.broadcastBlock(block, false)
 
 		// PoSV: Submit scheduled transactions to txpool.
-		f.posvBackend.PosvSignBlock(block)
-		f.posvBackend.PosvRandomNumber(block)
+		if f.posvBackend != nil {
+			f.posvBackend.PosvSignBlock(block)
+			f.posvBackend.PosvRandomNumber(block)
+		}
 
 		// Invoke the testing hook if needed
 		if f.importedHook != nil {
