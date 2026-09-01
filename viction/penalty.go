@@ -1,3 +1,22 @@
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package viction
 
 import (
@@ -12,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// Get penalty list for an epoch using default rule.
 func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
 	chain consensus.ChainReader,
@@ -23,7 +43,7 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	// This avoids relying on where the BlockSign tx ended up being included.
 	statedb, err := bc.State()
 	if err != nil {
-		return nil, fmt.Errorf("penalize/default: failed to get statedb at checkpoint root: %w", err)
+		return nil, fmt.Errorf("failed to get statedb at checkpoint: %w", err)
 	}
 	blockNumber := header.Number.Uint64()
 	prevCheckpointBlockNumber := blockNumber - posvConfig.Epoch
@@ -68,6 +88,7 @@ func PenalizeValidatorsDefault(bc *core.BlockChain, c *posv.Posv, config *params
 	return validators, nil
 }
 
+// Get penalty list for an epoch using TIPSigning rule.
 func PenalizeValidatorsTIPSigning(c *posv.Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig,
 	header *types.Header,
 	chain consensus.ChainReader,

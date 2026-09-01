@@ -145,8 +145,9 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	nowUnix := now.Unix()
 
 	if seal {
+		// PoSV block requires attestor signature after first epoch.
 		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
-			return consensus.ErrNoValidatorSignature
+			return ErrNoAttestorSignature
 		}
 		// Don't waste time checking blocks from the future
 		if header.Time > uint64(nowUnix) {
@@ -260,25 +261,6 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		return nil
 	}
 
-	// Remove penalized validators from validator list.
-	removePenaltizedValidators := func(validators []common.Address) ([]common.Address, error) {
-		for i := uint64(1); i <= config.Viction.PenaltyEpochCount; i++ {
-			if number <= (i * posvConfig.Epoch) {
-				continue
-			}
-			prevCheckpointBlockNumber := number - (i * posvConfig.Epoch)
-			prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-			if prevCheckpointHeader == nil {
-				return nil, errCannotGetCheckpointHeader
-			}
-			prevPenalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
-			if len(prevPenalties) > 0 {
-				validators = common.SetSubstract(validators, prevPenalties)
-			}
-		}
-		return validators, nil
-	}
-
 	// Check that validators in the header (remote) can be recomputed from local state.
 	validateRemoteHeader := func(remoteHeader *types.Header, localValidators []common.Address) error {
 		// Validate penalties
@@ -299,7 +281,12 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if len(penalties) > 0 {
 			validators = common.SetSubstract(validators, penalties)
 		}
-		validators, err = removePenaltizedValidators(validators)
+		previousPenalties := GetPenaltiesFromHeaders(posvConfig, number, config.Viction.PenaltyEpochCount, chain)
+		for _, penalties := range previousPenalties {
+			if len(penalties) > 0 {
+				validators = common.SetSubstract(validators, penalties)
+			}
+		}
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local validators", "number", number)
 			return err
@@ -347,7 +334,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signers()
+	snapshotValidators := snap.signersNext()
 	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
 		return nil
 	} else {
@@ -397,7 +384,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 
 	// Current epoch checkpoint: used for authorization and attestor checks.
-	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
+	checkpointHeader := GetCheckpointHeader(c.config, header, parents, chain)
 	if checkpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader
@@ -411,7 +398,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
-	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, chain, parents)
+	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, parents, chain)
 	if prevCheckpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader

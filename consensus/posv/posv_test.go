@@ -85,7 +85,7 @@ func TestExactValidatorsAttestorsFromCheckPointHeader(t *testing.T) {
 		attIdx := uint64(idx) % n
 		newAttestors[i] = newValidators[attIdx]
 	}
-	// Offset from TIP randomize (see eth/viction/validator.go getCreatorAttestorPairs) is 0 here — pass block number + config if needed.
+	// Offset from TIP randomize (see viction/validator.go getCreatorAttestorPairs) is 0 here — pass block number + config if needed.
 	for i := range newValidators {
 		fmt.Printf("newValidators[%d]=%s newAttestors[%d]=%s attestorIdx=%d\n", i, newValidators[i].Hex(), i, newAttestors[i].Hex(), newAttestorIdxs[i])
 	}

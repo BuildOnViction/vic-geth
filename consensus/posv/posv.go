@@ -249,7 +249,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		// If an on-disk checkpoint snapshot can be found, use that
 		if number%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
 				snap = s
 				c.recents.Add(hash, snap)
 				break
@@ -257,7 +257,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		}
 		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
 				snap = s
 				c.recents.Add(hash, snap)
 				break
@@ -280,7 +280,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 				if err := snap.store(c.db); err != nil {
 					return nil, err
 				}
-				log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", number, "hash", hash)
+				log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", number, "hash", hash, "signers", len(snap.signers()))
 				break
 			}
 		}
@@ -318,7 +318,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			return nil, err
 		}
 		c.recents.Add(snap.Hash, snap)
-		log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", snap.signers())
+		log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", len(snap.signers()))
 	}
 	return snap, err
 }
@@ -371,7 +371,7 @@ func (c *Posv) Prepare(chainH consensus.ChainHeaderReader, header *types.Header)
 	c.lock.RUnlock()
 
 	// Set the correct difficulty
-	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+	checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	header.Difficulty = c.calcDifficulty(signer, parent, validators)
 
@@ -446,11 +446,11 @@ func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header
 			if !ok {
 				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
 			}
-			epochReward, err := c.backend.PosvGetEpochReward(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
+			epochReward, err := c.backend.PosvGetEpochRewards(c, config, config.Posv, config.Viction, header, chain, state, log.Root())
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
 			}
-			err = c.backend.PosvDistributeEpochRewards(header, state, epochReward)
+			err = c.backend.PosvDistributeEpochRewards(header, epochReward, state)
 			if err != nil {
 				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
 			}
@@ -514,7 +514,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		if parent == nil {
 			return fmt.Errorf("seal block: error %w", errUnauthorizedSigner)
 		}
-		checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+		checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 		validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 		index := common.IndexOf(validators, signer)
 		if index == -1 {
@@ -568,7 +568,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 
 // Return difficulty for a new block.
 func (c *Posv) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	checkpointHeader := GetCheckpointHeader(c.config, parent, chain, nil)
+	checkpointHeader := GetCheckpointHeader(c.config, parent, nil, chain)
 	validators := ExtractValidatorsFromCheckpointHeader(checkpointHeader)
 	return c.calcDifficulty(c.signer, parent, validators)
 }

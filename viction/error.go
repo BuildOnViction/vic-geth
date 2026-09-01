@@ -1,4 +1,7 @@
-// Copyright 2017 The go-ethereum Authors
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -14,24 +17,17 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package consensus
+package viction
 
 import "errors"
 
 var (
-	// ErrUnknownAncestor is returned when validating a block requires an ancestor
-	// that is unknown.
-	ErrUnknownAncestor = errors.New("unknown ancestor")
+	// ErrNoValidator is when the list of validator is empty.
+	ErrNoValidator = errors.New("no validator existed")
 
-	// ErrPrunedAncestor is returned when validating a block requires an ancestor
-	// that is known, but the state of which is not available.
-	ErrPrunedAncestor = errors.New("pruned ancestor")
+	// ErrInvalidAttestorList is when the attestors list are not conformed to the consensus rules.
+	ErrInvalidAttestorList = errors.New("invalid attestor list")
 
-	// ErrFutureBlock is returned when a block's timestamp is in the future according
-	// to the current node.
-	ErrFutureBlock = errors.New("block in the future")
-
-	// ErrInvalidNumber is returned if a block's number doesn't equal its parent's
-	// plus one.
-	ErrInvalidNumber = errors.New("invalid block number")
+	// ErrNoContractAddress is when the contract address is not set in the config.
+	ErrNoContractAddress = errors.New("contract address is not set")
 )

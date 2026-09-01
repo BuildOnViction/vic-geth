@@ -177,7 +177,8 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	// Set sync threshold if configured
+	eth.blockchain.SetSyncThreshold(config.SyncThreshold)
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
 		if config.SkipCompatRewind {
@@ -187,13 +188,6 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 			eth.blockchain.SetHead(compat.RewindTo)
 		}
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
-	}
-
-	// Set PosvBackend now that eth.blockchain is fully initialised.
-	// Must be done AFTER NewBlockChain returns so that eth.blockchain is non-nil
-	// when NewBlockChain's internal VerifyHeader call triggers verifyValidators.
-	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
-		return nil, err
 	}
 
 	eth.bloomIndexer.Start(eth.blockchain)
@@ -210,7 +204,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 			if current == nil {
 				return false
 			}
-			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, eth.blockchain, nil)
+			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, nil, eth.blockchain)
 			if cp == nil {
 				return false
 			}
@@ -230,11 +224,6 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	}
 	eth.miner = miner.New(eth, &config.Miner, chainConfig, eth.EventMux(), eth.engine, eth.isLocalBlock)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
-
-	if chainConfig.Posv != nil {
-		eth.setupPosvFetcherHook()
-		eth.setupPosvMinerHook()
-	}
 	eth.APIBackend = &EthAPIBackend{stack.Config().ExtRPCEnabled(), eth, nil}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
@@ -244,6 +233,11 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 
 	eth.dialCandidates, err = eth.setupDiscovery()
 	if err != nil {
+		return nil, err
+	}
+
+	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
+	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
 		return nil, err
 	}
 

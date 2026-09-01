@@ -93,7 +93,7 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 		return nil, err
 	}
 
-	epochReward, err := s.eth.PosvGetEpochReward(
+	epochReward, err := s.eth.PosvGetEpochRewards(
 		engine,
 		cfg,
 		cfg.Posv,
@@ -121,7 +121,7 @@ func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common
 		return nil, errors.New("header not found")
 	}
 	posvConfig := s.eth.blockchain.Config().Posv
-	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.eth.blockchain)
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
@@ -140,7 +140,7 @@ func (s *EthAPIBackend) GetAttestorsPairsByNumber(ctx context.Context, number rp
 	if header == nil {
 		return nil, errors.New("header not found")
 	}
-	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.eth.blockchain)
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
