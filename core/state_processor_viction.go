@@ -231,7 +231,7 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 			statedb.SetBalance(msg.From(), val)
 		}
 	}
-	if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To()); sender || receiver {
+	if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To(), header.Number); sender || receiver {
 		return ErrBlacklistedAddress
 	}
 

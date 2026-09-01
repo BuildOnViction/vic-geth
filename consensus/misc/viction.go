@@ -73,9 +73,9 @@ func ApplyAtlasHardFork(statedb *state.StateDB, victionConfig *params.VictionCon
 }
 
 // Check both *from* and *to* addresses are allowed to perform transaction.
-func ValidateVictionBlackList(config *params.ChainConfig, from common.Address, to *common.Address) (sender, receiver bool) {
-	if config.Viction == nil {
+func ValidateVictionBlackList(config *params.ChainConfig, from common.Address, to *common.Address, number *big.Int) (sender, receiver bool) {
+	if config.Viction == nil || !config.Viction.ConsensusLegacyCompat {
 		return false, false
 	}
-	return config.Viction.IsBlacklisted(from), to != nil && config.Viction.IsBlacklisted(*to)
+	return config.Viction.IsBlacklisted(from, number), to != nil && config.Viction.IsBlacklisted(*to, number)
 }

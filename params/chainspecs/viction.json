@@ -10,9 +10,7 @@
   "tip2019Block": 1050000,
   "tipSigningBlock": 3000000,
   "tipRandomizeBlock": 3464000,
-  "tipBlacklistBlock": 9349100,
   "tipGasPriceBlock": 13523400,
-  "tipSignerCheckBlock": 14458500,
   "tipNativeTradingBlock": 20581700,
   "tipNativeLendingBlock": 21430200,
   "tip2021Block": 30915660,
@@ -29,6 +27,7 @@
   },
   "viction": {
     "atlasVRC25MinCap": "1",
+    "consensusLegacyCompat": true,
     "consensusLimitTimeFinality": 30,
     "lendingContract": "0x0000000000000000000000000000000000000093",
     "lendingFinalizedContract": "0x0000000000000000000000000000000000000094",
