@@ -28,8 +28,8 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/viction"
 )
 
 type PublicPosvAPI struct {
@@ -62,7 +62,7 @@ func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Addre
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(block.Header(), chainConfig, chainConfig.Viction, statedb)
+	return victionapi.GetValidators(block.Header(), chainConfig, chainConfig.Viction, statedb)
 }
 
 type PublicPosvDebugAPI struct {
