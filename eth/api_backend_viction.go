@@ -11,10 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/viction"
 )
 
 const (
@@ -393,7 +393,7 @@ func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber ui
 			if err != nil {
 				return addrs, err
 			}
-			signTxs, err := viction.GetBlockSignData(header, s.eth.blockchain.Config(), s.eth.blockchain.Config().Viction, s.eth.blockchain, s.eth.blockchain, s.eth.blockSignersCache)
+			signTxs, err := victionapi.GetBlockSignData(header, s.eth.blockchain.Config(), s.eth.blockchain.Config().Viction, s.eth.blockchain, s.eth.blockchain, s.eth.blockSignersCache)
 			if err != nil {
 				return addrs, err
 			}

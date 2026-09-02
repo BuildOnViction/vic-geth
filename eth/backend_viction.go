@@ -29,12 +29,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/legacy/lending"
 	"github.com/ethereum/go-ethereum/legacy/trading"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/viction"
 )
 
 const recentBlockSigners = 10500 // Number of recent block sign transactions to keep in memory
@@ -52,7 +52,7 @@ func (s *Ethereum) PosvAttestBlock(
 		return nil, nil
 	}
 	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.blockchain)
-	return viction.AttestBlock(block, checkpointHeader, config, posvConfig, eb, wallet)
+	return victionapi.AttestBlock(block, checkpointHeader, config, posvConfig, eb, wallet)
 }
 
 // Get attestors from list of validators.
@@ -64,7 +64,7 @@ func (s *Ethereum) PosvGetAttestors(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestorsFromState(validators, victionConfig, state)
+	return victionapi.GetAttestorsFromState(validators, victionConfig, state)
 }
 
 // Get creator-attestor pairs from the state.
@@ -73,10 +73,10 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 ) (map[common.Address]common.Address, uint64, error) {
 	if config.Viction == nil || checkpointHeader == nil {
-		return nil, 0, viction.ErrInvalidAttestorList
+		return nil, 0, victionapi.ErrInvalidAttestorList
 	}
-	pairs, offset, err := viction.GetCreatorAttestorPairsFromCheckpointHeader(config, config.Posv, header, checkpointHeader)
-	if err == nil || err != viction.ErrNoValidator {
+	pairs, offset, err := victionapi.GetCreatorAttestorPairsFromCheckpointHeader(config, config.Posv, header, checkpointHeader)
+	if err == nil || err != victionapi.ErrNoValidator {
 		return pairs, offset, err
 	}
 
@@ -87,7 +87,7 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	if err != nil {
 		return nil, 0, err
 	}
-	return viction.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
+	return victionapi.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
 }
 
 // Calculate rewards at the end of each epoch.
@@ -104,7 +104,7 @@ func (s *Ethereum) PosvGetEpochRewards(
 		preCheckpointState = statedb
 	}
 
-	return viction.CalcRewardPerEpoch(header, config, posvConfig, victionConfig, chainReader, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
+	return victionapi.CalcRewardPerEpoch(header, config, posvConfig, victionConfig, chainReader, preCheckpointState, s.blockchain, s.blockSignersCache, logger)
 }
 
 // Add balance rewards to the state.
@@ -116,7 +116,7 @@ func (s *Ethereum) PosvDistributeEpochRewards(
 		return nil
 	}
 
-	rewardAmount, stakeholderCount := viction.DistributeStakeholderRewards(state, epochReward)
+	rewardAmount, stakeholderCount := victionapi.DistributeStakeholderRewards(state, epochReward)
 	log.Info("[Backend] Distributed epoch rewards", "block", header.Number.Uint64(), "stakeholderCount", stakeholderCount, "totalReward", rewardAmount.String())
 	return nil
 }
@@ -128,9 +128,9 @@ func (s *Ethereum) PosvGetPenalties(
 	chainReader consensus.ChainReader,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
-		return viction.PenalizeValidatorsTIPSigning(header, validators, config, posvConfig, victionConfig, chainReader, s.BlockChain(), s.blockSignersCache)
+		return victionapi.PenalizeValidatorsTIPSigning(header, validators, config, posvConfig, victionConfig, chainReader, s.BlockChain(), s.blockSignersCache)
 	}
-	return viction.PenalizeValidatorsDefault(header, config, posvConfig, victionConfig, chainReader, s.BlockChain())
+	return victionapi.PenalizeValidatorsDefault(header, config, posvConfig, victionConfig, chainReader, s.BlockChain())
 }
 
 // Get eligble validators from the state.
@@ -140,13 +140,13 @@ func (s *Ethereum) PosvGetValidators(
 	chainReader consensus.ChainReader,
 ) ([]common.Address, error) {
 	if header == nil {
-		return []common.Address{}, viction.ErrNilHeader
+		return []common.Address{}, victionapi.ErrNilHeader
 	}
 	statedb, err := s.blockchain.StateAt(header.Root)
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetValidators(header, config, victionConfig, statedb)
+	return victionapi.GetValidators(header, config, victionConfig, statedb)
 }
 
 // Create new Randomize transaction and submit to TxPool.
@@ -164,7 +164,7 @@ func (s *Ethereum) PosvRandomNumber(
 		return nil
 	}
 	config := s.blockchain.Config()
-	return viction.SubmitRandomNumberTransaction(block, snapshot, config, config.Posv, config.Viction, s.blockchain, s.ChainDb(), eb, wallet, s.txPool)
+	return victionapi.SubmitRandomNumberTransaction(block, snapshot, config, config.Posv, config.Viction, s.blockchain, s.ChainDb(), eb, wallet, s.txPool)
 }
 
 // Create new BlockSign transaction and submit to TxPool.
@@ -182,7 +182,7 @@ func (s *Ethereum) PosvSignBlock(
 		return nil
 	}
 	config := s.blockchain.Config()
-	return viction.SubmitBlockSignTransaction(block, snapshot, config, config.Viction, s.blockchain, eb, wallet, s.txPool)
+	return victionapi.SubmitBlockSignTransaction(block, snapshot, config, config.Viction, s.blockchain, eb, wallet, s.txPool)
 }
 
 // Get current etherbase altogether with it signing wallet.
