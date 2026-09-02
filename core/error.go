@@ -64,3 +64,13 @@ var (
 	// than required to start the invocation.
 	ErrIntrinsicGas = errors.New("intrinsic gas too low")
 )
+
+var (
+	ErrBlacklistedAddress = errors.New("blacklisted address")
+
+	ErrNoValidators = errors.New("no validators found")
+
+	ErrNoValidatorContract = errors.New("validator contract address is not set in chain config")
+
+	ErrPosvRequired = errors.New("posv engine is required")
+)

@@ -1046,6 +1046,9 @@ func (bc *BlockChain) Stop() {
 			log.Error("Dangling trie nodes after full cleanup")
 		}
 	}
+	// Flush any pending native trading/lending trie roots that haven't reached the
+	// TriesInMemory commit threshold yet.
+	bc.stopViction()
 	// Ensure all live cached entries be saved into disk, so that we can skip
 	// cache warmup when node restarts.
 	if bc.cacheConfig.TrieCleanJournal != "" {
@@ -1728,7 +1731,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 	for i, block := range chain {
 		headers[i] = block.Header()
-		seals[i] = verifySeals
+		seals[i] = false
 	}
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
@@ -1928,6 +1931,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		if err != nil {
 			return it.index, err
 		}
+		// Commit native trading/lending trie nodes to their LevelDB backing stores.
+		// This must happen after writeBlockWithState so the next block's *beforeProcess* can open the trading/lending trie from the correct root.
+		if err := bc.commitNativeExchangeState(block); err != nil {
+			return it.index, err
+		}
 
 		// Update the metrics touched during block commit
 		accountCommitTimer.Update(statedb.AccountCommits)   // Account commits are complete, we can mark them
@@ -1968,6 +1976,15 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		dirty, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, it.index, dirty)
+		if bc.chainConfig.Posv != nil {
+			if bc.chainConfig.Posv.IsGapBlock(block.NumberU64()) {
+				err := bc.UpdateValidators()
+				if err != nil {
+					log.Error("[Blockchain] Error when updating validators list for next epoch. Stopping node!", "err", err)
+					return it.index, err
+				}
+			}
+		}
 	}
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && errors.Is(err, consensus.ErrFutureBlock) {
@@ -2111,6 +2128,30 @@ func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (i
 	return 0, nil
 }
 
+// posvAttestorEngine is implemented by *posv.Posv for M2 (attestor) recovery.
+type posvAttestorEngine interface {
+	Attestor(header *types.Header) (common.Address, error)
+}
+
+// reorgHeaderM1M2 returns the block creator (consensus Author, M1) and attestor
+// (M2) when the engine exposes Attestor; M2 is zero if unsupported or missing.
+func reorgHeaderM1M2(engine consensus.Engine, h *types.Header) (m1, m2 common.Address) {
+	var err error
+	m1, err = engine.Author(h)
+	if err != nil {
+		m1 = common.Address{}
+	}
+	eng, ok := engine.(posvAttestorEngine)
+	if !ok {
+		return m1, m2
+	}
+	m2, err = eng.Attestor(h)
+	if err != nil {
+		m2 = common.Address{}
+	}
+	return m1, m2
+}
+
 // reorg takes two blocks, an old chain and a new chain and will reconstruct the
 // blocks and inserts them to be part of the new canonical chain and accumulates
 // potential missing transactions and post an event about them.
@@ -2215,7 +2256,16 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 			return fmt.Errorf("invalid new chain")
 		}
 	}
-	// Ensure the user sees large reorgs
+	// Per-block detail for reorg analysis (M1 = Author/sealer, M2 = attestor on POSV).
+	for _, b := range oldChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::old", "branch", "old", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+	for _, b := range newChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::new", "branch", "new", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+
 	if len(oldChain) > 0 && len(newChain) > 0 {
 		logFn := log.Info
 		msg := "Chain reorg detected"

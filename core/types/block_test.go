@@ -116,6 +116,249 @@ func (h *testHasher) Hash() common.Hash {
 	return common.BytesToHash(h.hasher.Sum(nil))
 }
 
+// TestVictionchainHeaderRoundtrip simulates receiving a header encoded by victionchain
+// (which uses Go's default struct RLP encoding with 18 fields, no custom EncodeRLP).
+// This test verifies that vic-geth's custom DecodeRLP correctly preserves all fields,
+// especially the Extra field which must contain the 65-byte seal signature.
+func TestVictionchainHeaderRoundtrip(t *testing.T) {
+	// Build a header that looks like what victionchain would produce.
+	// Extra = 32 bytes vanity + 65 bytes seal = 97 bytes total.
+	vanity := make([]byte, 32)
+	copy(vanity, []byte("viction-test"))
+	seal := make([]byte, 65)
+	for i := range seal {
+		seal[i] = byte(i + 1) // non-zero to detect truncation
+	}
+	extra := append(vanity, seal...)
+
+	// victionchain's Header struct layout (18 fields, no Posv bool):
+	// ParentHash, UncleHash, Coinbase, Root, TxHash, ReceiptHash, Bloom,
+	// Difficulty, Number, GasLimit, GasUsed, Time (*big.Int in victionchain!),
+	// Extra, MixDigest, Nonce, Validators, Validator, Penalties
+	//
+	// We simulate victionchain's default struct RLP encoding by manually building
+	// the RLP list with 18 fields.
+	type victionHeader struct {
+		ParentHash  common.Hash
+		UncleHash   common.Hash
+		Coinbase    common.Address
+		Root        common.Hash
+		TxHash      common.Hash
+		ReceiptHash common.Hash
+		Bloom       Bloom
+		Difficulty  *big.Int
+		Number      *big.Int
+		GasLimit    uint64
+		GasUsed     uint64
+		Time        *big.Int // victionchain uses *big.Int
+		Extra       []byte
+		MixDigest   common.Hash
+		Nonce       BlockNonce
+		Validators  []byte // = NewAttestors in vic-geth
+		Validator   []byte // = Attestor in vic-geth
+		Penalties   []byte
+	}
+
+	vh := victionHeader{
+		ParentHash:  common.HexToHash("0x1234"),
+		UncleHash:   CalcUncleHash(nil),
+		Root:        common.HexToHash("0xabcd"),
+		TxHash:      common.HexToHash("0x5678"),
+		ReceiptHash: common.HexToHash("0x9abc"),
+		Difficulty:  big.NewInt(2),
+		Number:      big.NewInt(941),
+		GasLimit:    84000000,
+		GasUsed:     0,
+		Time:        big.NewInt(1715600000),
+		Extra:       extra,
+		Validators:  []byte{},
+		Validator:   []byte{},
+		Penalties:   []byte{},
+	}
+
+	// Encode using default struct RLP (no custom EncodeRLP) — this is what victionchain does.
+	encoded, err := rlp.EncodeToBytes(&vh)
+	if err != nil {
+		t.Fatalf("encode victionchain header: %v", err)
+	}
+
+	// Decode using vic-geth's custom DecodeRLP
+	var decoded Header
+	if err := rlp.DecodeBytes(encoded, &decoded); err != nil {
+		t.Fatalf("decode header: %v", err)
+	}
+
+	// Verify Extra is preserved
+	if len(decoded.Extra) != 97 {
+		t.Fatalf("Extra length mismatch: got %d, want 97", len(decoded.Extra))
+	}
+	if !bytes.Equal(decoded.Extra, extra) {
+		t.Fatalf("Extra content mismatch:\ngot:  %x\nwant: %x", decoded.Extra, extra)
+	}
+
+	// Verify Posv flag is set
+	if !decoded.Posv {
+		t.Fatal("Posv should be true after decoding victionchain header")
+	}
+
+	// Verify other POSV fields
+	if decoded.NewAttestors == nil {
+		t.Fatal("NewAttestors should not be nil")
+	}
+	if decoded.Attestor == nil {
+		t.Fatal("Attestor should not be nil")
+	}
+	if decoded.Penalties == nil {
+		t.Fatal("Penalties should not be nil")
+	}
+
+	// Verify Number
+	if decoded.Number.Uint64() != 941 {
+		t.Fatalf("Number mismatch: got %d, want 941", decoded.Number.Uint64())
+	}
+
+	// Verify Time — victionchain sends *big.Int, vic-geth stores uint64
+	if decoded.Time != 1715600000 {
+		t.Fatalf("Time mismatch: got %d, want 1715600000", decoded.Time)
+	}
+
+	// Now test Hash() compatibility: vic-geth's Hash() should match victionchain's rlpHash
+	vicGethHash := decoded.Hash()
+
+	// Compute what victionchain would compute: rlpHash of the default struct encoding
+	victionHash := rlpHash(&vh)
+
+	if vicGethHash != victionHash {
+		t.Fatalf("Hash mismatch between vic-geth and victionchain:\nvic-geth:     %s\nvictionchain: %s", vicGethHash.Hex(), victionHash.Hex())
+	}
+
+	t.Logf("Extra length: %d (correct)", len(decoded.Extra))
+	t.Logf("Hash match: %s", vicGethHash.Hex())
+}
+
+// TestVictionchainBlockRoundtrip simulates receiving a full Block encoded by victionchain.
+// The block is sent via NewBlockMsg as []interface{}{block, td}.
+func TestVictionchainBlockRoundtrip(t *testing.T) {
+	// Build a header as victionchain would — default struct RLP encoding with 18 fields.
+	vanity := make([]byte, 32)
+	copy(vanity, []byte("viction-test"))
+	seal := make([]byte, 65)
+	for i := range seal {
+		seal[i] = byte(i + 1)
+	}
+	extra := append(vanity, seal...)
+
+	// Simulate victionchain's Header struct (with *big.Int Time and Validators/Validator fields)
+	type victionHeader struct {
+		ParentHash  common.Hash
+		UncleHash   common.Hash
+		Coinbase    common.Address
+		Root        common.Hash
+		TxHash      common.Hash
+		ReceiptHash common.Hash
+		Bloom       Bloom
+		Difficulty  *big.Int
+		Number      *big.Int
+		GasLimit    uint64
+		GasUsed     uint64
+		Time        *big.Int
+		Extra       []byte
+		MixDigest   common.Hash
+		Nonce       BlockNonce
+		Validators  []byte
+		Validator   []byte
+		Penalties   []byte
+	}
+
+	type victionExtblock struct {
+		Header *victionHeader
+		Txs    []*Transaction
+		Uncles []*victionHeader
+	}
+
+	vh := &victionHeader{
+		ParentHash:  common.HexToHash("0x1234"),
+		UncleHash:   CalcUncleHash(nil),
+		Root:        common.HexToHash("0xabcd"),
+		TxHash:      EmptyRootHash,
+		ReceiptHash: common.HexToHash("0x9abc"),
+		Difficulty:  big.NewInt(2),
+		Number:      big.NewInt(941),
+		GasLimit:    84000000,
+		GasUsed:     0,
+		Time:        big.NewInt(1715600000),
+		Extra:       extra,
+		Validators:  []byte{},
+		Validator:   []byte{},
+		Penalties:   []byte{},
+	}
+
+	vBlock := &victionExtblock{
+		Header: vh,
+		Txs:    []*Transaction{},
+		Uncles: []*victionHeader{},
+	}
+
+	// Encode the block as victionchain would
+	encoded, err := rlp.EncodeToBytes(vBlock)
+	if err != nil {
+		t.Fatalf("encode victionchain block: %v", err)
+	}
+
+	// Decode as vic-geth would
+	var block Block
+	if err := rlp.DecodeBytes(encoded, &block); err != nil {
+		t.Fatalf("decode block: %v", err)
+	}
+
+	// Verify Extra survived
+	if len(block.Extra()) != 97 {
+		t.Fatalf("Extra length mismatch: got %d, want 97", len(block.Extra()))
+	}
+	if !bytes.Equal(block.Extra(), extra) {
+		t.Fatalf("Extra content mismatch:\ngot:  %x\nwant: %x", block.Extra(), extra)
+	}
+
+	// Verify header fields
+	if block.NumberU64() != 941 {
+		t.Fatalf("Number mismatch: got %d, want 941", block.NumberU64())
+	}
+	if block.Time() != 1715600000 {
+		t.Fatalf("Time mismatch: got %d, want 1715600000", block.Time())
+	}
+
+	// Now simulate NewBlockMsg encoding: []interface{}{block, td}
+	// victionchain sends: p2p.Send(p.rw, NewBlockMsg, []interface{}{block, td})
+	td := big.NewInt(1000)
+	msgPayload, err := rlp.EncodeToBytes([]interface{}{vBlock, td})
+	if err != nil {
+		t.Fatalf("encode NewBlockMsg payload: %v", err)
+	}
+
+	// Decode as vic-geth would in handler.go
+	type newBlockData struct {
+		Block *Block
+		TD    *big.Int
+	}
+	var request newBlockData
+	if err := rlp.DecodeBytes(msgPayload, &request); err != nil {
+		t.Fatalf("decode NewBlockMsg: %v", err)
+	}
+
+	if len(request.Block.Extra()) != 97 {
+		t.Fatalf("NewBlockMsg: Extra length mismatch: got %d, want 97", len(request.Block.Extra()))
+	}
+	if request.Block.NumberU64() != 941 {
+		t.Fatalf("NewBlockMsg: Number mismatch: got %d, want 941", request.Block.NumberU64())
+	}
+	if !request.Block.header.Posv {
+		t.Fatal("NewBlockMsg: Posv should be true")
+	}
+
+	t.Logf("Block Extra length: %d (correct)", len(request.Block.Extra()))
+	t.Logf("Block Posv: %v", request.Block.header.Posv)
+}
+
 func makeBenchBlock() *Block {
 	var (
 		key, _   = crypto.GenerateKey()

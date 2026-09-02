@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/bloombits"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -176,18 +177,40 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
-		log.Warn("Rewinding chain to upgrade configuration", "err", compat)
-		eth.blockchain.SetHead(compat.RewindTo)
+		if config.SkipCompatRewind {
+			log.Info("Skipping chain rewind for incompatible configuration", "err", compat)
+		} else {
+			log.Warn("Rewinding chain to upgrade configuration", "err", compat)
+			eth.blockchain.SetHead(compat.RewindTo)
+		}
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
+
 	eth.bloomIndexer.Start(eth.blockchain)
 
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
 	}
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)
+
+	// Wire up IsSigner callback for POSV special tx fast-path promotion.
+	if chainConfig.Posv != nil {
+		eth.txPool.IsSigner = func(addr common.Address) bool {
+			current := eth.blockchain.CurrentHeader()
+			if current == nil {
+				return false
+			}
+			cp := posv.GetCheckpointHeader(chainConfig.Posv, current, eth.blockchain, nil)
+			if cp == nil {
+				return false
+			}
+			validators := posv.ExtractValidatorsFromCheckpointHeader(cp)
+			return common.IndexOf(validators, addr) != -1
+		}
+	}
 
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit
@@ -200,7 +223,6 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	}
 	eth.miner = miner.New(eth, &config.Miner, chainConfig, eth.EventMux(), eth.engine, eth.isLocalBlock)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
-
 	eth.APIBackend = &EthAPIBackend{stack.Config().ExtRPCEnabled(), eth, nil}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
@@ -210,6 +232,11 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 
 	eth.dialCandidates, err = eth.setupDiscovery()
 	if err != nil {
+		return nil, err
+	}
+
+	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
+	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
 		return nil, err
 	}
 
@@ -242,6 +269,10 @@ func makeExtraData(extra []byte) []byte {
 
 // CreateConsensusEngine creates the required type of consensus engine instance for an Ethereum service
 func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *ethash.Config, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+	// If proof-of-stake-voting is requested, set it up
+	if chainConfig.Posv != nil {
+		return posv.New(chainConfig.Posv, db)
+	}
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
@@ -326,6 +357,16 @@ func (s *Ethereum) APIs() []rpc.API {
 			Version:   "1.0",
 			Service:   s.netRPCService,
 			Public:    true,
+		}, {
+			Namespace: "posv",
+			Version:   "1.0",
+			Service:   NewPublicPosvAPI(s),
+			Public:    true,
+		}, {
+			Namespace: "posvdebug",
+			Version:   "1.0",
+			Service:   NewPublicPosvDebugAPI(s),
+			Public:    true,
 		},
 	}...)
 }
@@ -408,6 +449,31 @@ func (s *Ethereum) shouldPreserve(block *types.Block) bool {
 	if _, ok := s.engine.(*clique.Clique); ok {
 		return false
 	}
+	// [POSV] For POSV, the tie-break between same-height same-TD blocks must
+	// prefer attested blocks (M2-signed, Attestor ≠ empty) over creator-only
+	// blocks (M1-only, Attestor = empty).
+	//
+	// Without this override, isLocalBlock returns true for BOTH the M1-only
+	// block (which M1 just mined) AND the M2-signed version of the same block
+	// (same creator key in Extra, different hash due to Attestor in EncodeRLP).
+	// That makes currentPreserve=true and blockPreserve=true, so the reorg
+	// condition "!currentPreserve && (blockPreserve || rand)" is always false:
+	// M1 never reorgs to the M2-signed block, causing a permanent M1-chain /
+	// M2-chain split at every height and eventually a chain stall.
+	//
+	// By returning true only for blocks that already carry the Attestor (M2
+	// signature), we get the desired ordering:
+	//   - M1-only (no Attestor)  → shouldPreserve = false
+	//   - M2-signed (has Attestor) → shouldPreserve = true
+	//
+	// Tie-break outcomes (blockchain.go writeBlockWithState):
+	//   current=M1-only, incoming=M2-signed → reorg = !false&&(true||_) = true  ✓ prefer M2-signed
+	//   current=M2-signed, incoming=M1-only → reorg = !true &&(false||_) = false ✓ keep M2-signed
+	//   current=M1-only, incoming=M1-only   → reorg = !false&&(false||rand) = rand ✓ normal random
+	//   current=M2-signed, incoming=M2-signed → reorg = !true&&_ = false         ✓ keep current
+	if _, ok := s.engine.(*posv.Posv); ok {
+		return len(block.Header().Attestor) > 0
+	}
 	return s.isLocalBlock(block)
 }
 
@@ -456,6 +522,14 @@ func (s *Ethereum) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			clique.Authorize(eb, wallet.SignData)
+		}
+		if posvEngine, ok := s.engine.(*posv.Posv); ok {
+			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+			if wallet == nil || err != nil {
+				log.Error("Etherbase account unavailable locally", "err", err)
+				return fmt.Errorf("signer missing: %v", err)
+			}
+			posvEngine.Authorize(eb, wallet.SignData)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.

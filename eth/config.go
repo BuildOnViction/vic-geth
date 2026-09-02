@@ -139,6 +139,7 @@ type Config struct {
 
 	// Database options
 	SkipBcVersionCheck bool `toml:"-"`
+	SkipCompatRewind   bool `toml:"-"`
 	DatabaseHandles    int  `toml:"-"`
 	DatabaseCache      int
 	DatabaseFreezer    string
