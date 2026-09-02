@@ -1,25 +1,28 @@
-// Copyright (c) 2026 Viction
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
 //
-// This program is free software: you can redistribute it and/or modify
+// The go-ethereum library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// The go-ethereum library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package validator
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/contracts/validator/contract"
-	"math/big"
 )
 
 type Validator struct {
@@ -47,11 +50,6 @@ func DeployValidator(transactOpts *bind.TransactOpts, contractBackend bind.Contr
 	minDeposit.SetString("50000000000000000000000", 10)
 	minVoterCap := new(big.Int)
 	minVoterCap.SetString("10000000000000000000", 10)
-	// Deposit 50K VIC
-	// Min Voter Cap 10 VIC
-	// 150 masternodes
-	// Candidate Delay Withdraw 30 days = 1296000 blocks
-	// Voter Delay Withdraw 2 days = 86400 blocks
 	validatorAddr, _, _, err := contract.DeployValidator(transactOpts, contractBackend, validatorAddress, caps, ownerAddress, minDeposit, minVoterCap, big.NewInt(150), big.NewInt(1296000), big.NewInt(86400))
 	if err != nil {
 		return validatorAddr, nil, err

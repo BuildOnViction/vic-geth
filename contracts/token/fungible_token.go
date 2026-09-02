@@ -15,44 +15,44 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package randomize
+package token
 
 import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/contracts/randomize/contract"
+	"github.com/ethereum/go-ethereum/contracts/token/contract"
 )
 
-type Randomize struct {
-	*contract.RandomizeSession
+type FungibleToken struct {
+	*contract.FungibleTokenSession
 	contractBackend bind.ContractBackend
 }
 
-func NewRandomize(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*Randomize, error) {
-	randomize, err := contract.NewRandomize(contractAddr, contractBackend)
+func NewFungibleToken(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*FungibleToken, error) {
+	fungibleToken, err := contract.NewFungibleToken(contractAddr, contractBackend)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Randomize{
-		&contract.RandomizeSession{
-			Contract:     randomize,
+	return &FungibleToken{
+		&contract.FungibleTokenSession{
+			Contract:     fungibleToken,
 			TransactOpts: *transactOpts,
 		},
 		contractBackend,
 	}, nil
 }
 
-func DeployRandomize(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend) (common.Address, *Randomize, error) {
-	randomizeAddr, _, _, err := contract.DeployRandomize(transactOpts, contractBackend)
+func DeployFungibleToken(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend, name string, symbol string, decimals uint8) (common.Address, *FungibleToken, error) {
+	fungibleTokenAddr, _, _, err := contract.DeployFungibleToken(transactOpts, contractBackend, name, symbol, decimals)
 	if err != nil {
-		return randomizeAddr, nil, err
+		return fungibleTokenAddr, nil, err
 	}
 
-	randomize, err := NewRandomize(transactOpts, randomizeAddr, contractBackend)
+	fungibleToken, err := NewFungibleToken(transactOpts, fungibleTokenAddr, contractBackend)
 	if err != nil {
-		return randomizeAddr, nil, err
+		return fungibleTokenAddr, nil, err
 	}
 
-	return randomizeAddr, randomize, nil
+	return fungibleTokenAddr, fungibleToken, nil
 }

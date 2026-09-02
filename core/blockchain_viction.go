@@ -121,10 +121,6 @@ func (bc *BlockChain) UpdateValidators() error {
 			return validators[i].Capacity.Cmp(validators[j].Capacity) >= 0
 		})
 	}
-	log.Info("List of candidates")
-	for _, v := range validators {
-		log.Info("", "address", v.Address.String(), "stake", v.Capacity)
-	}
 
 	vs := make([]common.Address, 0)
 	if len(validators) > int(bc.chainConfig.Viction.ValidatorMaxCount) {
@@ -141,7 +137,7 @@ func (bc *BlockChain) UpdateValidators() error {
 		return err
 	}
 
-	log.Info("[Blockchain] Updated validators list for next epoch")
+	log.Info("[Blockchain] Updated validators list for next epoch", "signers", len(vs))
 	return nil
 }
 

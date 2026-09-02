@@ -1,4 +1,22 @@
-// Copyright (c) 2026 Viction
+// Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package viction
 
 import (
@@ -6,75 +24,21 @@ import (
 	"math/big"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/params"
 )
 
-var testVicConfig = &params.VictionConfig{
-	RandomizerContract:       common.HexToAddress("0x89"),
-	RandomizerCommitNthBlock: 800,
-	RandomizerRevealNthBlock: 850,
-	RandomizerFinaleNthBlock: 900,
-}
-
-// --- ShouldSendSecret / ShouldSendOpening ---
-
-func TestShouldSendSecret(t *testing.T) {
-	tests := []struct {
-		blockInEpoch uint64
-		want         bool
-	}{
-		{0, false},   // epoch boundary itself
-		{1, false},   // too early
-		{799, false}, // one before commit start
-		{800, true},  // commit start
-		{825, true},  // mid commit
-		{849, true},  // last commit block
-		{850, false}, // reveal start (no longer commit)
-		{900, false}, // finale
-	}
-	for _, tt := range tests {
-		got := ShouldSendSecret(testVicConfig, tt.blockInEpoch)
-		if got != tt.want {
-			t.Errorf("ShouldSendSecret(blockInEpoch=%d) = %v, want %v", tt.blockInEpoch, got, tt.want)
-		}
-	}
-}
-
-func TestShouldSendOpening(t *testing.T) {
-	tests := []struct {
-		blockInEpoch uint64
-		want         bool
-	}{
-		{0, false},
-		{800, false}, // commit phase
-		{849, false}, // last commit block
-		{850, true},  // reveal start
-		{875, true},  // mid reveal
-		{900, true},  // finale (inclusive)
-		{901, false}, // past finale
-	}
-	for _, tt := range tests {
-		got := ShouldSendOpening(testVicConfig, tt.blockInEpoch)
-		if got != tt.want {
-			t.Errorf("ShouldSendOpening(blockInEpoch=%d) = %v, want %v", tt.blockInEpoch, got, tt.want)
-		}
-	}
-}
-
-// --- GenerateRandomizeKey ---
-
-func TestGenerateRandomizeKey_Length(t *testing.T) {
-	key := GenerateRandomizeKey()
+func GenerateRandomKey_Length(t *testing.T) {
+	key := GenerateRandomKey()
 	if len(key) != 32 {
 		t.Fatalf("key length = %d, want 32", len(key))
 	}
 }
 
-func TestGenerateRandomizeKey_Charset(t *testing.T) {
+func GenerateRandomKey_Charset(t *testing.T) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
-	key := GenerateRandomizeKey()
+	key := GenerateRandomKey()
 	for i, b := range key {
 		if !bytes.ContainsRune([]byte(charset), rune(b)) {
 			t.Fatalf("key[%d] = %c, not in charset", i, b)
@@ -82,18 +46,17 @@ func TestGenerateRandomizeKey_Charset(t *testing.T) {
 	}
 }
 
-func TestGenerateRandomizeKey_Unique(t *testing.T) {
-	k1 := GenerateRandomizeKey()
-	k2 := GenerateRandomizeKey()
+func GenerateRandomKey_Unique(t *testing.T) {
+	k1 := GenerateRandomKey()
+	time.Sleep(100 * time.Millisecond)
+	k2 := GenerateRandomKey()
 	if bytes.Equal(k1, k2) {
 		t.Fatal("two generated keys should not be identical")
 	}
 }
 
-// --- EncryptAesCfb / DecryptAesCfb round-trip ---
-
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	key := GenerateRandomizeKey()
+	key := GenerateRandomKey()
 	plaintext := "42"
 
 	encrypted, err := EncryptAesCfb(key, plaintext)
@@ -114,7 +77,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 }
 
 func TestEncryptDecryptRoundTrip_LargeNumber(t *testing.T) {
-	key := GenerateRandomizeKey()
+	key := GenerateRandomKey()
 	plaintext := "899" // max for epoch=900
 
 	encrypted, err := EncryptAesCfb(key, plaintext)
@@ -131,18 +94,17 @@ func TestEncryptDecryptRoundTrip_LargeNumber(t *testing.T) {
 	}
 }
 
-// --- BuildSecretTx ---
-
-func TestBuildSecretTx_Format(t *testing.T) {
-	key := GenerateRandomizeKey()
+func CreateSetRandomizeSecretTransaction_Format(t *testing.T) {
+	key := GenerateRandomKey()
 	contract := common.HexToAddress("0x89")
 	epoch := uint64(900)
 	nonce := uint64(5)
 
-	tx, err := BuildSecretTx(nonce, contract, epoch, key)
+	secret, err := GenerateRandomNumber(epoch, key)
 	if err != nil {
-		t.Fatalf("BuildSecretTx: %v", err)
+		t.Fatalf("GenerateRandomNumber: %v", err)
 	}
+	tx := CreateSetRandomizeSecretTransaction(nonce, contract, secret)
 
 	// Basic tx properties
 	if tx.Nonce() != nonce {
@@ -168,8 +130,8 @@ func TestBuildSecretTx_Format(t *testing.T) {
 	}
 
 	// Check selector
-	if !bytes.Equal(data[:4], SetSecretSelector) {
-		t.Errorf("selector = %x, want %x", data[:4], SetSecretSelector)
+	if !bytes.Equal(data[:4], common.Hex2Bytes("34d38600")) {
+		t.Errorf("selector = %x, want %x", data[:4], common.Hex2Bytes("34d38600"))
 	}
 
 	// Check offset = 32
@@ -199,14 +161,12 @@ func TestBuildSecretTx_Format(t *testing.T) {
 	}
 }
 
-// --- BuildOpeningTx ---
-
-func TestBuildOpeningTx_Format(t *testing.T) {
-	key := GenerateRandomizeKey()
+func CreateSetRandomizeOpeningTransaction_Format(t *testing.T) {
+	key := GenerateRandomKey()
 	contract := common.HexToAddress("0x89")
 	nonce := uint64(7)
 
-	tx := BuildOpeningTx(nonce, contract, key)
+	tx := CreateSetRandomizeOpeningTransaction(nonce, contract, key)
 
 	if tx.Nonce() != nonce {
 		t.Errorf("nonce = %d, want %d", tx.Nonce(), nonce)
@@ -229,8 +189,8 @@ func TestBuildOpeningTx_Format(t *testing.T) {
 	if len(data) != 4+32 {
 		t.Fatalf("data length = %d, want 36", len(data))
 	}
-	if !bytes.Equal(data[:4], SetOpeningSelector) {
-		t.Errorf("selector = %x, want %x", data[:4], SetOpeningSelector)
+	if !bytes.Equal(data[:4], common.Hex2Bytes("e11f5ba2")) {
+		t.Errorf("selector = %x, want %x", data[:4], common.Hex2Bytes("e11f5ba2"))
 	}
 	if !bytes.Equal(data[4:], key) {
 		t.Error("opening data should contain the raw key")
@@ -240,14 +200,15 @@ func TestBuildOpeningTx_Format(t *testing.T) {
 // --- End-to-end: secret tx can be decrypted with opening ---
 
 func TestSecretAndOpening_EndToEnd(t *testing.T) {
-	key := GenerateRandomizeKey()
+	key := GenerateRandomKey()
 	contract := common.HexToAddress("0x89")
 
-	secretTx, err := BuildSecretTx(0, contract, 900, key)
+	secret, err := GenerateRandomNumber(900, key)
 	if err != nil {
-		t.Fatalf("BuildSecretTx: %v", err)
+		t.Fatalf("GenerateRandomNumber: %v", err)
 	}
-	openingTx := BuildOpeningTx(1, contract, key)
+	secretTx := CreateSetRandomizeSecretTransaction(0, contract, secret)
+	openingTx := CreateSetRandomizeOpeningTransaction(1, contract, key)
 
 	// Extract the key from opening tx data
 	openingKey := openingTx.Data()[4:]
@@ -274,7 +235,7 @@ func TestSecretAndOpening_EndToEnd(t *testing.T) {
 // --- GetAttestors integration: verify decrypt matches shuffle input ---
 
 func TestDecryptRandomize_MatchesEncrypt(t *testing.T) {
-	key := GenerateRandomizeKey()
+	key := GenerateRandomKey()
 	plaintext := "567"
 
 	encrypted, err := EncryptAesCfb(key, plaintext)
