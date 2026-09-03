@@ -28,18 +28,29 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"strconv"
+
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
-	// ErrNoValidator is when the list of validator is empty.
-	ErrNoValidator = errors.New("no validator existed")
-
 	// ErrInvalidAttestorList is when the attestors list are not conformed to the consensus rules.
 	ErrInvalidAttestorList = errors.New("invalid attestor list")
 
+	// ErrNilHeader is when header is nil.
+	ErrNilHeader = errors.New("nil header")
+
 	// ErrNoContractAddress is when the contract address is not set in the config.
 	ErrNoContractAddress = errors.New("contract address is not set")
+
+	// ErrNoValidator is when the list of validator is empty.
+	ErrNoValidator = errors.New("no validators exist")
 )
 
 // Decrypt encrypted data using AES CFB mode.
@@ -60,10 +71,11 @@ func DecryptAesCfb(key []byte, cryptoText string) (string, error) {
 	ciphertext = ciphertext[aes.BlockSize:]
 
 	stream := cipher.NewCFBDecrypter(block, iv)
+
 	// XORKeyStream can work in-place if the two arguments are the same.
 	stream.XORKeyStream(ciphertext, ciphertext)
 
-	return fmt.Sprintf("%s", ciphertext), nil
+	return string(ciphertext), nil
 }
 
 // Decrypt randomize using secret and opening pair.
@@ -74,7 +86,7 @@ func DecryptRandomize(secrets [][32]byte, opening [32]byte) (int64, error) {
 			trimSecret := bytes.TrimLeft(secret[:], "\x00")
 			decryptSecret, err := DecryptAesCfb(opening[:], string(trimSecret))
 			if err != nil {
-				return -1, err
+				return 0, err
 			}
 			intNumber, err := strconv.ParseInt(decryptSecret, 10, 64)
 			if err == nil {
@@ -116,4 +128,40 @@ func GenerateSequence(start, step, repeat int64) []int64 {
 	}
 
 	return s
+}
+
+// Check if given addr is eligible signer for given snapshot.
+func IsEligibleValidator(addr common.Address, snapshot *posv.Snapshot) bool {
+	_, ok := snapshot.Signers[addr]
+	return ok
+}
+
+// Return available nonce for the given address, with txPool awareness.
+func NextNonce(addr common.Address, blockchain *core.BlockChain, txPool *core.TxPool) uint64 {
+	statedb, err := blockchain.State()
+	if err != nil {
+		return 0
+	}
+	nonce := statedb.GetNonce(addr)
+	pendingTxs, _ := txPool.Pending()
+	nonce += uint64(len(pendingTxs[addr]))
+	return nonce
+}
+
+// Sign and submit given transaction to local txPool.
+func SignAndSubmitTransaction(etherbase common.Address, wallet accounts.Wallet, transaction *types.Transaction, chainID *big.Int, txPool *core.TxPool, label string) error {
+	signedTransaction, err := wallet.SignTx(accounts.Account{Address: etherbase}, transaction, chainID)
+	if err != nil {
+		return err
+	}
+	if err := txPool.AddLocal(signedTransaction); err != nil {
+		if err == core.ErrReplaceUnderpriced || err == core.ErrAlreadyKnown {
+			log.Info(fmt.Sprintf("[%s] Transaction is duplicated", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce())
+			return nil
+		}
+		log.Warn(fmt.Sprintf("[%s] Failed to submit transaction", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce(), "err", err)
+		return err
+	}
+	log.Info(fmt.Sprintf("[%s] Submitted transaction", label), "txHash", signedTransaction.Hash(), "etherbase", etherbase, "nonce", signedTransaction.Nonce())
+	return nil
 }

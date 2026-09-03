@@ -1025,22 +1025,24 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	}
 
 	// PoSV: Extract and commit special transactions first.
-	checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), nil, w.chain)
-	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
-	signers := make(map[common.Address]struct{}, len(validators))
-	for _, v := range validators {
-		signers[v] = struct{}{}
-	}
-	specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
-	if len(specialTxs) > 0 {
-		specialTxsByAccount := make(map[common.Address]types.Transactions)
-		for _, tx := range specialTxs {
-			from, _ := types.Sender(w.current.signer, tx)
-			specialTxsByAccount[from] = append(specialTxsByAccount[from], tx)
+	if isPosv {
+		checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), nil, w.chain)
+		validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+		signers := make(map[common.Address]struct{}, len(validators))
+		for _, v := range validators {
+			signers[v] = struct{}{}
 		}
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, specialTxsByAccount)
-		if w.commitTransactions(txs, w.coinbase, nil) {
-			return
+		specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+		if len(specialTxs) > 0 {
+			specialTxsByAccount := make(map[common.Address]types.Transactions)
+			for _, tx := range specialTxs {
+				from, _ := types.Sender(w.current.signer, tx)
+				specialTxsByAccount[from] = append(specialTxsByAccount[from], tx)
+			}
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, specialTxsByAccount)
+			if w.commitTransactions(txs, w.coinbase, nil) {
+				return
+			}
 		}
 	}
 

@@ -45,6 +45,7 @@ func (f *BlockFetcher) retryPosvBlock(peer string, block *types.Block) (requireA
 	for retries := 0; retries <= maxRetries; retries++ {
 		switch err := f.verifyHeader(block.Header()); err {
 		case nil:
+			return false, false
 
 		case consensus.ErrFutureBlock:
 			if retries == maxRetries {

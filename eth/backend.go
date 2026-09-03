@@ -52,6 +52,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 // Ethereum implements the Ethereum full node service.
@@ -85,6 +86,8 @@ type Ethereum struct {
 	netRPCService *ethapi.PublicNetAPI
 
 	p2pServer *p2p.Server
+
+	blockSignersCache *lru.ARCCache
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
@@ -124,6 +127,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 		return nil, genesisErr
 	}
 	log.Info("Initialised chain configuration", "config", chainConfig)
+	blockSignersCache, _ := lru.NewARC(recentBlockSigners)
 
 	eth := &Ethereum{
 		config:            config,
@@ -138,6 +142,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
 		p2pServer:         stack.Server(),
+		blockSignersCache: blockSignersCache,
 	}
 
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
@@ -237,7 +242,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	}
 
 	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
-	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
+	if err := eth.setupPosvBackend(chainConfig); err != nil {
 		return nil, err
 	}
 
