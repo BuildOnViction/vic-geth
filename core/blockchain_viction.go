@@ -63,22 +63,22 @@ func (bc *BlockChain) stopViction() {
 func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain][Native Trading] Engine not installed: Processor is not a *StateProcessor")
+		log.Error("[NativeTrading] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetTradingEngine(engine)
-	log.Info("[Blockchain][Native Trading] Engine installed on state processor")
+	log.Info("[NativeTrading] Engine installed on state processor")
 }
 
 // Inject the Native Lending Engine into the Processor.
 func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain][Native Lending] Engine not installed: Processor is not a *StateProcessor")
+		log.Error("[NativeLending] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetLendingEngine(engine)
-	log.Info("[Blockchain][Native Lending] Engine installed on state processor")
+	log.Info("[NativeLending] Engine installed on state processor")
 }
 
 func (bc *BlockChain) UpdateValidators() error {
