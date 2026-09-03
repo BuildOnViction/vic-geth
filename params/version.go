@@ -25,9 +25,9 @@ import (
 
 const (
 	VictionMajor = 1
-	VictionMinor = 0
+	VictionMinor = 1
 	VictionPatch = 0
-	VictionMeta  = "rc2"
+	VictionMeta  = "rc3"
 )
 
 const (
