@@ -25,14 +25,27 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-var (
-	signMethodDataLength = 68 // sign(uint256 blockNumber, bytes32 blockHash) = 4 + 32 + 32 = 68 bytes
-	signMethodSelector   = common.Hex2Bytes("e341eaa4")
-)
+func (tx *Transaction) IsTradingTransaction(tradingContract common.Address) bool {
+	if tx.To() == nil {
+		return false
+	}
+	return *tx.To() == tradingContract
+}
 
-// IsSigningTransaction returns true if the transaction is a block-signer
-// registration transaction to the BlockSigner contract.
-// blockSignAddr is the ValidatorBlockSignContract address from chain config.
+func (tx *Transaction) IsLendingTransaction(lendingContract common.Address) bool {
+	if tx.To() == nil {
+		return false
+	}
+	return *tx.To() == lendingContract
+}
+
+func (tx *Transaction) IsLendingFinalizedTradeTransaction(lendingFinalizedContract common.Address) bool {
+	if tx.To() == nil {
+		return false
+	}
+	return *tx.To() == lendingFinalizedContract
+}
+
 func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	if tx == nil || tx.To() == nil {
 		return false
@@ -41,8 +54,18 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 		return false
 	}
 	data := tx.Data()
-	if len(data) != signMethodDataLength {
+	// sign(uint256 blockNumber, bytes32 blockHash) = 4 + 32 + 32 = 68 bytes
+	if len(data) != 68 {
 		return false
 	}
-	return bytes.Equal(data[0:4], signMethodSelector)
+	return bytes.Equal(data[0:4], common.Hex2Bytes("e341eaa4")) // sign(uint256,bytes32)
+}
+
+func (tx *Transaction) IsPosvTransaction() bool {
+	if tx.To() == nil {
+		return false
+	}
+	addr := *tx.To()
+	return addr == common.HexToAddress("0x0000000000000000000000000000000000000090") ||
+		addr == common.HexToAddress("0x0000000000000000000000000000000000000089")
 }
