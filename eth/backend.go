@@ -262,7 +262,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 
 	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
-	if err := eth.setupPosvBackend(chainConfig); err != nil {
+	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
 		return nil, err
 	}
 

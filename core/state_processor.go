@@ -24,6 +24,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -43,15 +44,22 @@ type StateProcessor struct {
 	engine consensus.Engine    // Consensus engine used for block rewards
 
 	viction *VictionProcessor
+
+	// Deferred trie GC fields for native trading/lending (full-node path).
+	// These are managed entirely by blockchain_viction.go / commitVictionState.
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config:  config,
-		bc:      bc,
-		engine:  engine,
-		viction: NewVictionProcessor(config, bc, engine),
+		config:        config,
+		bc:            bc,
+		engine:        engine,
+		viction:       NewVictionProcessor(config, bc, engine),
+		tradingTriegc: prque.New(nil),
+		lendingTriegc: prque.New(nil),
 	}
 }
 
