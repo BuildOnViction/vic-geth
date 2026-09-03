@@ -13,12 +13,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/legacy/lending"
 	"github.com/ethereum/go-ethereum/legacy/trading"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/viction"
 )
 
 // Create a new block with attestor's signature. Only accept non-attested block.
@@ -75,7 +75,7 @@ func (s *Ethereum) PosvGetAttestors(
 	if err != nil {
 		return nil, err
 	}
-	return viction.GetAttestorsFromState(vicConfig, validators, state)
+	return victionapi.GetAttestorsFromState(vicConfig, validators, state)
 }
 
 // Get block signers from the state.
@@ -135,10 +135,10 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
 ) (map[common.Address]common.Address, uint64, error) {
 	if config.Viction == nil || checkpointHeader == nil {
-		return nil, 0, viction.ErrInvalidAttestorList
+		return nil, 0, victionapi.ErrInvalidAttestorList
 	}
-	pairs, offset, err := viction.GetCreatorAttestorPairsFromCheckpointHeader(config, config.Posv, header, checkpointHeader)
-	if err == nil || err != viction.ErrNoValidator {
+	pairs, offset, err := victionapi.GetCreatorAttestorPairsFromCheckpointHeader(config, config.Posv, header, checkpointHeader)
+	if err == nil || err != victionapi.ErrNoValidator {
 		return pairs, offset, err
 	}
 
@@ -150,7 +150,7 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 		log.Warn("[Backend][GetCreatorAttestorPairs]: failed to get state at checkpoint", "checkpoint", checkpointNumber, "err", err2)
 		return nil, 0, err
 	}
-	return viction.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
+	return victionapi.GetCreatorAttestorPairsFromState(config, posvConfig, header, checkpointHeader, stateAtCheckpoint)
 }
 
 // Calculate rewards at the end of each epoch.
@@ -168,17 +168,17 @@ func (s *Ethereum) PosvGetEpochRewards(
 
 	// Get initial reward
 	initialRewardPerEpoch := (*big.Int)(vicConfig.RewardPerEpoch)
-	totalReward := viction.CalcDefaultRewardPerBlock(initialRewardPerEpoch, number, posvConfig.BlocksPerYear())
+	totalReward := victionapi.CalcDefaultRewardPerBlock(initialRewardPerEpoch, number, posvConfig.BlocksPerYear())
 
 	// Get additional reward for Saigon upgrade
 	if config.IsSaigon(header.Number) && vicConfig.SaigonRewardPerEpoch != nil {
 		saigonRewardPerEpoch := (*big.Int)(vicConfig.SaigonRewardPerEpoch)
-		saigonReward := viction.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, number, posvConfig.BlocksPerYear())
+		saigonReward := victionapi.CalcSaigonRewardPerBlock(saigonRewardPerEpoch, config.SaigonBlock, number, posvConfig.BlocksPerYear())
 		totalReward = new(big.Int).Add(totalReward, saigonReward)
 	}
 
 	// Calculate rewards for validators and stakeholders
-	validatorRewards, err := viction.CalcRewardsForValidators(c, config, posvConfig, vicConfig, header, totalReward, chain, logger)
+	validatorRewards, err := victionapi.CalcRewardsForValidators(c, config, posvConfig, vicConfig, header, totalReward, chain, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (s *Ethereum) PosvGetEpochRewards(
 		return epochRewards, err
 	}
 
-	stakeholderRewards, nestedRewards, err := viction.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
+	stakeholderRewards, nestedRewards, err := victionapi.CalcRewardsForStakeholders(c, config, posvConfig, vicConfig, header, validatorRewards, preCheckpointState, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -232,9 +232,9 @@ func (s *Ethereum) PosvGetPenalties(
 	chain consensus.ChainReader, validators []common.Address,
 ) ([]common.Address, error) {
 	if config.IsTIPSigning(header.Number) {
-		return viction.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, validators)
+		return victionapi.PenalizeValidatorsTIPSigning(c, config, posvConfig, vicConfig, header, chain, validators)
 	}
-	return viction.PenalizeValidatorsDefault(s.BlockChain(), c, config, posvConfig, vicConfig, header, chain)
+	return victionapi.PenalizeValidatorsDefault(s.BlockChain(), c, config, posvConfig, vicConfig, header, chain)
 }
 
 // Get eligble validators from the state.
@@ -256,7 +256,7 @@ func (s *Ethereum) PosvGetValidators(
 	if err != nil {
 		return []common.Address{}, fmt.Errorf("failed to get state at header root (block %v): %v", header.Number, err)
 	}
-	return viction.GetValidatorsFromState(vicConfig, s.blockchain.Config().IsAtlas(header.Number), statedb)
+	return victionapi.GetValidatorsFromState(vicConfig, s.blockchain.Config().IsAtlas(header.Number), statedb)
 }
 
 // Create new Randomize transaction and submit to TxPool.
@@ -277,7 +277,7 @@ func (s *Ethereum) PosvRandomNumber(
 	commitPhase := vicConfig.IsRandomizerCommitPhase(blockOfEpoch)
 	if commitPhase {
 		chaindb := s.ChainDb()
-		exists, _ := chaindb.Has(viction.RandomizeKeyName)
+		exists, _ := chaindb.Has(victionapi.RandomizeKeyName)
 		if exists {
 			// Already committed this epoch.
 			return nil
@@ -294,17 +294,17 @@ func (s *Ethereum) PosvRandomNumber(
 
 		nonce := s.nextNonce(eb)
 
-		key := viction.GenerateRandomKey()
-		secret, err := viction.GenerateRandomNumber(posvConfig.Epoch, key)
+		key := victionapi.GenerateRandomKey()
+		secret, err := victionapi.GenerateRandomNumber(posvConfig.Epoch, key)
 		if err != nil {
 			log.Error("[Backend][RandomNumber] Failed to generate RandomNumber", "number", number, "err", err)
 			return err
 		}
-		tx := viction.CreateSetRandomizeSecretTransaction(nonce, vicConfig.RandomizerContract, secret)
+		tx := victionapi.CreateSetRandomizeSecretTransaction(nonce, vicConfig.RandomizerContract, secret)
 		if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "RandomNumber"); err != nil {
 			return err
 		}
-		if err := chaindb.Put(viction.RandomizeKeyName, key); err != nil {
+		if err := chaindb.Put(victionapi.RandomizeKeyName, key); err != nil {
 			log.Error("[Backend][RandomNumber] Failed to store RandomizeKey to database", "number", number, "err", err)
 			return err
 		}
@@ -313,7 +313,7 @@ func (s *Ethereum) PosvRandomNumber(
 	openingPhase := vicConfig.IsRandomizerOpeningPhase(blockOfEpoch)
 	if openingPhase {
 		chaindb := s.ChainDb()
-		key, err := chaindb.Get(viction.RandomizeKeyName)
+		key, err := chaindb.Get(victionapi.RandomizeKeyName)
 		if err != nil || len(key) == 0 {
 			// Either already revealed or never committed in this epoch.
 			return nil
@@ -330,11 +330,11 @@ func (s *Ethereum) PosvRandomNumber(
 
 		nonce := s.nextNonce(eb)
 
-		tx := viction.CreateSetRandomizeOpeningTransaction(nonce, vicConfig.RandomizerContract, key)
+		tx := victionapi.CreateSetRandomizeOpeningTransaction(nonce, vicConfig.RandomizerContract, key)
 		if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "RandomNumber"); err != nil {
 			return err
 		}
-		if err := chaindb.Delete(viction.RandomizeKeyName); err != nil {
+		if err := chaindb.Delete(victionapi.RandomizeKeyName); err != nil {
 			log.Error("[Backend][RandomNumber] Failed to delete RandomizeKey in database", "number", number, "err", err)
 		}
 	}
@@ -369,7 +369,7 @@ func (s *Ethereum) PosvSignBlock(
 	nonce := s.nextNonce(eb)
 	pendingTxs, _ := s.txPool.Pending()
 
-	expectedData := viction.CreateBlockSignData(block.Number(), block.Hash())
+	expectedData := victionapi.CreateBlockSignData(block.Number(), block.Hash())
 	contractAddr := config.Viction.ValidatorBlockSignContract
 	for _, tx := range pendingTxs[eb] {
 		if tx.To() != nil && *tx.To() == contractAddr && bytes.Equal(tx.Data(), expectedData) {
@@ -378,7 +378,7 @@ func (s *Ethereum) PosvSignBlock(
 		}
 	}
 
-	tx := viction.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
+	tx := victionapi.CreateBlockSignTransaction(nonce, config.Viction.ValidatorBlockSignContract, block.Number(), block.Hash())
 	if err := s.signAndSubmitTransaction(eb, wallet, tx, config.ChainID, "SignBlock"); err != nil {
 		return err
 	}
