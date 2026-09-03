@@ -59,23 +59,31 @@ var VersionWithMeta = func() string {
 //
 //	"1.8.13-unstable-21c059b6" for unstable releases
 func ArchiveVersion(gitCommit string) string {
-	vsn := VersionWithMeta
+	vsn := Version
+	if VictionMeta != "" {
+		vsn += "-" + VictionMeta
+	}
 	if VictionMeta != "stable" {
 		vsn += "-" + VictionMeta
 	}
 	if len(gitCommit) >= 8 {
 		vsn += "-" + gitCommit[:8]
 	}
+	vsn += ApiVersion
 	return vsn
 }
 
 func VersionWithCommit(gitCommit, gitDate string) string {
-	vsn := VersionWithMeta
+	vsn := Version
+	if VictionMeta != "" {
+		vsn += "-" + VictionMeta
+	}
 	if len(gitCommit) >= 8 {
 		vsn += "-" + gitCommit[:8]
 	}
 	if (VictionMeta != "stable") && (gitDate != "") {
 		vsn += "-" + gitDate
 	}
+	vsn += ApiVersion
 	return vsn
 }
