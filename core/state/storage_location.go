@@ -28,6 +28,11 @@ import (
 
 type StorageLocation []byte
 
+// Return StorageLocation from hash.
+func StorageLocationFromHash(h common.Hash) StorageLocation {
+	return StorageLocation(h.Bytes())
+}
+
 // Return StorageLocation from slot number.
 func StorageLocationFromSlot(slot uint64) StorageLocation {
 	slotHash := common.BigToHash(new(big.Int).SetUint64(slot)).Bytes()
@@ -40,11 +45,6 @@ func StorageLocationFromSlotBig(slot *big.Int) StorageLocation {
 	return StorageLocation(slotHash)
 }
 
-// Return StorageLocation from hash.
-func StorageLocationFromHash(h common.Hash) StorageLocation {
-	return StorageLocation(h.Bytes())
-}
-
 // Return StorageLocation in big.Int format.
 func (s StorageLocation) Big() *big.Int {
 	return new(big.Int).SetBytes(s)
@@ -55,15 +55,19 @@ func (s StorageLocation) Hash() common.Hash {
 	return common.BytesToHash(s)
 }
 
-// Return StorageLocation of an element in mapping.
-func StorageLocationOfMappingElement(mappingSlot StorageLocation, elementKey []byte) StorageLocation {
-	slotHash := crypto.Keccak256(elementKey, mappingSlot)
-	return StorageLocation(slotHash)
-}
-
 // Return StorageLocation of a struct field.
 func StorageLocationOfStructElement(structSlot StorageLocation, fieldIndex *big.Int) StorageLocation {
 	slotNum := new(big.Int).Add(structSlot.Big(), fieldIndex)
+	return StorageLocationFromSlotBig(slotNum)
+}
+
+// Return StorageLocation of an element in fixed-length array.
+func StorageLocationOfFixedArrayElement(arraySlot StorageLocation, elementIndex uint64, elementSize uint64) StorageLocation {
+	offset := new(big.Int).Div(
+		new(big.Int).SetUint64(elementIndex),
+		new(big.Int).Div(common.Big256, new(big.Int).SetUint64(elementSize)),
+	)
+	slotNum := new(big.Int).Add(arraySlot.Big(), offset)
 	return StorageLocationFromSlotBig(slotNum)
 }
 
@@ -82,12 +86,8 @@ func StorageLocationOfDynamicArrayElement(arraySlot StorageLocation, elementInde
 	return StorageLocationFromSlotBig(slotNum)
 }
 
-// Return StorageLocation of an element in fixed-length array.
-func StorageLocationOfFixedArrayElement(arraySlot StorageLocation, elementIndex uint64, elementSize uint64) StorageLocation {
-	offset := new(big.Int).Div(
-		new(big.Int).SetUint64(elementIndex),
-		new(big.Int).Div(common.Big256, new(big.Int).SetUint64(elementSize)),
-	)
-	slotNum := new(big.Int).Add(arraySlot.Big(), offset)
-	return StorageLocationFromSlotBig(slotNum)
+// Return StorageLocation of an element in mapping.
+func StorageLocationOfMappingElement(mappingSlot StorageLocation, elementKey []byte) StorageLocation {
+	slotHash := crypto.Keccak256(elementKey, mappingSlot)
+	return StorageLocation(slotHash)
 }
