@@ -737,6 +737,10 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		// Skip Viction own hard fork for non-Viction networks.
 		if c.Posv == nil && isVictionHardfork(cur.name) {
 			continue
+		} else {
+			if c.ChainID != nil && c.ChainID.Cmp(big.NewInt(89)) == 0 && cur.name == "tip2019Block" {
+				lastFork.block = big.NewInt(0)
+			}
 		}
 		if lastFork.name != "" {
 			// Next one must be higher number
