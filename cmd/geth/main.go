@@ -46,7 +46,7 @@ import (
 )
 
 const (
-	clientIdentifier = "viction" // Client identifier to advertise over the network
+	clientIdentifier = "vic-geth" // Client identifier to advertise over the network
 )
 
 var (
@@ -91,7 +91,6 @@ var (
 		utils.SyncModeFlag,
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,
-		utils.NoCompatRewindFlag,
 		utils.SnapshotFlag,
 		utils.TxLookupLimitFlag,
 		utils.LightServeFlag,
@@ -162,6 +161,8 @@ var (
 		utils.GpoMaxGasPriceFlag,
 		utils.EWASMInterpreterFlag,
 		utils.EVMInterpreterFlag,
+		utils.SkipCompatRewindFlag,
+		utils.SyncThresholdFlag,
 		configFileFlag,
 	}
 
