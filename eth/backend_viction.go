@@ -211,6 +211,8 @@ func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node
 
 	posvEngine.SetBackend(s)
 	log.Info("[Backend] Set current backend reference to PoSV engine.")
+	s.handler.blockFetcher.SetPosvBackend(s)
+	log.Info("[Backend] Set current backend reference to BlockFetcher.")
 
 	tradingStatedb, err := openTradingDatabase(stack)
 	if err != nil {
