@@ -57,7 +57,7 @@ func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Addre
 		return nil, fmt.Errorf("block #%d not found", blockNr)
 	}
 
-	return api.e.PosvGetValidators(chainConfig, chainConfig.Viction, block.Header(), api.e.blockchain)
+	return api.e.PosvGetValidators(block.Header(), chainConfig, chainConfig.Viction, api.e.blockchain)
 }
 
 type PublicPosvDebugAPI struct {

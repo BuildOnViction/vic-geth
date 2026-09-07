@@ -174,6 +174,9 @@ type BlockChain struct {
 	//  * nil: disable tx reindexer/deleter, but still index new blocks
 	txLookupLimit uint64
 
+	// syncThreshold is the maximum block height the node will accept. 0 means no limit.
+	syncThreshold uint64
+
 	hc            *HeaderChain
 	rmLogsFeed    event.Feed
 	chainFeed     event.Feed
@@ -1462,6 +1465,17 @@ func (bc *BlockChain) TxLookupLimit() uint64 {
 	return bc.txLookupLimit
 }
 
+// SetSyncThreshold sets the maximum block height the node will accept.
+// A value of 0 means no limit.
+func (bc *BlockChain) SetSyncThreshold(threshold uint64) {
+	bc.syncThreshold = threshold
+}
+
+// SyncThreshold retrieves the syncThreshold used by blockchain to keep the chain to a specific block height at most.
+func (bc *BlockChain) SyncThreshold() uint64 {
+	return bc.syncThreshold
+}
+
 var lastWrite uint64
 
 // writeBlockWithoutState writes only the block and its metadata to the database,
@@ -1667,6 +1681,16 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	// Sanity check that we have something meaningful to import
 	if len(chain) == 0 {
 		return 0, nil
+	}
+
+	// Check if any block exceeds the sync threshold
+	if bc.syncThreshold > 0 {
+		for i, block := range chain {
+			if block.NumberU64() > bc.syncThreshold {
+				log.Warn("Block exceeds sync threshold", "number", block.NumberU64(), "hash", block.Hash(), "threshold", bc.syncThreshold)
+				return i, fmt.Errorf("block %d exceeds sync threshold %d", block.NumberU64(), bc.syncThreshold)
+			}
+		}
 	}
 
 	bc.blockProcFeed.Send(true)

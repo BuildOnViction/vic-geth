@@ -122,6 +122,8 @@ type Config struct {
 
 	TxLookupLimit uint64 `toml:",omitempty"` // The maximum number of blocks from head whose tx indices are reserved.
 
+	SyncThreshold uint64 `toml:",omitempty"` // SyncThreshold is the maximum block height the node will accept. 0 means no limit.
+
 	// Whitelist of required block number -> hash values to accept
 	Whitelist map[uint64]common.Hash `toml:"-"`
 

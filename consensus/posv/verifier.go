@@ -67,7 +67,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							return
 						default:
 						}
-						if retryCount > 120 {
+						if retryCount > 600 {
 							break
 						}
 						cb := cbc.CurrentBlock()
@@ -84,7 +84,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							retryCount++
 							lastcheck = time.Now()
 						}
-						time.Sleep(250 * time.Millisecond)
+						time.Sleep(300 * time.Millisecond)
 					}
 				}
 			}
@@ -145,7 +145,6 @@ func (c *Posv) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	nowUnix := now.Unix()
 
 	if seal {
-		// PoSV block requires attestor signature after first epoch.
 		if header.Number.Uint64() > c.config.Epoch && len(header.Attestor) == 0 {
 			return ErrNoAttestorSignature
 		}
@@ -234,7 +233,6 @@ func (c *Posv) verifyCascadingFields(chainH consensus.ChainHeaderReader, header 
 	if header.GasUsed > header.GasLimit {
 		return fmt.Errorf("invalid gasUsed: have %d, gasLimit %d", header.GasUsed, header.GasLimit)
 	}
-
 	// If the block is a checkpoint block, verify the signer list
 	if number%c.config.Epoch == 0 {
 		if err := c.verifyValidators(chain, header, parents); err != nil {
@@ -261,29 +259,10 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		return nil
 	}
 
-	// Remove penalized validators from validator list.
-	removePenaltizedValidators := func(validators []common.Address) ([]common.Address, error) {
-		for i := uint64(1); i <= config.Viction.PenaltyEpochCount; i++ {
-			if number <= (i * posvConfig.Epoch) {
-				continue
-			}
-			prevCheckpointBlockNumber := number - (i * posvConfig.Epoch)
-			prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
-			if prevCheckpointHeader == nil {
-				return nil, errCannotGetCheckpointHeader
-			}
-			prevPenalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
-			if len(prevPenalties) > 0 {
-				validators = common.SetSubstract(validators, prevPenalties)
-			}
-		}
-		return validators, nil
-	}
-
 	// Check that validators in the header (remote) can be recomputed from local state.
 	validateRemoteHeader := func(remoteHeader *types.Header, localValidators []common.Address) error {
 		// Validate penalties
-		penalties, err := c.backend.PosvGetPenalties(c, config, posvConfig, victionConfig, remoteHeader, chain, localValidators)
+		penalties, err := c.backend.PosvGetPenalties(remoteHeader, localValidators, config, posvConfig, victionConfig, chain)
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local penalties", "number", number)
 			return err
@@ -300,10 +279,11 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if len(penalties) > 0 {
 			validators = common.SetSubstract(validators, penalties)
 		}
-		validators, err = removePenaltizedValidators(validators)
-		if err != nil {
-			log.Error("[PoSV] verify header: cannot get local validators", "number", number)
-			return err
+		previousPenalties := GetPenaltiesFromHeaders(posvConfig, number, config.Viction.PenaltyEpochCount, chain)
+		for _, penalties := range previousPenalties {
+			if len(penalties) > 0 {
+				validators = common.SetSubstract(validators, penalties)
+			}
 		}
 		remoteValidators := ExtractValidatorsFromCheckpointHeader(remoteHeader)
 		if !common.AreSimilarSlices(remoteValidators, validators) {
@@ -312,7 +292,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 
 		// Validate new attestors
-		attestors, err := c.backend.PosvGetAttestors(victionConfig, remoteHeader, validators)
+		attestors, err := c.backend.PosvGetAttestors(remoteHeader, validators, victionConfig)
 		if err != nil {
 			log.Error("[PoSV] verify header: cannot get local new attestors", "number", number)
 			return err
@@ -348,7 +328,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		}
 		snap = parentSnap
 	}
-	snapshotValidators := snap.signers()
+	snapshotValidators := snap.signersNext()
 	if err := validateRemoteHeader(header, snapshotValidators); err == nil {
 		return nil
 	} else {
@@ -363,7 +343,7 @@ func (c *Posv) verifyValidators(chain consensus.ChainReader, header *types.Heade
 		if gapHeader == nil {
 			continue
 		}
-		validators, err := c.backend.PosvGetValidators(config, victionConfig, gapHeader, chain)
+		validators, err := c.backend.PosvGetValidators(gapHeader, config, victionConfig, chain)
 		if err == nil && len(validators) > 0 {
 			contractValidators = validators
 			break
@@ -398,7 +378,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 
 	// Current epoch checkpoint: used for authorization and attestor checks.
-	checkpointHeader := GetCheckpointHeader(c.config, header, chain, parents)
+	checkpointHeader := GetCheckpointHeader(c.config, header, parents, chain)
 	if checkpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader
@@ -412,7 +392,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
-	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, chain, parents)
+	prevCheckpointHeader := GetCheckpointHeader(c.config, parent, parents, chain)
 	if prevCheckpointHeader == nil {
 		log.Error("[PoSV] verify header: cannot get checkpoint header", "number", number)
 		return errCannotGetCheckpointHeader
@@ -426,7 +406,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 	}
 
 	// Validate creator
-	creator, err := ecrecover(header, c.signatures)
+	creator, err := Ecrecover(header, c.signatures)
 	if err != nil {
 		return err
 	}
@@ -471,7 +451,7 @@ func (c *Posv) verifySeal(chainH consensus.ChainHeaderReader, header *types.Head
 		if err != nil {
 			return err
 		}
-		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(config, posvConfig, victionConfig, header, checkpointHeader)
+		valAttPairs, _, err := c.backend.PosvGetCreatorAttestorPairs(header, checkpointHeader, config, posvConfig, victionConfig)
 		if err != nil {
 			return err
 		}

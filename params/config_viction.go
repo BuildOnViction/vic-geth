@@ -126,6 +126,14 @@ func (c *VictionConfig) IsBypassValidatorBlock(blockNum uint64) bool {
 	return victionBypassValidators[blockNum]
 }
 
+func (c *VictionConfig) IsRandomizerCommitPhase(blockOfEpoch uint64) bool {
+	return blockOfEpoch > 0 && blockOfEpoch >= c.RandomizerCommitNthBlock && blockOfEpoch < c.RandomizerRevealNthBlock
+}
+
+func (c *VictionConfig) IsRandomizerOpeningPhase(blockOfEpoch uint64) bool {
+	return blockOfEpoch > 0 && blockOfEpoch >= c.RandomizerRevealNthBlock && blockOfEpoch <= c.RandomizerFinaleNthBlock
+}
+
 func (c *ChainConfig) IsPosv() bool {
 	return c.Posv != nil
 }

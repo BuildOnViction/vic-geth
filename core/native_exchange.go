@@ -150,7 +150,7 @@ func (p *StateProcessor) CommitLendingState(block *types.Block) error {
 	if err := p.viction.LendingEngine().GetStateCache().TrieDB().Commit(lendingRoot, false, nil); err != nil {
 		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", block.NumberU64(), err)
 	}
-	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", block.NumberU64(), "root", lendingRoot.Hex())
+	log.Debug("[NativeLending] Flushed Trie to disk", "block", block.NumberU64(), "root", lendingRoot.Hex())
 	return nil
 }
 
@@ -171,7 +171,7 @@ func (p *StateProcessor) CommitLendingStateDeferred(block *types.Block) error {
 	if err := lendingTrieDB.Commit(lendingRoot, true, nil); err != nil {
 		return fmt.Errorf("native_lending: failed to commit Trie at block %d: %w", current, err)
 	}
-	log.Info("[Processor][Native Lending] Flushed Trie to disk", "block", current, "root", lendingRoot.Hex())
+	log.Debug("[NativeLending] Flushed Trie to disk", "block", current, "root", lendingRoot.Hex())
 
 	if current > TriesInMemory {
 		chosen := current - TriesInMemory
@@ -197,7 +197,7 @@ func (p *StateProcessor) FlushLendingStateGCCache() {
 	for !p.lendingTriegc.Empty() {
 		root := p.lendingTriegc.PopItem()
 		if err := lendingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
-			log.Error("[Processor][Native Lending] Failed to commit Trie on shutdown", "root", root, "err", err)
+			log.Error("[NativeLending] Failed to commit Trie on shutdown", "root", root, "err", err)
 		}
 		lendingTrieDB.Dereference(root.(common.Hash))
 	}
@@ -251,7 +251,7 @@ func (p *StateProcessor) CommitTradingState(block *types.Block) error {
 	if err := p.viction.TradingEngine().GetStateCache().TrieDB().Commit(tradingRoot, false, nil); err != nil {
 		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", block.NumberU64(), err)
 	}
-	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", block.NumberU64(), "root", tradingRoot.Hex())
+	log.Debug("[NativeTrading] Flushed Trie to disk", "block", block.NumberU64(), "root", tradingRoot.Hex())
 	return nil
 }
 
@@ -272,7 +272,7 @@ func (p *StateProcessor) CommitTradingStateDeferred(block *types.Block) error {
 	if err := tradingTrieDB.Commit(tradingRoot, true, nil); err != nil {
 		return fmt.Errorf("native_trading: failed to commit Trie at block %d: %w", current, err)
 	}
-	log.Info("[Processor][Native Trading] Flushed Trie to disk", "block", current, "root", tradingRoot.Hex())
+	log.Debug("[NativeTrading] Flushed Trie to disk", "block", current, "root", tradingRoot.Hex())
 
 	if current > TriesInMemory {
 		chosen := current - TriesInMemory
@@ -298,7 +298,7 @@ func (p *StateProcessor) FlushTradingStateGCCache() {
 	for !p.tradingTriegc.Empty() {
 		root := p.tradingTriegc.PopItem()
 		if err := tradingTrieDB.Commit(root.(common.Hash), true, nil); err != nil {
-			log.Error("[Processor][Native Trading] Failed to commit Trie on shutdown", "root", root, "err", err)
+			log.Error("[NativeTrading] Failed to commit Trie on shutdown", "root", root, "err", err)
 		}
 		tradingTrieDB.Dereference(root.(common.Hash))
 	}

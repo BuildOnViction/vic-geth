@@ -108,38 +108,6 @@ func (statedb *StateDB) VictionGetSecretOpening(contractAddress common.Address, 
 	return opening
 }
 
-// ----------------------------- VRC25 contract --------------------------------
-
-// Return token balance for a given address.
-func (statedb *StateDB) VicGetVrc25Balance(contractAddress common.Address, address common.Address) *big.Int {
-	balanceMappingSlot := StorageLocationFromSlot(vicVRC25StorageMap["balances"])
-	balanceSlot := StorageLocationOfMappingElement(balanceMappingSlot, address.Hash().Bytes())
-	balanceData := statedb.GetState(contractAddress, balanceSlot.Hash())
-	return new(big.Int).SetBytes(balanceData.Bytes())
-}
-
-// Return minimum fee of the contract.
-func (statedb *StateDB) VicGetVrc25MinFee(contractAddress common.Address) *big.Int {
-	minFeeSlot := StorageLocationFromSlot(vicVRC25StorageMap["minFee"])
-	minFeeData := statedb.GetState(contractAddress, minFeeSlot.Hash())
-	return new(big.Int).SetBytes(minFeeData.Bytes())
-}
-
-// Return issuer of the contract.
-func (statedb *StateDB) VicGetVrc25Issuer(contractAddress common.Address) common.Address {
-	issuerSlot := StorageLocationFromSlot(vicVRC25StorageMap["issuer"])
-	issuerData := statedb.GetState(contractAddress, issuerSlot.Hash())
-	issuer := common.BytesToAddress(issuerData.Bytes())
-	return issuer
-}
-
-// Set token balance for a given address.
-func (statedb *StateDB) VicSetVrc25Balance(contractAddress common.Address, address common.Address, value *big.Int) {
-	balanceMappingSlot := StorageLocationFromSlot(vicVRC25StorageMap["balances"])
-	balanceSlot := StorageLocationOfMappingElement(balanceMappingSlot, address.Hash().Bytes())
-	statedb.SetState(contractAddress, balanceSlot.Hash(), common.BigToHash(value))
-}
-
 // ----------------------------- Validator contract ----------------------------
 
 // Return owner for a given validator.
@@ -202,6 +170,38 @@ func (statedb *StateDB) VicGetCandidates(contractAddress common.Address) []commo
 		candidates = append(candidates, candidate)
 	}
 	return candidates
+}
+
+// ----------------------------- VRC25 contract --------------------------------
+
+// Return token balance for a given address.
+func (statedb *StateDB) VicGetVrc25Balance(contractAddress common.Address, address common.Address) *big.Int {
+	balanceMappingSlot := StorageLocationFromSlot(vicVRC25StorageMap["balances"])
+	balanceSlot := StorageLocationOfMappingElement(balanceMappingSlot, address.Hash().Bytes())
+	balanceData := statedb.GetState(contractAddress, balanceSlot.Hash())
+	return new(big.Int).SetBytes(balanceData.Bytes())
+}
+
+// Return minimum fee of the contract.
+func (statedb *StateDB) VicGetVrc25MinFee(contractAddress common.Address) *big.Int {
+	minFeeSlot := StorageLocationFromSlot(vicVRC25StorageMap["minFee"])
+	minFeeData := statedb.GetState(contractAddress, minFeeSlot.Hash())
+	return new(big.Int).SetBytes(minFeeData.Bytes())
+}
+
+// Return issuer of the contract.
+func (statedb *StateDB) VicGetVrc25Issuer(contractAddress common.Address) common.Address {
+	issuerSlot := StorageLocationFromSlot(vicVRC25StorageMap["issuer"])
+	issuerData := statedb.GetState(contractAddress, issuerSlot.Hash())
+	issuer := common.BytesToAddress(issuerData.Bytes())
+	return issuer
+}
+
+// Set token balance for a given address.
+func (statedb *StateDB) VicSetVrc25Balance(contractAddress common.Address, address common.Address, value *big.Int) {
+	balanceMappingSlot := StorageLocationFromSlot(vicVRC25StorageMap["balances"])
+	balanceSlot := StorageLocationOfMappingElement(balanceMappingSlot, address.Hash().Bytes())
+	statedb.SetState(contractAddress, balanceSlot.Hash(), common.BigToHash(value))
 }
 
 // ----------------------------- ZeroGas contract ------------------------------

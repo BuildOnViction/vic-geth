@@ -1,4 +1,7 @@
 // Copyright 2016 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -27,22 +30,24 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// OrderSigner interface for order transaction
-type OrderSigner interface {
-	// Sender returns the sender address of the transaction.
-	Sender(tx *OrderTransaction) (common.Address, error)
-	// SignatureValues returns the raw R, S, V values corresponding to the
-	// given signature.
-	SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error)
-	// Hash returns the hash to be signed.
-	Hash(tx *OrderTransaction) common.Hash
-	// Equal returns true if the given signer is the same as the receiver.
-	Equal(OrderSigner) bool
+type ordersigCache struct {
+	signer NatExcSigner
+	from   common.Address
 }
 
-type ordersigCache struct {
-	signer OrderSigner
-	from   common.Address
+// OrderSignTx signs the order transaction using the given order signer and private key
+func OrderSignTx(tx *OrderTransaction, s NatExcSigner, prv *ecdsa.PrivateKey) (*OrderTransaction, error) {
+	h := s.Hash(tx)
+	message := crypto.Keccak256(
+		[]byte("\x19Ethereum Signed Message:\n32"),
+		h.Bytes(),
+	)
+
+	sig, err := crypto.Sign(message[:], prv)
+	if err != nil {
+		return nil, err
+	}
+	return tx.WithSignature(s, sig)
 }
 
 // OrderSender returns the address derived from the signature (V, R, S) using secp256k1
@@ -52,7 +57,7 @@ type ordersigCache struct {
 // Sender may cache the address, allowing it to be used regardless of
 // signing method. The cache is invalidated if the cached signer does
 // not match the signer used in the current call.
-func OrderSender(signer OrderSigner, tx *OrderTransaction) (common.Address, error) {
+func OrderSender(signer NatExcSigner, tx *OrderTransaction) (common.Address, error) {
 	if sc := tx.from.Load(); sc != nil {
 		sigCache := sc.(ordersigCache)
 		// If the signer used to derive from in a previous
@@ -71,32 +76,29 @@ func OrderSender(signer OrderSigner, tx *OrderTransaction) (common.Address, erro
 	return addr, nil
 }
 
-// OrderSignTx signs the order transaction using the given order signer and private key
-func OrderSignTx(tx *OrderTransaction, s OrderSigner, prv *ecdsa.PrivateKey) (*OrderTransaction, error) {
-	h := s.Hash(tx)
-	message := crypto.Keccak256(
-		[]byte("\x19Ethereum Signed Message:\n32"),
-		h.Bytes(),
-	)
-
-	sig, err := crypto.Sign(message[:], prv)
-	if err != nil {
-		return nil, err
-	}
-	return tx.WithSignature(s, sig)
+// NatExcSigner interface for OrderTransaction
+type NatExcSigner interface {
+	// Sender returns the sender address of the transaction.
+	Sender(tx *OrderTransaction) (common.Address, error)
+	// SignatureValues returns the raw R, S, V values corresponding to the
+	// given signature.
+	SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error)
+	// Hash returns the hash to be signed.
+	Hash(tx *OrderTransaction) common.Hash
+	// Equal returns true if the given signer is the same as the receiver.
+	Equal(NatExcSigner) bool
 }
 
-//OrderTxSigner signer
-type OrderTxSigner struct{}
+type DefaultNatExcSigner struct{}
 
 // Equal compare two signer
-func (ordersign OrderTxSigner) Equal(s2 OrderSigner) bool {
-	_, ok := s2.(OrderTxSigner)
+func (s DefaultNatExcSigner) Equal(s2 NatExcSigner) bool {
+	_, ok := s2.(DefaultNatExcSigner)
 	return ok
 }
 
-//SignatureValues returns signature values. This signature needs to be in the [R || S || V] format where V is 0 or 1.
-func (ordersign OrderTxSigner) SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error) {
+// SignatureValues returns signature values. This signature needs to be in the [R || S || V] format where V is 0 or 1.
+func (ordersign DefaultNatExcSigner) SignatureValues(tx *OrderTransaction, sig []byte) (r, s, v *big.Int, err error) {
 	if len(sig) != 65 {
 		panic(fmt.Sprintf("wrong size for signature: got %d, want 65", len(sig)))
 	}
@@ -106,15 +108,46 @@ func (ordersign OrderTxSigner) SignatureValues(tx *OrderTransaction, sig []byte)
 	return r, s, v, nil
 }
 
+// Hash returns the hash to be signed by the sender.
+// It does not uniquely identify the transaction.
+func (s DefaultNatExcSigner) Hash(tx *OrderTransaction) common.Hash {
+	if tx.IsCancelledOrder() {
+		return s.OrderCancelHash(tx)
+	}
+	return s.OrderCreateHash(tx)
+}
+
+// Sender get signer from
+func (s DefaultNatExcSigner) Sender(tx *OrderTransaction) (common.Address, error) {
+
+	message := crypto.Keccak256(
+		[]byte("\x19Ethereum Signed Message:\n32"),
+		s.Hash(tx).Bytes(),
+	)
+	V, R, S := tx.Signature()
+
+	sigBytes, err := MarshalSignature(R, S, V)
+	if err != nil {
+		return common.Address{}, err
+	}
+	pubKey, err := crypto.SigToPub(message, sigBytes)
+	if err != nil {
+		return common.Address{}, err
+	}
+	address := crypto.PubkeyToAddress(*pubKey)
+	return address, nil
+
+}
+
 // OrderCreateHash hash of new order
-func (ordersign OrderTxSigner) OrderCreateHash(tx *OrderTransaction) common.Hash {
+func (s DefaultNatExcSigner) OrderCreateHash(tx *OrderTransaction) common.Hash {
 	sha := sha3.NewLegacyKeccak256()
 	sha.Write(tx.ExchangeAddress().Bytes())
 	sha.Write(tx.UserAddress().Bytes())
 	sha.Write(tx.BaseToken().Bytes())
 	sha.Write(tx.QuoteToken().Bytes())
 	sha.Write(common.BigToHash(tx.Quantity()).Bytes())
-	if tx.IsLoTypeOrder() {
+	if tx.IsLimitOrder() {
 		if tx.Price() != nil {
 			sha.Write(common.BigToHash(tx.Price()).Bytes())
 		}
@@ -127,7 +160,7 @@ func (ordersign OrderTxSigner) OrderCreateHash(tx *OrderTransaction) common.Hash
 }
 
 // OrderCancelHash hash of cancelled order
-func (ordersign OrderTxSigner) OrderCancelHash(tx *OrderTransaction) common.Hash {
+func (s DefaultNatExcSigner) OrderCancelHash(tx *OrderTransaction) common.Hash {
 	sha := sha3.NewLegacyKeccak256()
 	sha.Write(tx.OrderHash().Bytes())
 	sha.Write(common.BigToHash(big.NewInt(int64(tx.Nonce()))).Bytes())
@@ -141,16 +174,19 @@ func (ordersign OrderTxSigner) OrderCancelHash(tx *OrderTransaction) common.Hash
 	return common.BytesToHash(sha.Sum(nil))
 }
 
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (ordersign OrderTxSigner) Hash(tx *OrderTransaction) common.Hash {
-	if tx.IsCancelledOrder() {
-		return ordersign.OrderCancelHash(tx)
+// CacheOrderSigner cache signed order
+func CacheOrderSigner(signer NatExcSigner, tx *OrderTransaction) {
+	if tx == nil {
+		return
 	}
-	return ordersign.OrderCreateHash(tx)
+	addr, err := signer.Sender(tx)
+	if err != nil {
+		return
+	}
+	tx.from.Store(ordersigCache{signer: signer, from: addr})
 }
 
-//MarshalSignature encode signature
+// MarshalSignature encode signature
 func MarshalSignature(R, S, V *big.Int) ([]byte, error) {
 	sigBytes1 := common.BigToHash(R).Bytes()
 	sigBytes2 := common.BigToHash(S).Bytes()
@@ -168,38 +204,4 @@ func MarshalSignature(R, S, V *big.Int) ([]byte, error) {
 	sigBytes = append(sigBytes, sigBytes3)
 
 	return sigBytes, nil
-}
-
-// Sender get signer from
-func (ordersign OrderTxSigner) Sender(tx *OrderTransaction) (common.Address, error) {
-
-	message := crypto.Keccak256(
-		[]byte("\x19Ethereum Signed Message:\n32"),
-		ordersign.Hash(tx).Bytes(),
-	)
-	V, R, S := tx.Signature()
-
-	sigBytes, err := MarshalSignature(R, S, V)
-	if err != nil {
-		return common.Address{}, err
-	}
-	pubKey, err := crypto.SigToPub(message, sigBytes)
-	if err != nil {
-		return common.Address{}, err
-	}
-	address := crypto.PubkeyToAddress(*pubKey)
-	return address, nil
-
-}
-
-// CacheOrderSigner cache signed order
-func CacheOrderSigner(signer OrderSigner, tx *OrderTransaction) {
-	if tx == nil {
-		return
-	}
-	addr, err := signer.Sender(tx)
-	if err != nil {
-		return
-	}
-	tx.from.Store(ordersigCache{signer: signer, from: addr})
 }

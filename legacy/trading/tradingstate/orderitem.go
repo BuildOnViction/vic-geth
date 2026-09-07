@@ -114,7 +114,7 @@ func (o *OrderItem) verifySignature() error {
 	tx := types.NewOrderTransaction(uint64(n), o.Quantity, o.Price, o.ExchangeAddress, o.UserAddress,
 		o.BaseToken, o.QuoteToken, o.Status, o.Side, o.Type, o.Hash, o.OrderID)
 	tx.ImportSignature(V, R, S)
-	from, _ := types.OrderSender(types.OrderTxSigner{}, tx)
+	from, _ := types.OrderSender(types.DefaultNatExcSigner{}, tx)
 	if from != tx.UserAddress() {
 		return ErrInvalidSignature
 	}

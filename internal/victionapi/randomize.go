@@ -17,27 +17,30 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package viction
+package victionapi
 
 import (
 	"fmt"
 	"math/big"
 	"math/rand"
-	mathrand "math/rand"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/posv"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
-	/// RandomizeKeyName is the database key used to persist the random key between the commit and reveal phases within a single epoch.
 	RandomizeKeyName = []byte("randomizeKey")
 )
 
+// Serialize `Randomize.setSecret` function call data.
 func CreateSetRandomizeSecretData(secret []byte) []byte {
 	data := common.Hex2Bytes("34d38600") // setSecret(bytes32[])
 	data = append(data, common.LeftPadBytes(big.NewInt(32).Bytes(), 32)...)
@@ -46,35 +49,40 @@ func CreateSetRandomizeSecretData(secret []byte) []byte {
 	return data
 }
 
+// Create `Randomize.setSecret` transaction.
 func CreateSetRandomizeSecretTransaction(nonce uint64, contractAddr common.Address, secret []byte) *types.Transaction {
 	data := CreateSetRandomizeSecretData(secret)
 	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
 }
 
+// Serialize `Randomize.setOpening` function call data.
 func CreateSetRandomizeOpeningData(key []byte) []byte {
 	data := common.Hex2Bytes("e11f5ba2") // setOpening(bytes32)
 	data = append(data, key...)
 	return data
 }
 
+// Create `Randomize.setOpening` transaction.
 func CreateSetRandomizeOpeningTransaction(nonce uint64, contractAddr common.Address, key []byte) *types.Transaction {
 	data := CreateSetRandomizeOpeningData(key)
 	return types.NewTransaction(nonce, contractAddr, big.NewInt(0), 200000, big.NewInt(0), data)
 }
 
+// Generate new 32-byte key for the randomize protocol.
 func GenerateRandomKey() []byte {
-	mathrand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano())
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
 	b := make([]byte, 32)
 	for i := range b {
-		b[i] = charset[mathrand.Intn(len(charset))]
+		b[i] = charset[rand.Intn(len(charset))]
 	}
 	return b
 }
 
+// Generate pseudo-random number and encrypt it using the given key.
 func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
-	mathrand.Seed(time.Now().UnixNano())
-	secretNumber := mathrand.Intn(int(max))
+	rand.Seed(time.Now().UnixNano())
+	secretNumber := rand.Intn(int(max))
 	encrypted, err := EncryptAesCfb(key, fmt.Sprintf("%d", secretNumber))
 	if err != nil {
 		return nil, fmt.Errorf("encrypt secret: %w", err)
@@ -82,12 +90,17 @@ func GenerateRandomNumber(max uint64, key []byte) ([]byte, error) {
 	return []byte(encrypted), nil
 }
 
-func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, state *state.StateDB) ([]int64, error) {
+// Return attestor indices from state.
+func GetAttestorsFromState(
+	validators []common.Address,
+	victionConfig *params.VictionConfig,
+	statedb *state.StateDB,
+) ([]int64, error) {
 	randomizes := []int64{}
 	validatorCount := int64(len(validators))
 	if validatorCount > 0 {
 		for _, validator := range validators {
-			random, err := GetRandomizeOfValidator(vicConfig, validator, state)
+			random, err := GetSubmittedRandomOfValidator(validator, victionConfig, statedb)
 			if err != nil {
 				return nil, err
 			}
@@ -97,21 +110,24 @@ func GetAttestors(vicConfig *params.VictionConfig, validators []common.Address, 
 		if err != nil {
 			return nil, err
 		}
-		log.Debug("[POSV randomize] computed attestor indices",
-			"validators", validatorCount, "randomizes", randomizes, "attestors", attestors)
 		return attestors, nil
 	}
 	return nil, ErrNoValidator
 }
 
-func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.Address, state *state.StateDB) (int64, error) {
-	randomizeContract := vicConfig.RandomizerContract
+// Get submitted random number of a given validator.
+func GetSubmittedRandomOfValidator(
+	validator common.Address,
+	victionConfig *params.VictionConfig,
+	statedb *state.StateDB,
+) (int64, error) {
+	randomizeContract := victionConfig.RandomizerContract
 	if randomizeContract == (common.Address{}) {
-		return -1, ErrNoContractAddress
+		return 0, ErrNoContractAddress
 	}
 
-	secretsHash := state.VictionGetSecrets(randomizeContract, validator)
-	openingHash := state.VictionGetSecretOpening(randomizeContract, validator)
+	secretsHash := statedb.VictionGetSecrets(randomizeContract, validator)
+	openingHash := statedb.VictionGetSecretOpening(randomizeContract, validator)
 
 	// Convert []common.Hash to [][32]byte
 	secrets := make([][32]byte, len(secretsHash))
@@ -124,24 +140,21 @@ func GetRandomizeOfValidator(vicConfig *params.VictionConfig, validator common.A
 
 	result, err := DecryptRandomize(secrets, opening)
 	if err != nil {
-		log.Debug("[POSV randomize] failed to decrypt validator secret",
-			"validator", validator, "secrets", len(secretsHash), "err", err)
 		return result, err
 	}
-	log.Debug("[POSV randomize] decrypted validator random",
-		"validator", validator, "secrets", len(secretsHash), "hasOpening", openingHash != common.Hash{}, "random", result)
 	return result, nil
 }
 
-func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, error) {
+// Generate pseudo-random attestor indices based on randomizes.
+func GetAttestorsFromRandomize(randomizes []int64, validatorsCount int64) ([]int64, error) {
 	randomSeed := int64(0)
 	for _, j := range randomizes {
 		randomSeed += j
 	}
 	rand.Seed(randomSeed)
 
-	randArray := GenerateSequence(0, 1, signersLen)
-	attestorIndices := make([]int64, signersLen)
+	randArray := GenerateSequence(0, 1, validatorsCount)
+	attestorIndices := make([]int64, validatorsCount)
 	attestorIndex := int64(0)
 	for i := len(randArray) - 1; i >= 0; i-- {
 		blockLength := len(randArray) - 1
@@ -157,4 +170,74 @@ func GetAttestorsFromRandomize(randomizes []int64, signersLen int64) ([]int64, e
 	}
 
 	return attestorIndices, nil
+}
+
+// Create new Randomize transaction and submit it to TxPool.
+func SubmitRandomNumberTransaction(
+	block *types.Block,
+	snapshot *posv.Snapshot,
+	config *params.ChainConfig,
+	posvConfig *params.PosvConfig,
+	victionConfig *params.VictionConfig,
+	blockchain *core.BlockChain,
+	chaindb ethdb.KeyValueStore,
+	etherbase common.Address,
+	wallet accounts.Wallet,
+	txPool *core.TxPool,
+) error {
+	number := block.NumberU64()
+	if !config.IsTIPRandomize(block.Number()) {
+		return nil
+	}
+	if etherbase.IsZero() {
+		return nil
+	}
+	if !IsEligibleValidator(etherbase, snapshot) {
+		return nil
+	}
+
+	blockOfEpoch := number % posvConfig.Epoch
+	commitPhase := victionConfig.IsRandomizerCommitPhase(blockOfEpoch)
+	if commitPhase {
+		exists, _ := chaindb.Has(RandomizeKeyName)
+		if exists {
+			// Already committed this epoch.
+			return nil
+		}
+
+		nonce := NextNonce(etherbase, blockchain, txPool)
+		key := GenerateRandomKey()
+		secret, err := GenerateRandomNumber(posvConfig.Epoch, key)
+		if err != nil {
+			log.Error("[RandomNumber] Failed to generate RandomNumber", "number", number, "err", err)
+			return err
+		}
+		transaction := CreateSetRandomizeSecretTransaction(nonce, victionConfig.RandomizerContract, secret)
+		if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "RandomNumber"); err != nil {
+			return err
+		}
+		if err := chaindb.Put(RandomizeKeyName, key); err != nil {
+			log.Error("[RandomNumber] Failed to store RandomizeKey to database", "number", number, "err", err)
+			return err
+		}
+		return nil
+	}
+	openingPhase := victionConfig.IsRandomizerOpeningPhase(blockOfEpoch)
+	if openingPhase {
+		key, err := chaindb.Get(RandomizeKeyName)
+		if err != nil || len(key) == 0 {
+			// Either already revealed or never committed in this epoch.
+			return nil
+		}
+
+		nonce := NextNonce(etherbase, blockchain, txPool)
+		transaction := CreateSetRandomizeOpeningTransaction(nonce, victionConfig.RandomizerContract, key)
+		if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "RandomNumber"); err != nil {
+			return err
+		}
+		if err := chaindb.Delete(RandomizeKeyName); err != nil {
+			log.Error("[RandomNumber] Failed to delete RandomizeKey in database", "number", number, "err", err)
+		}
+	}
+	return nil
 }

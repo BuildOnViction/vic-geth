@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -82,8 +83,7 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 		return nil, errors.New("header is not a checkpoint block")
 	}
 
-	engine, ok := s.Engine().(*posv.Posv)
-	if !ok {
+	if _, ok := s.Engine().(*posv.Posv); !ok {
 		return nil, errors.New("engine is not a posv engine")
 	}
 
@@ -93,12 +93,11 @@ func (s *EthAPIBackend) getEpochRewardByCheckpointHeader(header *types.Header) (
 		return nil, err
 	}
 
-	epochReward, err := s.eth.PosvGetEpochReward(
-		engine,
+	epochReward, err := s.eth.PosvGetEpochRewards(
+		header,
 		cfg,
 		cfg.Posv,
 		cfg.Viction,
-		header,
 		s.eth.blockchain,
 		statedb,
 		log.New(),
@@ -121,12 +120,12 @@ func (s *EthAPIBackend) GetAttestorsPairsByHash(ctx context.Context, hash common
 		return nil, errors.New("header not found")
 	}
 	posvConfig := s.eth.blockchain.Config().Posv
-	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.eth.blockchain)
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
 	config := s.eth.blockchain.Config()
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(header, checkpointHeader, config, config.Posv, config.Viction)
 	return pairs, err
 }
 
@@ -140,12 +139,12 @@ func (s *EthAPIBackend) GetAttestorsPairsByNumber(ctx context.Context, number rp
 	if header == nil {
 		return nil, errors.New("header not found")
 	}
-	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, s.eth.blockchain, nil)
+	checkpointHeader := posv.GetCheckpointHeader(posvConfig, header, nil, s.eth.blockchain)
 	if checkpointHeader == nil {
 		return nil, errors.New("checkpoint header not found")
 	}
 	config := s.eth.blockchain.Config()
-	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(config, config.Posv, config.Viction, header, checkpointHeader)
+	pairs, _, err := s.eth.PosvGetCreatorAttestorPairs(header, checkpointHeader, config, config.Posv, config.Viction)
 	return pairs, err
 }
 
@@ -383,7 +382,7 @@ func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber ui
 		mapMN[node] = true
 	}
 	signer := types.MakeSigner(s.eth.blockchain.Config(), new(big.Int).SetUint64(blockNumber))
-	if engine, ok := s.Engine().(*posv.Posv); ok {
+	if _, ok := s.Engine().(*posv.Posv); ok {
 		limitNumber := blockNumber + s.eth.blockchain.Config().Viction.ConsensusLimitTimeFinality
 		currentNumber := s.CurrentBlock().NumberU64()
 		if limitNumber > currentNumber {
@@ -394,7 +393,7 @@ func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber ui
 			if err != nil {
 				return addrs, err
 			}
-			signTxs, err := engine.GetSignDataForBlock(s.eth.blockchain.Config(), s.eth.blockchain.Config().Viction, header, s.eth.blockchain)
+			signTxs, err := victionapi.GetBlockSignData(header, s.eth.blockchain.Config(), s.eth.blockchain.Config().Viction, s.eth.blockchain, s.eth.blockchain, s.eth.blockSignersCache)
 			if err != nil {
 				return addrs, err
 			}

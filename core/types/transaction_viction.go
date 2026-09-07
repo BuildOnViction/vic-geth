@@ -25,8 +25,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-var signMethodSelector = common.Hex2Bytes("e341eaa4")
-
 func (tx *Transaction) IsTradingTransaction(tradingContract common.Address) bool {
 	if tx.To() == nil {
 		return false
@@ -60,7 +58,7 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	if len(data) != 68 {
 		return false
 	}
-	return bytes.Equal(data[0:4], signMethodSelector)
+	return bytes.Equal(data[0:4], common.Hex2Bytes("e341eaa4")) // sign(uint256,bytes32)
 }
 
 func (tx *Transaction) IsPosvTransaction() bool {

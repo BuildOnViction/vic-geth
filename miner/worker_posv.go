@@ -42,7 +42,7 @@ func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 	}
 
 	c := w.engine.(*posv.Posv)
-	checkPointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parentHeader, w.chain, nil)
+	checkPointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parentHeader, nil, w.chain)
 	validators := posv.ExtractValidatorsFromCheckpointHeader(checkPointHeader)
 	// IsMyTurn returns (inTurn, currentIndex, parentIndex, validatorCount, err).
 	ok, myIdx, parentIdx, nValidators, err := c.IsMyTurn(w.coinbase, parentHeader, validators)

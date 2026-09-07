@@ -43,6 +43,24 @@ var (
 	unknownBlock = types.NewBlock(&types.Header{GasLimit: params.GenesisGasLimit}, nil, nil, nil, new(trie.Trie))
 )
 
+// posvTestBackend is a PoSV backend stub for exercising the fetcher's attest
+// and relay paths without a real consensus backend.
+type posvTestBackend struct {
+	attestFn func(block *types.Block) (*types.Block, error)
+}
+
+func (s *posvTestBackend) PosvAttestBlock(block *types.Block) (*types.Block, error) {
+	if s.attestFn == nil {
+		// Behave like this node is not the assigned attestor.
+		return nil, nil
+	}
+	return s.attestFn(block)
+}
+
+func (s *posvTestBackend) PosvRandomNumber(block *types.Block) error { return nil }
+
+func (s *posvTestBackend) PosvSignBlock(block *types.Block) error { return nil }
+
 // makeChain creates a chain of n blocks starting at and including parent.
 // the returned hash chain is ordered head->parent. In addition, every 3rd block
 // contains a transaction and every 5th an uncle to allow testing correct block
@@ -623,6 +641,15 @@ func TestAppendAttestorHookMutatedBlock(t *testing.T) {
 	mutatedHeader.Attestor = make([]byte, 65)
 	mutated := original.WithSeal(mutatedHeader)
 
+	// The fetcher asks the PoSV backend to attest the block; the stub appends
+	// the attestor signature by returning the mutated block.
+	tester.fetcher.SetPosvBackend(&posvTestBackend{attestFn: func(block *types.Block) (*types.Block, error) {
+		if block.Hash() != original.Hash() {
+			t.Fatalf("hook received unexpected block hash, got %s, want %s", block.Hash(), original.Hash())
+		}
+		return mutated, nil
+	}})
+
 	verifyCalls := 0
 	seenOriginal := false
 	seenMutated := false
@@ -697,6 +724,9 @@ func TestAppendAttestorHookSkipImportStillRelays(t *testing.T) {
 	tester.fetcher.verifyHeader = func(header *types.Header) error {
 		return posv.ErrNoAttestorSignature
 	}
+	// This node is not the assigned attestor — PosvAttestBlock returns nil so
+	// the fetcher relays the creator-signed block without importing it.
+	tester.fetcher.SetPosvBackend(&posvTestBackend{})
 
 	tester.fetcher.Enqueue("valid", original)
 	// Block should NOT be imported when this node is not the assigned attestor.

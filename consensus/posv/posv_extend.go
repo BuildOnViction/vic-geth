@@ -41,8 +41,6 @@ const (
 )
 
 var (
-	ErrAttestedBlock = errors.New("block is already attested")
-
 	errCannotGetCheckpointHeader = errors.New("cannot get checkpoint header")
 
 	errEmptyValidators = errors.New("validators is empty")
@@ -55,10 +53,12 @@ var (
 
 	errInvalidCheckpointNewAttestors = errors.New("invalid new attestors on checkpoint block")
 
-	errNoBackend = errors.New("backend reference is not available")
+	errNilHeader = errors.New("header is nil")
 
 	// ErrNoAttestorSignature is returned if a block's attestor signature is missing.
-	ErrNoAttestorSignature = errors.New("no attestor in header")
+	ErrNoAttestorSignature = errors.New("no attestor signature in header")
+
+	errNoBackend = errors.New("backend reference is not available")
 
 	errNoChainReader = errors.New("chain reader is not available")
 )
@@ -87,67 +87,47 @@ type ValidatorInfo struct {
 type PosvBackend interface {
 	// Get attestors from list of validators.
 	PosvGetAttestors(
-		vicConfig *params.VictionConfig, header *types.Header, validators []common.Address,
+		header *types.Header, validators []common.Address,
+		victionConfig *params.VictionConfig,
 	) ([]int64, error)
-
-	// Get block signers from the state.
-	PosvGetBlockSignData(
-		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader,
-	) ([]types.Transaction, error)
 
 	// Get creator-attestor pairs from the state.
 	PosvGetCreatorAttestorPairs(
-		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig, header, checkpointHeader *types.Header,
+		header, checkpointHeader *types.Header,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	) (map[common.Address]common.Address, uint64, error)
 
-	// Calculate and distribute reward at the end of each epoch.
-	PosvGetEpochReward(
-		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader, state *state.StateDB, logger log.Logger,
+	// Calculate rewards at the end of each epoch.
+	PosvGetEpochRewards(
+		header *types.Header,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+		chainReader consensus.ChainReader, state *state.StateDB, logger log.Logger,
 	) (*EpochReward, error)
 
-	// Add balance rewards to the state (apply the rewards returned by PosvGetEpochReward).
+	// Add balance rewards to the state.
 	PosvDistributeEpochRewards(
-		header *types.Header, state *state.StateDB, epochReward *EpochReward,
+		header *types.Header, epochReward *EpochReward,
+		state *state.StateDB,
 	) error
 
 	// Penalize validators for creating bad block or not creating block at all.
 	PosvGetPenalties(
-		c *Posv, config *params.ChainConfig, posvConfig *params.PosvConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader, validators []common.Address,
+		header *types.Header, validators []common.Address,
+		config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
+		chainReader consensus.ChainReader,
 	) ([]common.Address, error)
 
 	// Get eligble validators from the state.
 	PosvGetValidators(
-		config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-		chain consensus.ChainReader,
+		header *types.Header,
+		config *params.ChainConfig, victionConfig *params.VictionConfig,
+		chainReader consensus.ChainReader,
 	) ([]common.Address, error)
 }
 
 // Return Ethereum address recovered from the signature in header's Attestor field.
 func (c *Posv) Attestor(header *types.Header) (common.Address, error) {
-	return ecrecover2(header, c.attestSignatures)
-}
-
-// Get all BlockSign transactions for a given block. If it's not cached yet, get it from the state.
-func (c *Posv) GetSignDataForBlock(config *params.ChainConfig, vicConfig *params.VictionConfig, header *types.Header,
-	chain consensus.ChainReader) ([]types.Transaction, error) {
-	if header == nil {
-		return nil, fmt.Errorf("GetSignDataForBlock: header is nil")
-	}
-	blockHash := header.Hash()
-	if signers, ok := c.blockSigners.Get(blockHash); ok {
-		if signers, ok := signers.([]types.Transaction); ok && signers != nil {
-			return signers, nil
-		}
-	}
-	signers, err := c.backend.PosvGetBlockSignData(config, vicConfig, header, chain)
-	if err != nil {
-		return nil, err
-	}
-	c.blockSigners.Add(blockHash, signers)
-	return signers, nil
+	return Ecrecover2(header, c.attestSignatures)
 }
 
 // GetSnapshot returns the snapshot for the given block, exposing the full set validators regardless of penalty status.
@@ -278,7 +258,11 @@ func ExtractValidatorsFromCheckpointHeader(header *types.Header) []common.Addres
 }
 
 // Return header of neareast checkpoint block before the given header. If the header is also a checkpoint block, return the header itself.
-func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, chain consensus.ChainHeaderReader, parents []*types.Header) *types.Header {
+func GetCheckpointHeader(
+	posvConfig *params.PosvConfig,
+	header *types.Header, parents []*types.Header,
+	chainHReader consensus.ChainHeaderReader,
+) *types.Header {
 	blockNumber := header.Number.Uint64()
 	if blockNumber%posvConfig.Epoch == 0 {
 		return header
@@ -286,7 +270,7 @@ func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, ch
 	prevCheckpointBlockNumber := blockNumber - (blockNumber % posvConfig.Epoch)
 
 	// Try canonical DB first (covers prior epochs already committed).
-	if h := chain.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
+	if h := chainHReader.GetHeaderByNumber(prevCheckpointBlockNumber); h != nil {
 		return h
 	}
 	for _, parent := range parents {
@@ -298,8 +282,31 @@ func GetCheckpointHeader(posvConfig *params.PosvConfig, header *types.Header, ch
 	return nil
 }
 
-// ecrecover2 extracts the Ethereum account address from a Attestor header.
-func ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+// Get penalty list from headers for previous epochs.
+func GetPenaltiesFromHeaders(
+	posvConfig *params.PosvConfig,
+	number, epochCount uint64,
+	chain consensus.ChainHeaderReader,
+) [][]common.Address {
+	results := make([][]common.Address, 0)
+	for i := uint64(1); i <= epochCount; i++ {
+		if number <= (i * posvConfig.Epoch) {
+			continue
+		}
+		prevCheckpointBlockNumber := number - (i * posvConfig.Epoch)
+		prevCheckpointHeader := chain.GetHeaderByNumber(prevCheckpointBlockNumber)
+		penalties := DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)
+		results = append(results, penalties)
+	}
+	return results
+}
+
+// Ecrecover2 extracts the Ethereum account address from a Attestor header.
+func Ecrecover2(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+	if header == nil {
+		return common.Address{}, errNilHeader
+	}
+
 	// If the signature's already cached, return that
 	hash := header.Hash()
 

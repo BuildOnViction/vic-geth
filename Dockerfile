@@ -10,7 +10,28 @@ RUN cd /go-ethereum && make geth
 FROM alpine:latest
 
 RUN apk add --no-cache ca-certificates
+RUN mkdir "/viction"
 COPY --from=builder /go-ethereum/build/bin/geth /usr/local/bin/
+COPY ./entrypoint.sh /viction/entrypoint.sh
+RUN chmod +x /viction/entrypoint.sh
 
-EXPOSE 8545 8546 30303 30303/udp
-ENTRYPOINT ["geth"]
+# Configuration defaults, overridable at runtime with `docker run -e`
+ENV NETWORK="viction"
+ENV NETWORK_ID="88"
+ENV IDENTITY="mynode"
+ENV HTTP_API="eth,web3"
+ENV WS_API="eth,web3"
+ENV P2P_PORT="30303"
+ENV EXTIP=""
+ENV MAXPEERS="100"
+ENV SYNCMODE="full"
+ENV VERBOSITY="3"
+ENV GCMODE="full"
+ENV ETHSTATS_HOST=""
+ENV ETHSTATS_PORT=""
+ENV ETHSTATS_SECRET=""
+ENV PRIVKEY=""
+ENV PASSWORD=""
+
+EXPOSE 8545 8546 ${P2P_PORT} ${P2P_PORT}/udp
+ENTRYPOINT ["/viction/entrypoint.sh"]

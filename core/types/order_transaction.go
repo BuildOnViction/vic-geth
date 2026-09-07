@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -27,12 +30,8 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-//go:generate gencodec -type txdata -field-override txdataMarshaling -out gen_tx_json.go
-
 var (
-	// ErrInvalidOrderSig invalidate signer
 	ErrInvalidOrderSig = errors.New("invalid transaction v, r, s values")
-	errNoSignerOrder   = errors.New("missing signing methods")
 )
 
 const (
@@ -41,11 +40,10 @@ const (
 	OrderStatusPartialFilled = "PARTIAL_FILLED"
 	OrderStatusFilled        = "FILLED"
 	OrderStatusCancelled     = "CANCELLED"
-	OrderTypeMo              = "MO"
-	OrderTypeLo              = "LO"
+	OrderTypeLimit           = "LO"
+	OrderTypeMarket          = "MO"
 )
 
-// OrderTransaction order transaction
 type OrderTransaction struct {
 	data ordertxdata
 	// caches
@@ -66,6 +64,7 @@ type ordertxdata struct {
 	Side            string         `json:"side,omitempty"`
 	Type            string         `json:"type,omitempty"`
 	OrderID         uint64         `json:"orderid,omitempty"`
+
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
 	R *big.Int `json:"r" gencodec:"required"`
@@ -75,145 +74,7 @@ type ordertxdata struct {
 	Hash common.Hash `json:"hash"`
 }
 
-// IsCancelledOrder check if tx is cancelled transaction
-func (tx *OrderTransaction) IsCancelledOrder() bool {
-	if tx.Status() == OrderStatusCancelled {
-		return true
-	}
-	return false
-}
-
-// IsMoTypeOrder check if tx type is MO Order
-func (tx *OrderTransaction) IsMoTypeOrder() bool {
-	if tx.Type() == OrderTypeMo {
-		return true
-	}
-	return false
-}
-
-// IsLoTypeOrder check if tx type is LO Order
-func (tx *OrderTransaction) IsLoTypeOrder() bool {
-	if tx.Type() == OrderTypeLo {
-		return true
-	}
-	return false
-}
-
-// EncodeRLP implements rlp.Encoder
-func (tx *OrderTransaction) EncodeRLP(w io.Writer) error {
-	return rlp.Encode(w, &tx.data)
-}
-
-// DecodeRLP implements rlp.Decoder
-func (tx *OrderTransaction) DecodeRLP(s *rlp.Stream) error {
-	_, size, _ := s.Kind()
-	err := s.Decode(&tx.data)
-	if err == nil {
-		tx.size.Store(common.StorageSize(rlp.ListSize(size)))
-	}
-
-	return err
-}
-
-// Nonce return nonce of account
-func (tx *OrderTransaction) Nonce() uint64                   { return tx.data.AccountNonce }
-func (tx *OrderTransaction) Quantity() *big.Int              { return tx.data.Quantity }
-func (tx *OrderTransaction) Price() *big.Int                 { return tx.data.Price }
-func (tx *OrderTransaction) ExchangeAddress() common.Address { return tx.data.ExchangeAddress }
-func (tx *OrderTransaction) UserAddress() common.Address     { return tx.data.UserAddress }
-func (tx *OrderTransaction) BaseToken() common.Address       { return tx.data.BaseToken }
-func (tx *OrderTransaction) QuoteToken() common.Address      { return tx.data.QuoteToken }
-func (tx *OrderTransaction) Status() string                  { return tx.data.Status }
-func (tx *OrderTransaction) Side() string                    { return tx.data.Side }
-func (tx *OrderTransaction) Type() string                    { return tx.data.Type }
-func (tx *OrderTransaction) Signature() (V, R, S *big.Int)   { return tx.data.V, tx.data.R, tx.data.S }
-func (tx *OrderTransaction) OrderHash() common.Hash          { return tx.data.Hash }
-func (tx *OrderTransaction) OrderID() uint64                 { return tx.data.OrderID }
-func (tx *OrderTransaction) EncodedSide() *big.Int {
-	if tx.Side() == "BUY" {
-		return big.NewInt(0)
-	} else {
-		return big.NewInt(1)
-	}
-}
-func (tx *OrderTransaction) SetOrderHash(h common.Hash) { tx.data.Hash = h }
-
-// From get transaction from
-func (tx *OrderTransaction) From() *common.Address {
-	if tx.data.V != nil {
-		signer := OrderTxSigner{}
-		if f, err := OrderSender(signer, tx); err != nil {
-			return nil
-		} else {
-			return &f
-		}
-	} else {
-		return nil
-	}
-}
-
-// WithSignature returns a new transaction with the given signature.
-// This signature needs to be formatted as described in the yellow paper (v+27).
-func (tx *OrderTransaction) WithSignature(signer OrderSigner, sig []byte) (*OrderTransaction, error) {
-	r, s, v, err := signer.SignatureValues(tx, sig)
-	if err != nil {
-		return nil, err
-	}
-	cpy := &OrderTransaction{data: tx.data}
-	cpy.data.R, cpy.data.S, cpy.data.V = r, s, v
-	return cpy, nil
-}
-
-// ImportSignature make order tx with specific signature
-func (tx *OrderTransaction) ImportSignature(V, R, S *big.Int) *OrderTransaction {
-
-	if V != nil {
-		tx.data.V = V
-	}
-	if R != nil {
-		tx.data.R = R
-	}
-	if S != nil {
-		tx.data.S = S
-	}
-	return tx
-}
-
-// Hash hashes the RLP encoding of tx.
-// It uniquely identifies the transaction.
-func (tx *OrderTransaction) Hash() common.Hash {
-	if hash := tx.hash.Load(); hash != nil {
-		return hash.(common.Hash)
-	}
-	v := rlpHash(tx)
-	tx.hash.Store(v)
-	return v
-}
-
-// CacheHash cache hash
-func (tx *OrderTransaction) CacheHash() {
-	v := rlpHash(tx)
-	tx.hash.Store(v)
-}
-
-// Size returns the true RLP encoded storage size of the transaction, either by
-// encoding and returning it, or returning a previsouly cached value.
-func (tx *OrderTransaction) Size() common.StorageSize {
-	if size := tx.size.Load(); size != nil {
-		return size.(common.StorageSize)
-	}
-	c := writeCounter(0)
-	rlp.Encode(&c, &tx.data)
-	tx.size.Store(common.StorageSize(c))
-	return common.StorageSize(c)
-}
-
-// NewOrderTransaction init order from value
 func NewOrderTransaction(nonce uint64, quantity, price *big.Int, ex, ua, b, q common.Address, status, side, t string, hash common.Hash, id uint64) *OrderTransaction {
-	return newOrderTransaction(nonce, quantity, price, ex, ua, b, q, status, side, t, hash, id)
-}
-
-func newOrderTransaction(nonce uint64, quantity, price *big.Int, ex, ua, b, q common.Address, status, side, t string, hash common.Hash, id uint64) *OrderTransaction {
 	d := ordertxdata{
 		AccountNonce:    nonce,
 		Quantity:        new(big.Int),
@@ -239,6 +100,139 @@ func newOrderTransaction(nonce uint64, quantity, price *big.Int, ex, ua, b, q co
 	}
 
 	return &OrderTransaction{data: d}
+}
+
+// EncodeRLP implements rlp.Encoder
+func (tx *OrderTransaction) EncodeRLP(w io.Writer) error {
+	return rlp.Encode(w, &tx.data)
+}
+
+// DecodeRLP implements rlp.Decoder
+func (tx *OrderTransaction) DecodeRLP(s *rlp.Stream) error {
+	_, size, _ := s.Kind()
+	err := s.Decode(&tx.data)
+	if err == nil {
+		tx.size.Store(common.StorageSize(rlp.ListSize(size)))
+	}
+
+	return err
+}
+
+func (tx *OrderTransaction) Nonce() uint64                   { return tx.data.AccountNonce }
+func (tx *OrderTransaction) Quantity() *big.Int              { return tx.data.Quantity }
+func (tx *OrderTransaction) Price() *big.Int                 { return tx.data.Price }
+func (tx *OrderTransaction) ExchangeAddress() common.Address { return tx.data.ExchangeAddress }
+func (tx *OrderTransaction) UserAddress() common.Address     { return tx.data.UserAddress }
+func (tx *OrderTransaction) BaseToken() common.Address       { return tx.data.BaseToken }
+func (tx *OrderTransaction) QuoteToken() common.Address      { return tx.data.QuoteToken }
+func (tx *OrderTransaction) Status() string                  { return tx.data.Status }
+func (tx *OrderTransaction) Side() string                    { return tx.data.Side }
+func (tx *OrderTransaction) Type() string                    { return tx.data.Type }
+func (tx *OrderTransaction) Signature() (V, R, S *big.Int)   { return tx.data.V, tx.data.R, tx.data.S }
+func (tx *OrderTransaction) OrderID() uint64                 { return tx.data.OrderID }
+func (tx *OrderTransaction) OrderHash() common.Hash          { return tx.data.Hash }
+func (tx *OrderTransaction) EncodedSide() *big.Int {
+	if tx.Side() == "BUY" {
+		return big.NewInt(0)
+	} else {
+		return big.NewInt(1)
+	}
+}
+
+// Hash hashes the RLP encoding of tx.
+// It uniquely identifies the transaction.
+func (tx *OrderTransaction) Hash() common.Hash {
+	if hash := tx.hash.Load(); hash != nil {
+		return hash.(common.Hash)
+	}
+	v := rlpHash(tx)
+	tx.hash.Store(v)
+	return v
+}
+
+// Size returns the true RLP encoded storage size of the transaction, either by
+// encoding and returning it, or returning a previsouly cached value.
+func (tx *OrderTransaction) Size() common.StorageSize {
+	if size := tx.size.Load(); size != nil {
+		return size.(common.StorageSize)
+	}
+	c := writeCounter(0)
+	rlp.Encode(&c, &tx.data)
+	tx.size.Store(common.StorageSize(c))
+	return common.StorageSize(c)
+}
+
+// WithSignature returns a new transaction with the given signature.
+// This signature needs to be formatted as described in the yellow paper (v+27).
+func (tx *OrderTransaction) WithSignature(signer NatExcSigner, sig []byte) (*OrderTransaction, error) {
+	r, s, v, err := signer.SignatureValues(tx, sig)
+	if err != nil {
+		return nil, err
+	}
+	cpy := &OrderTransaction{data: tx.data}
+	cpy.data.R, cpy.data.S, cpy.data.V = r, s, v
+	return cpy, nil
+}
+
+// IsCancelledOrder check if transaction has been cancelled.
+func (tx *OrderTransaction) IsCancelledOrder() bool {
+	if tx.Status() == OrderStatusCancelled {
+		return true
+	}
+	return false
+}
+
+// IsMoTypeOrder check if tranaction is a Limit Order.
+func (tx *OrderTransaction) IsLimitOrder() bool {
+	if tx.Type() == OrderTypeLimit {
+		return true
+	}
+	return false
+}
+
+// IsMarketOrder check if tranaction is a Market Order.
+func (tx *OrderTransaction) IsMarketOrder() bool {
+	if tx.Type() == OrderTypeMarket {
+		return true
+	}
+	return false
+}
+
+func (tx *OrderTransaction) SetOrderHash(h common.Hash) { tx.data.Hash = h }
+
+// From get transaction from
+func (tx *OrderTransaction) From() *common.Address {
+	if tx.data.V != nil {
+		signer := DefaultNatExcSigner{}
+		if f, err := OrderSender(signer, tx); err != nil {
+			return nil
+		} else {
+			return &f
+		}
+	} else {
+		return nil
+	}
+}
+
+// ImportSignature make order tx with specific signature
+func (tx *OrderTransaction) ImportSignature(V, R, S *big.Int) *OrderTransaction {
+
+	if V != nil {
+		tx.data.V = V
+	}
+	if R != nil {
+		tx.data.R = R
+	}
+	if S != nil {
+		tx.data.S = S
+	}
+	return tx
+}
+
+// CacheHash cache hash
+func (tx *OrderTransaction) CacheHash() {
+	v := rlpHash(tx)
+	tx.hash.Store(v)
 }
 
 // OrderTransactions is a Transaction slice type for basic sorting.
@@ -297,10 +291,10 @@ func (s *OrderTxByNonce) Pop() interface{} {
 type OrderTransactionByNonce struct {
 	txs    map[common.Address]OrderTransactions
 	heads  OrderTxByNonce
-	signer OrderSigner
+	signer NatExcSigner
 }
 
-func NewOrderTransactionByNonce(signer OrderSigner, txs map[common.Address]OrderTransactions) *OrderTransactionByNonce {
+func NewOrderTransactionByNonce(signer NatExcSigner, txs map[common.Address]OrderTransactions) *OrderTransactionByNonce {
 	// Initialize a price based heap with the head transactions
 	heads := make(OrderTxByNonce, 0, len(txs))
 	for from, accTxs := range txs {
