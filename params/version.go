@@ -41,7 +41,7 @@ var Version = func() string {
 
 // ApiVersion holds the API version string.
 var ApiVersion = func() string {
-	return "+api." + fmt.Sprintf("%02d%02d%02d", VersionMajor, VersionMinor, VersionPatch)
+	return "+api." + fmt.Sprintf("%d%02d%02d", VersionMajor, VersionMinor, VersionPatch)
 }()
 
 // VersionWithMeta holds the textual version string including the metadata.
