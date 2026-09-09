@@ -934,6 +934,14 @@ func (bc *BlockChain) GetReceiptsByHash(hash common.Hash) types.Receipts {
 	if receipts == nil {
 		return nil
 	}
+	// Correct mismatch block hash between header and transactions.
+	// The problem is due to PoSV double validation. Other chain will work fine even with this workaround.
+	for _, receipt := range receipts {
+		receipt.BlockHash = hash
+		for _, l := range receipt.Logs {
+			l.BlockHash = hash
+		}
+	}
 	bc.receiptsCache.Add(hash, receipts)
 	return receipts
 }
