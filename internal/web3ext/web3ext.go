@@ -28,15 +28,15 @@ var Modules = map[string]string{
 	// Load Viction helpers under the eth module so they're always available
 	// wherever eth is exposed by the node.
 	"eth":      EthJs + VictionJs,
-	"miner":      MinerJs,
-	"net":        NetJs,
-	"personal":   PersonalJs,
-	"rpc":        RpcJs,
-	"shh":        ShhJs,
-	"swarmfs":    SwarmfsJs,
-	"txpool":     TxpoolJs,
-	"les":        LESJs,
-	"lespay":     LESPayJs,
+	"miner":    MinerJs,
+	"net":      NetJs,
+	"personal": PersonalJs,
+	"rpc":      RpcJs,
+	"shh":      ShhJs,
+	"swarmfs":  SwarmfsJs,
+	"txpool":   TxpoolJs,
+	"les":      LESJs,
+	"lespay":   LESPayJs,
 }
 
 const ChequebookJs = `
@@ -945,6 +945,7 @@ web3._extend({
 	]
 });
 `
+
 // VictionJs extends the eth namespace with Viction/PoSV-specific methods.
 //
 // All RPC calls use the eth_ prefix so they work over HTTP, WS and IPC without
@@ -992,6 +993,12 @@ web3._extend({
 			name: 'getCandidates',
 			call: 'eth_getCandidates',
 			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getOwnerByCoinbase',
+			call: 'eth_getOwnerByCoinbase',
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 	]
 });

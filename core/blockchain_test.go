@@ -1107,6 +1107,88 @@ func TestSideLogRebirth(t *testing.T) {
 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
 }
 
+// TestGetReceiptsByHashBlockHash verifies that receipts and logs served through
+// GetReceiptsByHash always report the final block hash, even when the hash
+// changed after execution due to PoSV double validation (the attestor signature
+// is part of the header hash but excluded from HashNoValidator).
+func TestGetReceiptsByHashBlockHash(t *testing.T) {
+	var (
+		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+		db      = rawdb.NewMemoryDatabase()
+		gspec   = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
+		genesis = gspec.MustCommit(db)
+		signer  = types.NewEIP155Signer(gspec.Config.ChainID)
+	)
+	blockchain, _ := NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+	defer blockchain.Stop()
+
+	chain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
+		tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
+		if err != nil {
+			t.Fatalf("failed to create tx: %v", err)
+		}
+		gen.AddTx(tx)
+	})
+
+	// Simulate PoSV double validation on the second block: attach the attestor
+	// signature, which changes the final block hash compared to the hash the
+	// block carried before attestation (HashNoValidator).
+	unsignedHash := chain[1].Hash()
+	attestedHeader := types.CopyHeader(chain[1].Header())
+	attestedHeader.Attestor = []byte{0x01}
+	attested := chain[1].WithSeal(attestedHeader)
+	if attestedHeader.HashNoValidator() != unsignedHash {
+		t.Fatalf("hash without validator mismatch: have %v want %v", attestedHeader.HashNoValidator(), unsignedHash)
+	}
+	if attested.Hash() == unsignedHash {
+		t.Fatalf("attestation did not change the block hash: %v", unsignedHash)
+	}
+
+	blocks := types.Blocks{chain[0], attested}
+	if _, err := blockchain.InsertChain(blocks); err != nil {
+		t.Fatalf("failed to insert chain: %v", err)
+	}
+
+	// Both the plain block and the attested block must expose receipts and
+	// logs whose block hash matches the block header hash.
+	for _, block := range blocks {
+		receipts := blockchain.GetReceiptsByHash(block.Hash())
+		if receipts == nil {
+			t.Fatalf("no receipts returned for block %d", block.NumberU64())
+		}
+		var found bool
+		for _, receipt := range receipts {
+			if receipt.BlockHash != block.Hash() {
+				t.Errorf("receipt block hash mismatch for block %d: have %v want %v", block.NumberU64(), receipt.BlockHash, block.Hash())
+			}
+			for _, l := range receipt.Logs {
+				found = true
+				if l.BlockHash != block.Hash() {
+					t.Errorf("log block hash mismatch for block %d: have %v want %v", block.NumberU64(), l.BlockHash, block.Hash())
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected logs in block %d", block.NumberU64())
+		}
+		// Second lookup exercises the receipts cache path.
+		for _, receipt := range blockchain.GetReceiptsByHash(block.Hash()) {
+			if receipt.BlockHash != block.Hash() {
+				t.Errorf("cached receipt block hash mismatch for block %d: have %v want %v", block.NumberU64(), receipt.BlockHash, block.Hash())
+			}
+			for _, l := range receipt.Logs {
+				if l.BlockHash != block.Hash() {
+					t.Errorf("cached log block hash mismatch for block %d: have %v want %v", block.NumberU64(), l.BlockHash, block.Hash())
+				}
+			}
+		}
+	}
+	if receipts := blockchain.GetReceiptsByHash(common.HexToHash("0xdeadbeef00000000000000000000000000000000000000000000000000000000")); receipts != nil {
+		t.Errorf("unexpected receipts for unknown block hash")
+	}
+}
+
 func checkLogEvents(t *testing.T, logsCh <-chan []*types.Log, rmLogsCh <-chan RemovedLogsEvent, wantNew, wantRemoved int) {
 	t.Helper()
 
@@ -1692,8 +1774,8 @@ func TestIncompleteAncientReceiptChainInsertion(t *testing.T) {
 // overtake the 'canon' chain until after it's passed canon by about 200 blocks.
 //
 // Details at:
-//  - https://github.com/ethereum/go-ethereum/issues/18977
-//  - https://github.com/ethereum/go-ethereum/pull/18988
+//   - https://github.com/ethereum/go-ethereum/issues/18977
+//   - https://github.com/ethereum/go-ethereum/pull/18988
 func TestLowDiffLongChain(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -1812,7 +1894,8 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 // That is: the sidechain for import contains some blocks already present in canon chain.
 // So the blocks are
 // [ Cn, Cn+1, Cc, Sn+3 ... Sm]
-//   ^    ^    ^  pruned
+//
+//	^    ^    ^  pruned
 func TestPrunedImportSide(t *testing.T) {
 	//glogger := log.NewGlogHandler(log.StreamHandler(os.Stdout, log.TerminalFormat(false)))
 	//glogger.Verbosity(3)
@@ -2396,9 +2479,9 @@ func BenchmarkBlockChain_1x1000Executions(b *testing.B) {
 // This internally leads to a sidechain import, since the blocks trigger an
 // ErrPrunedAncestor error.
 // This may e.g. happen if
-//   1. Downloader rollbacks a batch of inserted blocks and exits
-//   2. Downloader starts to sync again
-//   3. The blocks fetched are all known and canonical blocks
+//  1. Downloader rollbacks a batch of inserted blocks and exits
+//  2. Downloader starts to sync again
+//  3. The blocks fetched are all known and canonical blocks
 func TestSideImportPrunedBlocks(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -2910,20 +2993,19 @@ func TestDeleteRecreateSlotsAcrossManyBlocks(t *testing.T) {
 
 // TestInitThenFailCreateContract tests a pretty notorious case that happened
 // on mainnet over blocks 7338108, 7338110 and 7338115.
-// - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
-//   with 0.001 ether (thus created but no code)
-// - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
-//   the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
-//   deployment fails due to OOG during initcode execution
-// - Block 7338115: another tx checks the balance of
-//   e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
-//   zero.
+//   - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
+//     with 0.001 ether (thus created but no code)
+//   - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
+//     the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
+//     deployment fails due to OOG during initcode execution
+//   - Block 7338115: another tx checks the balance of
+//     e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
+//     zero.
 //
 // The problem being that the snapshotter maintains a destructset, and adds items
 // to the destructset in case something is created "onto" an existing item.
 // We need to either roll back the snapDestructs, or not place it into snapDestructs
 // in the first place.
-//
 func TestInitThenFailCreateContract(t *testing.T) {
 	var (
 		// Generate a canonical chain to act as the main dataset

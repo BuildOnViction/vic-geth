@@ -88,7 +88,7 @@ type Header struct {
 	Nonce       BlockNonce     `json:"nonce"            gencodec:"required"`
 	// PoSV
 	Posv         bool   `json:"posv,omitempty"`
-	NewAttestors []byte `json:"validators,omitempty"`
+	NewAttestors []byte `json:"newAttestors,omitempty"`
 	Attestor     []byte `json:"attestor,omitempty"`
 	Penalties    []byte `json:"penalties,omitempty"`
 }
