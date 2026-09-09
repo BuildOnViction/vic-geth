@@ -58,3 +58,7 @@ func (s *PublicVictionBlockChainAPI) GetBlockSignersByNumber(ctx context.Context
 func (s *PublicVictionBlockChainAPI) GetCandidates(ctx context.Context, epoch rpc.EpochNumber) (map[string]interface{}, error) {
 	return s.b.GetCandidates(ctx, epoch)
 }
+
+func (s *PublicVictionBlockChainAPI) GetOwnerByCoinbase(ctx context.Context, coinbase common.Address, blockNr rpc.BlockNumber) (common.Address, error) {
+	return s.b.GetOwnerByCoinbase(ctx, coinbase, blockNr)
+}

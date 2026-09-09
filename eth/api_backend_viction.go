@@ -666,6 +666,18 @@ func (s *EthAPIBackend) loadValidatorCandidates(ctx context.Context, vicConfig *
 	return candidates, nil
 }
 
+func (s *EthAPIBackend) GetOwnerByCoinbase(ctx context.Context, coinbase common.Address, blockNr rpc.BlockNumber) (common.Address, error) {
+	vicConfig := s.eth.blockchain.Config().Viction
+	if vicConfig == nil || vicConfig.ValidatorContract == (common.Address{}) {
+		return common.Address{}, victionapi.ErrNoContractAddress
+	}
+	statedb, _, err := s.StateAndHeaderByNumber(ctx, blockNr)
+	if err != nil {
+		return common.Address{}, err
+	}
+	return statedb.VicGetValidatorOwner(vicConfig.ValidatorContract, coinbase), nil
+}
+
 func (s *EthAPIBackend) GetPreviousCheckpointFromEpoch(ctx context.Context, epochNum rpc.EpochNumber) (rpc.BlockNumber, rpc.EpochNumber) {
 	var checkpointNumber uint64
 	epoch := s.eth.blockchain.Config().Posv.Epoch
