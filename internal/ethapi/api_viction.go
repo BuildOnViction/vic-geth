@@ -47,6 +47,14 @@ func (s *PublicVictionBlockChainAPI) GetBlockFinalityByNumber(ctx context.Contex
 	return s.b.GetBlockFinalityByNumber(ctx, number)
 }
 
+func (s *PublicVictionBlockChainAPI) GetBlockSignersByHash(ctx context.Context, hash common.Hash) ([]common.Address, error) {
+	return s.b.GetBlockSignersByHash(ctx, hash)
+}
+
+func (s *PublicVictionBlockChainAPI) GetBlockSignersByNumber(ctx context.Context, number rpc.BlockNumber) ([]common.Address, error) {
+	return s.b.GetBlockSignersByNumber(ctx, number)
+}
+
 func (s *PublicVictionBlockChainAPI) GetCandidates(ctx context.Context, epoch rpc.EpochNumber) (map[string]interface{}, error) {
 	return s.b.GetCandidates(ctx, epoch)
 }

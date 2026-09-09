@@ -21,6 +21,8 @@ type BackendViction interface {
 	GetAttestorsPairsByNumber(ctx context.Context, number rpc.BlockNumber) (map[common.Address]common.Address, error)
 	GetBlockFinalityByHash(ctx context.Context, blockHash common.Hash) (uint, error)
 	GetBlockFinalityByNumber(ctx context.Context, blockNumber rpc.BlockNumber) (uint, error)
+	GetBlockSignersByHash(ctx context.Context, blockHash common.Hash) ([]common.Address, error)
+	GetBlockSignersByNumber(ctx context.Context, blockNumber rpc.BlockNumber) ([]common.Address, error)
 	GetCandidates(ctx context.Context, epoch rpc.EpochNumber) (map[string]interface{}, error)
 	AreTwoBlockSamePath(hash1, hash2 common.Hash) bool
 }

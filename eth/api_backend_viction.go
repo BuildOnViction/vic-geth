@@ -166,6 +166,32 @@ func (s *EthAPIBackend) GetBlockFinalityByNumber(ctx context.Context, blockNumbe
 
 }
 
+func (s *EthAPIBackend) GetBlockSignersByHash(ctx context.Context, blockHash common.Hash) ([]common.Address, error) {
+	block, err := s.BlockByHash(ctx, blockHash)
+	if err != nil || block == nil {
+		return []common.Address{}, err
+	}
+	masternodes, err := s.GetMasternodes(ctx, block)
+	if err != nil || len(masternodes) == 0 {
+		log.Error("Failed to get masternodes", "err", err, "len(masternodes)", len(masternodes))
+		return []common.Address{}, err
+	}
+	return s.rpcOutputBlockSigners(ctx, block)
+}
+
+func (s *EthAPIBackend) GetBlockSignersByNumber(ctx context.Context, blockNumber rpc.BlockNumber) ([]common.Address, error) {
+	block, err := s.BlockByNumber(ctx, blockNumber)
+	if err != nil || block == nil {
+		return []common.Address{}, err
+	}
+	masternodes, err := s.GetMasternodes(ctx, block)
+	if err != nil || len(masternodes) == 0 {
+		log.Error("Failed to get masternodes", "err", err, "len(masternodes)", len(masternodes))
+		return []common.Address{}, err
+	}
+	return s.rpcOutputBlockSigners(ctx, block)
+}
+
 // getBlockFinality computes the finality percentage for an already-fetched block.
 // It first attempts the legacy per-block finality calculation, then falls back to
 // scanning forward with findClosestFinalizedBlock when the legacy path fails or
@@ -373,6 +399,23 @@ func (s *EthAPIBackend) getSigners(ctx context.Context, block *types.Block, engi
 		}
 	}
 	return filterSigners, nil
+}
+
+// rpcOutputBlockSigners returns the signers of the nearest signed block of b,
+// filtered against the masternode set of the block's epoch checkpoint.
+func (s *EthAPIBackend) rpcOutputBlockSigners(ctx context.Context, b *types.Block) ([]common.Address, error) {
+	engine, ok := s.Engine().(*posv.Posv)
+	if !ok {
+		log.Error("Undefined POSV consensus engine")
+		return []common.Address{}, nil
+	}
+
+	signedBlock := s.findNearestSignedBlock(ctx, b)
+	if signedBlock == nil {
+		return []common.Address{}, nil
+	}
+
+	return s.getSigners(ctx, signedBlock, engine)
 }
 
 func (s *EthAPIBackend) GetSignersFromBlocks(ctx context.Context, blockNumber uint64, blockHash common.Hash, masternodes []common.Address) ([]common.Address, error) {
