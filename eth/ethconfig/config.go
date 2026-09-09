@@ -1,4 +1,7 @@
 // Copyright 2017 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -29,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/gasprice"
@@ -136,6 +140,8 @@ type Config struct {
 
 	TxLookupLimit uint64 `toml:",omitempty"` // The maximum number of blocks from head whose tx indices are reserved.
 
+	SyncThreshold uint64 `toml:",omitempty"` // SyncThreshold is the maximum block height the node will accept. 0 means no limit.
+
 	// Whitelist of required block number -> hash values to accept
 	Whitelist map[uint64]common.Hash `toml:"-"`
 
@@ -155,6 +161,7 @@ type Config struct {
 
 	// Database options
 	SkipBcVersionCheck bool `toml:"-"`
+	SkipCompatRewind   bool `toml:"-"`
 	DatabaseHandles    int  `toml:"-"`
 	DatabaseCache      int
 	DatabaseFreezer    string
@@ -207,6 +214,10 @@ func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, co
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
+	}
+	// If proof-of-stake is requested, set it up
+	if chainConfig.Posv != nil {
+		return posv.New(chainConfig.Posv, db)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {

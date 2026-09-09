@@ -336,7 +336,10 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
 	// but is the correct thing to do and matters on other networks, in tests, and potential
 	// future scenarios
-	evm.StateDB.AddBalance(addr, big0)
+	// On Viction, historical data is not fully compatible with this touch until TIP2021.
+	if !evm.chainConfig.IsViction() || evm.chainRules.IsTIP2021 {
+		evm.StateDB.AddBalance(addr, big0)
+	}
 
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)

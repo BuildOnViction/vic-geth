@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -727,10 +730,10 @@ func (s *PublicBlockChainAPI) GetHeaderByHash(ctx context.Context, hash common.H
 }
 
 // GetBlockByNumber returns the requested canonical block.
-// * When blockNr is -1 the chain head is returned.
-// * When blockNr is -2 the pending chain head is returned.
-// * When fullTx is true all transactions in the block are returned, otherwise
-//   only the transaction hash is returned.
+//   - When blockNr is -1 the chain head is returned.
+//   - When blockNr is -2 the pending chain head is returned.
+//   - When fullTx is true all transactions in the block are returned, otherwise
+//     only the transaction hash is returned.
 func (s *PublicBlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	block, err := s.b.BlockByNumber(ctx, number)
 	if block != nil && err == nil {
@@ -920,7 +923,8 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	result, err := core.ApplyMessage(evm, msg, gp)
+	zp := core.NewTxVictionProcessor(evm.ChainConfig(), state, header.Number).ZeroGasPool()
+	result, err := core.ApplyMessage(evm, msg, gp, zp)
 	if err := vmError(); err != nil {
 		return nil, err
 	}
@@ -1466,7 +1470,7 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 		if err != nil {
 			return nil, 0, nil, err
 		}
-		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()))
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), nil)
 		if err != nil {
 			return nil, 0, nil, fmt.Errorf("failed to apply transaction: %v err: %v", args.toTransaction().Hash(), err)
 		}

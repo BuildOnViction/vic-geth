@@ -117,6 +117,8 @@ type StateDB struct {
 	SnapshotAccountReads time.Duration
 	SnapshotStorageReads time.Duration
 	SnapshotCommits      time.Duration
+
+	legacyRevert bool // Whether to use legacy revert behavior (victionchain) or not (geth)
 }
 
 // New creates a new state from a given trie.
@@ -146,6 +148,7 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 			sdb.snapStorage = make(map[common.Hash]map[common.Hash][]byte)
 		}
 	}
+	sdb.legacyRevert = true
 	return sdb, nil
 }
 
@@ -443,6 +446,14 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 	return true
 }
 
+// RemoveState deletes all state data associated with the addr.
+func (s *StateDB) RemoveState(addr common.Address) {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil && !stateObject.deleted {
+		s.deleteStateObject(stateObject)
+	}
+}
+
 //
 // Setting, updating & deleting state object methods.
 //
@@ -602,8 +613,8 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 // CreateAccount is called during the EVM CREATE operation. The situation might arise that
 // a contract does the following:
 //
-//   1. sends funds to sha(account ++ (nonce + 1))
-//   2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
+//  1. sends funds to sha(account ++ (nonce + 1))
+//  2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StateDB) CreateAccount(addr common.Address) {
@@ -762,7 +773,7 @@ func (s *StateDB) RevertToSnapshot(revid int) {
 	snapshot := s.validRevisions[idx].journalIndex
 
 	// Replay the journal to undo changes and remove invalidated snapshots
-	s.journal.revert(s, snapshot)
+	s.journal.revert(s, snapshot, s.legacyRevert)
 	s.validRevisions = s.validRevisions[:idx]
 }
 

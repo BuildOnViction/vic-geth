@@ -145,7 +145,8 @@ var encTests = []encTest{
 	{val: *big.NewInt(0xFFFFFF), output: "83FFFFFF"},
 
 	// negative ints are not supported
-	{val: big.NewInt(-1), error: "rlp: cannot encode negative *big.Int"},
+	{val: big.NewInt(-1), error: "rlp: cannot encode negative big.Int"},
+	{val: *big.NewInt(-1), error: "rlp: cannot encode negative big.Int"},
 
 	// byte arrays
 	{val: [0]byte{}, output: "80"},
@@ -531,6 +532,34 @@ type byteArrayStruct struct {
 func BenchmarkEncodeByteArrayStruct(b *testing.B) {
 	var out bytes.Buffer
 	var value byteArrayStruct
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		out.Reset()
+		if err := Encode(&out, &value); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+type structSliceElem struct {
+	X uint64
+	Y uint64
+	Z uint64
+}
+
+type structPtrSlice []*structSliceElem
+
+func BenchmarkEncodeStructPtrSlice(b *testing.B) {
+	var out bytes.Buffer
+	var value = structPtrSlice{
+		&structSliceElem{1, 1, 1},
+		&structSliceElem{2, 2, 2},
+		&structSliceElem{3, 3, 3},
+		&structSliceElem{5, 5, 5},
+		&structSliceElem{6, 6, 6},
+		&structSliceElem{7, 7, 7},
+	}
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

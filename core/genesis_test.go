@@ -1,4 +1,7 @@
 // Copyright 2017 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -174,6 +177,10 @@ func TestGenesisHashes(t *testing.T) {
 			hash:    params.MainnetGenesisHash,
 		},
 		{
+			genesis: DefaultVictionGenesisBlock(),
+			hash:    params.VictionGenesisHash,
+		},
+		{
 			genesis: DefaultGoerliGenesisBlock(),
 			hash:    params.GoerliGenesisHash,
 		},
@@ -188,6 +195,10 @@ func TestGenesisHashes(t *testing.T) {
 		{
 			genesis: DefaultCalaverasGenesisBlock(),
 			hash:    params.CalaverasGenesisHash,
+		},
+		{
+			genesis: DefaultVictestGenesisBlock(),
+			hash:    params.VictestGenesisHash,
 		},
 	}
 	for i, c := range cases {

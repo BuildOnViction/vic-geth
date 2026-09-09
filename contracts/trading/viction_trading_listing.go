@@ -1,0 +1,58 @@
+// Copyright 2025 The Viction Authors
+// (modifications)
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
+package trading
+
+import (
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/contracts/trading/contract"
+)
+
+type TradingListing struct {
+	*contract.TradingListingSession
+	contractBackend bind.ContractBackend
+}
+
+func NewTradingListing(transactOpts *bind.TransactOpts, contractAddr common.Address, contractBackend bind.ContractBackend) (*TradingListing, error) {
+	tradingListing, err := contract.NewTradingListing(contractAddr, contractBackend)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TradingListing{
+		&contract.TradingListingSession{
+			Contract:     tradingListing,
+			TransactOpts: *transactOpts,
+		},
+		contractBackend,
+	}, nil
+}
+
+func DeployTradingListing(transactOpts *bind.TransactOpts, contractBackend bind.ContractBackend) (common.Address, *TradingListing, error) {
+	tradingListingAddr, _, _, err := contract.DeployTradingListing(transactOpts, contractBackend)
+	if err != nil {
+		return tradingListingAddr, nil, err
+	}
+
+	tradingListing, err := NewTradingListing(transactOpts, tradingListingAddr, contractBackend)
+	if err != nil {
+		return tradingListingAddr, nil, err
+	}
+
+	return tradingListingAddr, tradingListing, nil
+}

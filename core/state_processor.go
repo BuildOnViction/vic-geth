@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -21,6 +24,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -38,14 +42,24 @@ type StateProcessor struct {
 	config *params.ChainConfig // Chain configuration options
 	bc     *BlockChain         // Canonical block chain
 	engine consensus.Engine    // Consensus engine used for block rewards
+
+	viction *VictionProcessor
+
+	// Deferred trie GC fields for native trading/lending (full-node path).
+	// These are managed entirely by blockchain_viction.go / commitVictionState.
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config: config,
-		bc:     bc,
-		engine: engine,
+		config:        config,
+		bc:            bc,
+		engine:        engine,
+		viction:       NewVictionProcessor(config, bc, engine),
+		tradingTriegc: prque.New(nil),
+		lendingTriegc: prque.New(nil),
 	}
 }
 
@@ -57,6 +71,10 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
+	// Viction hooks
+	if err := p.viction.PreBlockProcess(block, statedb); err != nil {
+		return nil, nil, 0, err
+	}
 	var (
 		receipts    types.Receipts
 		usedGas     = new(uint64)
@@ -78,10 +96,27 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
+		if err := p.viction.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			return nil, nil, 0, err
+		}
 		statedb.Prepare(tx.Hash(), i)
-		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+
+		handled, receipt, _, err, _ := p.viction.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, nil, 0, err
+		}
+
+		if !handled {
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, p.viction.ZeroGasPool(), statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+			if err != nil {
+				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			}
+		}
+
+		// Execute Viction-specific post-transaction logic.
+		failed := receipt.Status == types.ReceiptStatusFailed
+		if err := p.viction.PostApplyTransaction(tx, msg, statedb, receipt.GasUsed, failed); err != nil {
+			return nil, nil, 0, err
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
@@ -89,16 +124,21 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
+	// Execute Viction-specific post-processing logic.
+	if err := p.viction.PostBlockProcess(block, statedb); err != nil {
+		return nil, nil, 0, err
+	}
+
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, zp types.BalanceMap, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
 	evm.Reset(txContext, statedb)
 
 	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
+	result, err := ApplyMessage(evm, msg, gp, zp)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +182,10 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	if handled, receipt, _, err, _ := (&VictionProcessor{config: config}).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
+		return receipt, err
+	}
+
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number), header.BaseFee)
 	if err != nil {
 		return nil, err
@@ -149,5 +193,5 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// Create a new context to be used in the EVM environment
 	blockContext := NewEVMBlockContext(header, bc, author)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, config, cfg)
-	return applyTransaction(msg, config, bc, author, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+	return applyTransaction(msg, config, bc, author, gp, nil, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }

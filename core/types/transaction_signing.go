@@ -1,4 +1,7 @@
 // Copyright 2016 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -21,6 +24,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -145,6 +150,45 @@ func Sender(signer Signer, tx *Transaction) (common.Address, error) {
 	}
 	tx.from.Store(sigCache{signer: signer, from: addr})
 	return addr, nil
+}
+
+func CacheSigner(signer Signer, tx *Transaction) {
+	if tx == nil {
+		return
+	}
+	addr, err := signer.Sender(tx)
+	if err != nil {
+		return
+	}
+	tx.from.Store(sigCache{signer: signer, from: addr})
+}
+
+func CacheSigners(signer Signer, txs Transactions) {
+	if txs.Len() == 0 {
+		return
+	}
+	nWorker := runtime.NumCPU()
+	chunkSize := txs.Len() / nWorker
+	if txs.Len()%nWorker != 0 {
+		chunkSize++
+	}
+	wg := sync.WaitGroup{}
+	wg.Add(nWorker)
+	for i := 0; i < nWorker; i++ {
+		from := i * chunkSize
+		to := from + chunkSize
+		if to > txs.Len() {
+			to = txs.Len()
+		}
+		go func(from int, to int) {
+			defer wg.Done()
+			for j := from; j < to; j++ {
+				CacheSigner(signer, txs[j])
+				txs[j].CacheHash()
+			}
+		}(from, to)
+	}
+	wg.Wait()
 }
 
 // Signer encapsulates transaction signature handling. The name of this type is slightly

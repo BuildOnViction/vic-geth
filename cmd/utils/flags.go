@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of go-ethereum.
 //
 // go-ethereum is free software: you can redistribute it and/or modify
@@ -147,6 +150,10 @@ var (
 		Name:  "mainnet",
 		Usage: "Ethereum mainnet",
 	}
+	VictionFlag = &cli.BoolFlag{
+		Name:  "viction",
+		Usage: "Viction Mainnet",
+	}
 	GoerliFlag = cli.BoolFlag{
 		Name:  "goerli",
 		Usage: "Görli network: pre-configured proof-of-authority test network",
@@ -162,6 +169,10 @@ var (
 	RopstenFlag = cli.BoolFlag{
 		Name:  "ropsten",
 		Usage: "Ropsten network: pre-configured proof-of-work test network",
+	}
+	VictestFlag = &cli.BoolFlag{
+		Name:  "victest",
+		Usage: "Viction Testnet",
 	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
@@ -760,6 +771,16 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+	// Viction-specific flags
+	SkipCompatRewindFlag = cli.BoolFlag{
+		Name:  "skip-compat-rewind",
+		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
+	}
+	SyncThresholdFlag = cli.Uint64Flag{
+		Name:  "sync-threshold",
+		Usage: "Maximum block height the node will accept (0 = no limit)",
+		Value: 0,
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -767,6 +788,9 @@ var (
 // then a subdirectory of the specified datadir will be used.
 func MakeDataDir(ctx *cli.Context) string {
 	if path := ctx.GlobalString(DataDirFlag.Name); path != "" {
+		if ctx.GlobalBool(VictionFlag.Name) {
+			return filepath.Join(path, "viction")
+		}
 		if ctx.GlobalBool(RopstenFlag.Name) {
 			// Maintain compatibility with older Geth configurations storing the
 			// Ropsten database in `testnet` instead of `ropsten`.
@@ -780,6 +804,9 @@ func MakeDataDir(ctx *cli.Context) string {
 		}
 		if ctx.GlobalBool(CalaverasFlag.Name) {
 			return filepath.Join(path, "calaveras")
+		}
+		if ctx.GlobalBool(VictestFlag.Name) {
+			return filepath.Join(path, "victest")
 		}
 		return path
 	}
@@ -827,6 +854,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 	switch {
 	case ctx.GlobalIsSet(BootnodesFlag.Name):
 		urls = SplitAndTrim(ctx.GlobalString(BootnodesFlag.Name))
+	case ctx.GlobalBool(VictionFlag.Name):
+		urls = params.VictionBootnodes
 	case ctx.GlobalBool(RopstenFlag.Name):
 		urls = params.RopstenBootnodes
 	case ctx.GlobalBool(RinkebyFlag.Name):
@@ -835,6 +864,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GoerliBootnodes
 	case ctx.GlobalBool(CalaverasFlag.Name):
 		urls = params.CalaverasBootnodes
+	case ctx.GlobalBool(VictestFlag.Name):
+		urls = params.VictestBootnodes
 	case cfg.BootstrapNodes != nil:
 		return // already set, don't apply defaults.
 	}
@@ -1260,6 +1291,8 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 	switch {
 	case ctx.GlobalIsSet(DataDirFlag.Name):
 		cfg.DataDir = ctx.GlobalString(DataDirFlag.Name)
+	case ctx.GlobalBool(VictionFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "viction")
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		cfg.DataDir = "" // unless explicitly requested, use memory databases
 	case ctx.GlobalBool(RopstenFlag.Name) && cfg.DataDir == node.DefaultDataDir():
@@ -1280,6 +1313,8 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "goerli")
 	case ctx.GlobalBool(CalaverasFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "calaveras")
+	case ctx.GlobalBool(VictestFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "victest")
 	}
 }
 
@@ -1465,7 +1500,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, CalaverasFlag)
+	CheckExclusive(ctx, MainnetFlag, VictionFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, CalaverasFlag, VictestFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	if ctx.GlobalString(GCModeFlag.Name) == "archive" && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
@@ -1592,6 +1627,14 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.EthDiscoveryURLs = SplitAndTrim(urls)
 		}
 	}
+	// Viction-specific flags
+	if ctx.GlobalIsSet(SkipCompatRewindFlag.Name) {
+		cfg.SkipCompatRewind = ctx.GlobalBool(SkipCompatRewindFlag.Name)
+	}
+	if ctx.GlobalIsSet(SyncThresholdFlag.Name) {
+		cfg.SyncThreshold = ctx.GlobalUint64(SyncThresholdFlag.Name)
+	}
+
 	// Override any default configs for hard coded networks.
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
@@ -1600,6 +1643,13 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.MainnetGenesisHash)
+	case ctx.GlobalBool(VictionFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 88
+		}
+		cfg.Genesis = core.DefaultVictionGenesisBlock()
+		cfg.SyncMode = downloader.FullSync
+		SetDNSDiscoveryDefaults(cfg, params.VictionGenesisHash)
 	case ctx.GlobalBool(RopstenFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 3
@@ -1623,6 +1673,13 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 123 // https://gist.github.com/holiman/c5697b041b3dc18c50a5cdd382cbdd16
 		}
 		cfg.Genesis = core.DefaultCalaverasGenesisBlock()
+	case ctx.GlobalBool(VictestFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 89
+		}
+		cfg.Genesis = core.DefaultVictestGenesisBlock()
+		cfg.SyncMode = downloader.FullSync
+		SetDNSDiscoveryDefaults(cfg, params.VictestGenesisHash)
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1806,6 +1863,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
 		genesis = core.DefaultGenesisBlock()
+	case ctx.GlobalBool(VictionFlag.Name):
+		genesis = core.DefaultVictionGenesisBlock()
 	case ctx.GlobalBool(RopstenFlag.Name):
 		genesis = core.DefaultRopstenGenesisBlock()
 	case ctx.GlobalBool(RinkebyFlag.Name):
@@ -1814,6 +1873,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGoerliGenesisBlock()
 	case ctx.GlobalBool(CalaverasFlag.Name):
 		genesis = core.DefaultCalaverasGenesisBlock()
+	case ctx.GlobalBool(VictestFlag.Name):
+		genesis = core.DefaultVictestGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}
