@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -102,6 +103,14 @@ type txTraceTask struct {
 	statedb *state.StateDB   // Intermediate state prepped for tracing
 	index   int              // Transaction offset in the block
 	zp      types.BalanceMap // Running VRC25 fee capacities as of this tx (copy)
+}
+
+// vrc25ExecutionResult extends ExecutionResult with VRC25 sponsorship metadata.
+type vrc25ExecutionResult struct {
+	*ethapi.ExecutionResult
+	IsSponsoredTx   bool            `json:"isSponsoredTx"`
+	Payer           *common.Address `json:"payer,omitempty"`
+	SponsorGasPrice *hexutil.Big    `json:"sponsorGasPrice,omitempty"`
 }
 
 // TraceChain returns the structured logs created during the execution of EVM
@@ -867,15 +876,37 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 		if len(result.Revert()) > 0 {
 			returnVal = fmt.Sprintf("%x", result.Revert())
 		}
-		return &ethapi.ExecutionResult{
-			Gas:         result.UsedGas,
-			Failed:      result.Failed(),
-			ReturnValue: returnVal,
-			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
-		}, nil
+		res := &vrc25ExecutionResult{
+			ExecutionResult: &ethapi.ExecutionResult{
+				Gas:         result.UsedGas,
+				Failed:      result.Failed(),
+				ReturnValue: returnVal,
+				StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+			},
+			IsSponsoredTx: result.IsSponsoredTx,
+		}
+		if result.IsSponsoredTx {
+			payer := result.Payer
+			res.Payer = &payer
+			res.SponsorGasPrice = (*hexutil.Big)(result.SponsorGasPrice)
+		}
+		return res, nil
 
 	case *tracers.Tracer:
-		return tracer.GetResult()
+		raw, err := tracer.GetResult()
+		if err != nil {
+			return nil, err
+		}
+		var base map[string]interface{}
+		if err := json.Unmarshal(raw, &base); err != nil {
+			return raw, nil
+		}
+		base["isSponsoredTx"] = result.IsSponsoredTx
+		if result.IsSponsoredTx {
+			base["payer"] = result.Payer
+			base["sponsorGasPrice"] = (*hexutil.Big)(result.SponsorGasPrice)
+		}
+		return base, nil
 
 	default:
 		panic(fmt.Sprintf("bad tracer type %T", tracer))
