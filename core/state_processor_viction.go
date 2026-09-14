@@ -82,17 +82,10 @@ func (p *VictionProcessor) Copy() *VictionProcessor {
 		config:                     p.config,
 		updatedZeroGasCapacities:   make(types.BalanceMap),
 		totalUsedZeroGasCapacities: new(big.Int),
+		zeroGasCapacities:          p.zeroGasCapacities.Copy(),
 	}
 	if p.blockNumber != nil {
 		cp.blockNumber = new(big.Int).Set(p.blockNumber)
-	}
-	if p.zeroGasCapacities != nil {
-		cp.zeroGasCapacities = make(types.BalanceMap, len(p.zeroGasCapacities))
-		for k, v := range p.zeroGasCapacities {
-			if v != nil {
-				cp.zeroGasCapacities[k] = new(big.Int).Set(v)
-			}
-		}
 	}
 	return cp
 }
