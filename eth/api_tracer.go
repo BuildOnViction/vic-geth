@@ -217,19 +217,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
 						break
 					}
-					if handled, _, err := api.applyNativeTransaction(task.block, tx, i, task.statedb); err != nil {
-						task.results[i] = &txTraceResult{Error: err.Error()}
-						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
-						break
-					} else if handled {
-						if err := vp.PostApplyTransaction(tx, msg, task.statedb, 0, false); err != nil {
-							task.results[i] = &txTraceResult{Error: err.Error()}
-							log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
-							break
-						}
-						task.results[i] = &txTraceResult{Result: newNativeTxCallFrame(msg.From(), tx)}
-						continue
-					}
+					kind := nativeTransactionKind(api.eth.blockchain.Config(), tx, task.block.Header())
 					res, err := api.traceTx(ctx, msg, blockCtx, task.statedb, vp.ZeroGasPool(), config)
 					if err != nil {
 						task.results[i] = &txTraceResult{Error: err.Error()}
@@ -240,6 +228,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 					if execRes, ok := res.(*ethapi.ExecutionResult); ok {
 						usedGas, txFailed = execRes.Gas, execRes.Failed
 					}
+					postTraceTx(task.statedb, kind, msg)
 					if err := vp.PostApplyTransaction(tx, msg, task.statedb, usedGas, txFailed); err != nil {
 						task.results[i] = &txTraceResult{Error: err.Error()}
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
@@ -533,17 +522,6 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			failed = err
 			break
 		}
-		if handled, _, err := api.applyNativeTransaction(block, tx, i, statedb); err != nil {
-			failed = err
-			break
-		} else if handled {
-			if err := vp.PostApplyTransaction(tx, msg, statedb, 0, false); err != nil {
-				failed = err
-				break
-			}
-			results[i] = &txTraceResult{Result: newNativeTxCallFrame(msg.From(), tx)}
-			continue
-		}
 		// Send the trace task over for execution
 		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, zp: vp.ZeroGasPool().Copy()}
 
@@ -556,8 +534,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			failed = err
 			break
 		}
-		// Decrement the running fee pool exactly as block import does, so the next
-		// task's copy starts from post-drain capacities.
+		postTraceTx(statedb, nativeTransactionKind(cfg, tx, block.Header()), msg)
 		if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
 			failed = err
 			break
@@ -655,20 +632,6 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		if err = vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
 			return dumps, err
 		}
-		if handled, kind, err := api.applyNativeTransaction(block, tx, i, statedb); err != nil {
-			return dumps, err
-		} else if handled {
-			if tx.Hash() == txHash {
-				log.Warn("[Trace] native transaction has no EVM trace", "type", kind, "tx", tx.Hash())
-			}
-			if err := vp.PostApplyTransaction(tx, msg, statedb, 0, false); err != nil {
-				return dumps, err
-			}
-			if tx.Hash() == txHash {
-				break
-			}
-			continue
-		}
 		// If the transaction needs tracing, swap out the configs
 		if tx.Hash() == txHash || txHash == (common.Hash{}) {
 			// Generate a unique temporary file to dump it into
@@ -701,7 +664,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 			log.Info("Wrote standard trace", "file", dump.Name())
 		}
 		if err == nil {
-			// Decrement the running fee pool exactly as block import does.
+			postTraceTx(statedb, nativeTransactionKind(chainConfig, tx, block.Header()), msg)
 			if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
 				return dumps, err
 			}
@@ -822,12 +785,10 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 	if err != nil {
 		return nil, err
 	}
-	// Native system transactions execute without the EVM and have no trace, report a marker instead.
-	if kind != NativeTxNone {
-		return newNativeTxCallFrame(msg.From(), tx), nil
-	}
 	// Trace the transaction and return
-	return api.traceTx(ctx, msg, vmctx, statedb, feePool, config)
+	result, err := api.traceTx(ctx, msg, vmctx, statedb, feePool, config)
+	postTraceTx(statedb, kind, msg)
+	return result, err
 }
 
 // TraceCall lets you trace a given eth_call. It collects the structured logs created during the execution of EVM
@@ -979,21 +940,12 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 			return msg, context, statedb, zp, kind, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state.
-		// Viction native system transactions bypass the EVM, as block import does.
-		if handled, _, err := api.applyNativeTransaction(block, tx, idx, statedb); err != nil {
-			return nil, vm.BlockContext{}, nil, nil, NativeTxNone, err
-		} else if handled {
-			if err := vp.PostApplyTransaction(tx, msg, statedb, 0, false); err != nil {
-				return nil, vm.BlockContext{}, nil, nil, NativeTxNone, err
-			}
-			continue
-		}
 		vmenv := vm.NewEVM(context, txContext, statedb, cfg, vm.Config{})
 		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp)
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, NativeTxNone, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
-		// Decrement the running fee pool exactly as block import does.
+		postTraceTx(statedb, nativeTransactionKind(cfg, tx, block.Header()), msg)
 		if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
 			return nil, vm.BlockContext{}, nil, nil, NativeTxNone, err
 		}

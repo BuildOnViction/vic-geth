@@ -20,10 +20,7 @@
 package eth
 
 import (
-	"math/big"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
@@ -40,36 +37,6 @@ const (
 	NativeTxLending          = "lending"          // 0x93
 	NativeTxLendingFinalized = "lendingFinalized" // 0x94
 )
-
-// callFrame is the Go equivalent of the call object built by call_tracer.js's
-// result()/finalize(), used to report Viction native system transactions that
-// execute without the EVM and therefore have no trace.
-type callFrame struct {
-	Type    string         `json:"type"`
-	From    common.Address `json:"from"`
-	To      common.Address `json:"to"`
-	Value   *hexutil.Big   `json:"value"`
-	Gas     hexutil.Uint64 `json:"gas"`
-	GasUsed hexutil.Uint64 `json:"gasUsed"`
-	Input   hexutil.Bytes  `json:"input"`
-	Output  hexutil.Bytes  `json:"output"`
-	Time    string         `json:"time"`
-}
-
-// Return a call frame for the native transactions.
-func newNativeTxCallFrame(from common.Address, tx *types.Transaction) callFrame {
-	return callFrame{
-		Type:    "CALL",
-		From:    from,
-		To:      *tx.To(),
-		Value:   (*hexutil.Big)(tx.Value()),
-		Gas:     hexutil.Uint64(tx.Gas()),
-		GasUsed: 0,
-		Input:   tx.Data(),
-		Output:  []byte{},
-		Time:    "0s",
-	}
-}
 
 // Try to dertermine Viction native transactions.
 func nativeTransactionKind(config *params.ChainConfig, tx *types.Transaction, header *types.Header) string {
@@ -101,37 +68,11 @@ func nativeTransactionKind(config *params.ChainConfig, tx *types.Transaction, he
 	return NativeTxNone
 }
 
-// Apply a Viction native system transaction without the EVM.
-func (api *PrivateDebugAPI) applyNativeTransaction(block *types.Block, tx *types.Transaction, index int, statedb *state.StateDB) (bool, string, error) {
-	config := api.eth.blockchain.Config()
-	header := block.Header()
-	kind := nativeTransactionKind(config, tx, header)
+// Perform post transaction adjustment to match block import behavior.
+func postTraceTx(statedb *state.StateDB, kind string, msg core.Message) {
 	if kind == NativeTxNone {
-		return false, NativeTxNone, nil
+		return
 	}
-	statedb.Prepare(tx.Hash(), block.Hash(), index)
-
-	switch kind {
-	case NativeTxLending, NativeTxLendingFinalized, NativeTxTrading, NativeTxTradingState:
-		finalizeNativeTxState(config, statedb, header.Number)
-		addNativeTxLog(statedb, *tx.To(), header)
-	}
-	return true, kind, nil
-}
-
-// Finalize StateDB state for Viction native transactions.
-func finalizeNativeTxState(config *params.ChainConfig, statedb *state.StateDB, number *big.Int) {
-	if config.IsByzantium(number) {
-		statedb.Finalise(true)
-	} else {
-		statedb.IntermediateRoot(config.IsEIP158(number))
-	}
-}
-
-// Create log entry for Viction native transactions.
-func addNativeTxLog(statedb *state.StateDB, address common.Address, header *types.Header) {
-	statedb.AddLog(&types.Log{
-		Address:     address,
-		BlockNumber: header.Number.Uint64(),
-	})
+	from := msg.From()
+	statedb.SetNonce(from, statedb.GetNonce(from)-1)
 }
