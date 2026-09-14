@@ -890,6 +890,9 @@ func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, v
 		if tracer, err = tracers.New(*config.Tracer); err != nil {
 			return nil, err
 		}
+		// Make sure the tracer's "db" object is usable even if no opcode is
+		// ever executed, since dbWrapper.db is otherwise only set from CaptureState.
+		tracer.(*tracers.Tracer).SetStateDB(statedb)
 		// Handle timeouts and RPC cancellations
 		deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
 		go func() {
