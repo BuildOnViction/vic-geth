@@ -217,7 +217,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
 						break
 					}
-					if handled, kind, err := api.applyNativeTransaction(task.block, tx, i, task.statedb); err != nil {
+					if handled, _, err := api.applyNativeTransaction(task.block, tx, i, task.statedb); err != nil {
 						task.results[i] = &txTraceResult{Error: err.Error()}
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
 						break
@@ -227,7 +227,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 							log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
 							break
 						}
-						task.results[i] = &txTraceResult{Result: nativeTxTraceResult{Native: true, Type: kind}}
+						task.results[i] = &txTraceResult{Result: newNativeTxCallFrame(msg.From(), tx)}
 						continue
 					}
 					res, err := api.traceTx(ctx, msg, blockCtx, task.statedb, vp.ZeroGasPool(), config)
@@ -533,7 +533,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			failed = err
 			break
 		}
-		if handled, kind, err := api.applyNativeTransaction(block, tx, i, statedb); err != nil {
+		if handled, _, err := api.applyNativeTransaction(block, tx, i, statedb); err != nil {
 			failed = err
 			break
 		} else if handled {
@@ -541,7 +541,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 				failed = err
 				break
 			}
-			results[i] = &txTraceResult{Result: nativeTxTraceResult{Native: true, Type: kind}}
+			results[i] = &txTraceResult{Result: newNativeTxCallFrame(msg.From(), tx)}
 			continue
 		}
 		// Send the trace task over for execution
@@ -824,7 +824,7 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 	}
 	// Native system transactions execute without the EVM and have no trace, report a marker instead.
 	if kind != NativeTxNone {
-		return nativeTxTraceResult{Native: true, Type: kind}, nil
+		return newNativeTxCallFrame(msg.From(), tx), nil
 	}
 	// Trace the transaction and return
 	return api.traceTx(ctx, msg, vmctx, statedb, feePool, config)

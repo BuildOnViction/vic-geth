@@ -23,6 +23,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/legacy/lending/lendingstate"
@@ -40,9 +41,34 @@ const (
 	NativeTxLendingFinalized = "lendingFinalized" // 0x94
 )
 
-type nativeTxTraceResult struct {
-	Native bool   `json:"native"`
-	Type   string `json:"type"`
+// callFrame is the Go equivalent of the call object built by call_tracer.js's
+// result()/finalize(), used to report Viction native system transactions that
+// execute without the EVM and therefore have no trace.
+type callFrame struct {
+	Type    string         `json:"type"`
+	From    common.Address `json:"from"`
+	To      common.Address `json:"to"`
+	Value   *hexutil.Big   `json:"value"`
+	Gas     hexutil.Uint64 `json:"gas"`
+	GasUsed hexutil.Uint64 `json:"gasUsed"`
+	Input   hexutil.Bytes  `json:"input"`
+	Output  hexutil.Bytes  `json:"output"`
+	Time    string         `json:"time"`
+}
+
+// Return a call frame for the native transactions.
+func newNativeTxCallFrame(from common.Address, tx *types.Transaction) callFrame {
+	return callFrame{
+		Type:    "CALL",
+		From:    from,
+		To:      *tx.To(),
+		Value:   (*hexutil.Big)(tx.Value()),
+		Gas:     hexutil.Uint64(tx.Gas()),
+		GasUsed: 0,
+		Input:   tx.Data(),
+		Output:  []byte{},
+		Time:    "0s",
+	}
 }
 
 // Try to dertermine Viction native transactions.
