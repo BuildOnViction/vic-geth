@@ -20,6 +20,9 @@
 package eth
 
 import (
+	"encoding/json"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -75,4 +78,23 @@ func postTraceTx(statedb *state.StateDB, kind string, msg core.Message) {
 	}
 	from := msg.From()
 	statedb.SetNonce(from, statedb.GetNonce(from)-1)
+}
+
+// traceGasInfo is the minimal subset of a JS tracer's raw JSON result used to recover gas accounting.
+type traceGasInfo struct {
+	GasUsed *hexutil.Uint64 `json:"gasUsed"`
+	Error   *string         `json:"error"`
+}
+
+// extractGasInfo derives (usedGas, failed) from a JS tracer's raw JSON.
+func extractGasInfo(res json.RawMessage) (uint64, bool) {
+	var info traceGasInfo
+	if err := json.Unmarshal(res, &info); err != nil {
+		return 0, false
+	}
+	var gas uint64
+	if info.GasUsed != nil {
+		gas = uint64(*info.GasUsed)
+	}
+	return gas, info.Error != nil && *info.Error != ""
 }

@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -225,8 +226,11 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 						break
 					}
 					usedGas, txFailed := uint64(0), false
-					if execRes, ok := res.(*ethapi.ExecutionResult); ok {
-						usedGas, txFailed = execRes.Gas, execRes.Failed
+					switch res := res.(type) {
+					case *ethapi.ExecutionResult:
+						usedGas, txFailed = res.Gas, res.Failed
+					case json.RawMessage:
+						usedGas, txFailed = extractGasInfo(res)
 					}
 					postTraceTx(task.statedb, kind, msg)
 					if err := vp.PostApplyTransaction(tx, msg, task.statedb, usedGas, txFailed); err != nil {
