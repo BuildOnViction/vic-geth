@@ -30,6 +30,15 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// Return underlying VictionProcessor instance in the Proccesor.
+func (bc *BlockChain) VictionProcessor() *VictionProcessor {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p == nil {
+		return nil
+	}
+	return p.viction
+}
+
 // Commit native trading/lending trie nodes for the given block to their LevelDB backing stores.
 func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
 	p, ok := bc.processor.(*StateProcessor)

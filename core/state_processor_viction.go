@@ -36,20 +36,20 @@ import (
 
 // VictionProcessor handles Viction-specific block and transaction logic.
 type VictionProcessor struct {
-	config *params.ChainConfig // Chain configuration
-	chain  *BlockChain         // Canonical block chain, nil for tx-only consumers
-	engine consensus.Engine    // Consensus engine, nil disables author-dependent paths
+	config        *params.ChainConfig // Chain configuration
+	chain         *BlockChain         // Canonical block chain, nil for tx-only consumers
+	engine        consensus.Engine    // Consensus engine, nil disables author-dependent paths
+	lendingEngine LendingEngine       // Native lending engine
+	tradingEngine TradingEngine       // Native trading engine
 
 	blockNumber                *big.Int         // Current processing block number.
 	zeroGasCapacities          types.BalanceMap // Remaining ZeroGas capacities.
 	updatedZeroGasCapacities   types.BalanceMap // Updated ZeroGas capacities to be flushed to database.
 	totalUsedZeroGasCapacities *big.Int         // Sum of capacities used during block processing.
 
-	lendingEngine        LendingEngine
 	lendingStateDB       *lendingstate.LendingStateDB
 	lendingCommittedRoot common.Hash
 
-	tradingEngine        TradingEngine
 	tradingStateDB       *tradingstate.TradingStateDB
 	tradingCommittedRoot common.Hash
 }
@@ -63,38 +63,52 @@ func NewVictionProcessor(config *params.ChainConfig, chain *BlockChain, engine c
 	}
 }
 
-// Return new Processor instance for old block execution.
-func NewTxVictionProcessor(config *params.ChainConfig, statedb *state.StateDB, blockNum *big.Int) *VictionProcessor {
-	p := &VictionProcessor{
-		config:      config,
-		blockNumber: new(big.Int).Set(blockNum),
-	}
-	p.snapshotCapacities(statedb, blockNum)
-	return p
-}
-
 // Return a deep copy of Processor.
 func (p *VictionProcessor) Copy() *VictionProcessor {
 	if p == nil {
 		return nil
 	}
 	cp := &VictionProcessor{
-		config:                     p.config,
-		updatedZeroGasCapacities:   make(types.BalanceMap),
-		totalUsedZeroGasCapacities: new(big.Int),
+		config:        p.config,
+		chain:         p.chain,
+		engine:        p.engine,
+		lendingEngine: p.lendingEngine,
+		tradingEngine: p.tradingEngine,
 	}
 	if p.blockNumber != nil {
 		cp.blockNumber = new(big.Int).Set(p.blockNumber)
 	}
-	if p.zeroGasCapacities != nil {
-		cp.zeroGasCapacities = make(types.BalanceMap, len(p.zeroGasCapacities))
-		for k, v := range p.zeroGasCapacities {
-			if v != nil {
-				cp.zeroGasCapacities[k] = new(big.Int).Set(v)
-			}
-		}
+	cp.zeroGasCapacities = p.zeroGasCapacities.Copy()
+	cp.updatedZeroGasCapacities = p.updatedZeroGasCapacities.Copy()
+	if p.totalUsedZeroGasCapacities != nil {
+		cp.totalUsedZeroGasCapacities = new(big.Int).Set(p.totalUsedZeroGasCapacities)
 	}
+	if p.lendingStateDB != nil {
+		cp.lendingStateDB = p.lendingStateDB.Copy()
+	}
+	cp.lendingCommittedRoot = p.lendingCommittedRoot
+	if p.tradingStateDB != nil {
+		cp.tradingStateDB = p.tradingStateDB.Copy()
+	}
+	cp.tradingCommittedRoot = p.tradingCommittedRoot
 	return cp
+}
+
+// Return a deep copy of Processor with transaction related state recalculated for the given block.
+func (p *VictionProcessor) ForkAtBlock(statedb *state.StateDB, blockNum *big.Int) *VictionProcessor {
+	if p == nil {
+		return nil
+	}
+	fp := &VictionProcessor{
+		config:        p.config,
+		chain:         p.chain,
+		engine:        p.engine,
+		lendingEngine: p.lendingEngine,
+		tradingEngine: p.tradingEngine,
+	}
+	fp.blockNumber = new(big.Int).Set(blockNum)
+	fp.snapshotCapacities(statedb, blockNum)
+	return fp
 }
 
 // Return original balances snapshot.

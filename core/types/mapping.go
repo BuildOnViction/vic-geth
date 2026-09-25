@@ -25,5 +25,19 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// BalanceMap holds sponsoring capacities of VRC25 tokens.
-type BalanceMap = map[common.Address]*big.Int
+// BalanceMap holds snapshots of account balances.
+type BalanceMap map[common.Address]*big.Int
+
+// Return a deep copy of BalanceMap.
+func (m BalanceMap) Copy() BalanceMap {
+	if m == nil {
+		return nil
+	}
+	cp := make(BalanceMap, len(m))
+	for k, v := range m {
+		if v != nil {
+			cp[k] = new(big.Int).Set(v)
+		}
+	}
+	return cp
+}
