@@ -793,6 +793,9 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 	}
 	// Trace the transaction and return
 	result, err := api.traceTx(ctx, msg, vmctx, statedb, feePool, config)
+	if err != nil {
+		return nil, err
+	}
 	postTraceTx(statedb, kind, msg)
 	return result, err
 }
