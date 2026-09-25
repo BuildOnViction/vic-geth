@@ -277,6 +277,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 			}
 			close(results)
 		}()
+		vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(statedb, start.Number())
 		// Feed all the blocks both into the tracer, as well as fast process concurrently
 		for number = start.NumberU64() + 1; number <= end.NumberU64(); number++ {
 			// Stop tracing if interruption was requested
@@ -313,7 +314,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 				traced += uint64(len(txs))
 			}
 			// Generate the next state snapshot fast without tracing
-			_, _, _, err := api.eth.blockchain.Processor().Process(block, statedb, vm.Config{})
+			_, _, _, err := api.eth.blockchain.Processor().Process(block, statedb, vp, vm.Config{})
 			if err != nil {
 				failed = err
 				break
@@ -735,6 +736,7 @@ func (api *PrivateDebugAPI) computeStateDB(block *types.Block, reexec uint64) (*
 		logged time.Time
 		proot  common.Hash
 	)
+	vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(statedb, block.Number())
 	for block.NumberU64() < origin {
 		// Print progress logs if long enough time elapsed
 		if time.Since(logged) > 8*time.Second {
@@ -745,7 +747,7 @@ func (api *PrivateDebugAPI) computeStateDB(block *types.Block, reexec uint64) (*
 		if block = api.eth.blockchain.GetBlockByNumber(block.NumberU64() + 1); block == nil {
 			return nil, fmt.Errorf("block #%d not found", block.NumberU64()+1)
 		}
-		_, _, _, err := api.eth.blockchain.Processor().Process(block, statedb, vm.Config{})
+		_, _, _, err := api.eth.blockchain.Processor().Process(block, statedb, vp, vm.Config{})
 		if err != nil {
 			return nil, fmt.Errorf("processing block %d failed: %v", block.NumberU64(), err)
 		}
