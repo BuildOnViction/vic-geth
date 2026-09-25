@@ -209,7 +209,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 			for task := range tasks {
 				signer := types.MakeSigner(api.eth.blockchain.Config(), task.block.Number())
 				blockCtx := core.NewEVMBlockContext(task.block.Header(), api.eth.blockchain, nil)
-				vp := core.NewTxVictionProcessor(api.eth.blockchain.Config(), task.statedb, task.block.Number())
+				vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(task.statedb, task.block.Number())
 				// Trace all the transactions contained within
 				for i, tx := range task.block.Transactions() {
 					msg, _ := tx.AsMessage(signer)
@@ -515,7 +515,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	// Running VRC25 fee pool for the block; each task gets a copy of its current
 	// state, and the driver decrements it as it advances the shared state — so a
 	// task sees the capacities as they stood just before its own transaction.
-	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
+	vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(statedb, block.Number())
 	zp := vp.ZeroGasPool()
 	var failed error
 	for i, tx := range txs {
@@ -621,7 +621,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 	}
 	// Running VRC25 fee pool for the block, decremented per tx as execution
 	// advances, so sponsored transactions are reproduced with correct capacities.
-	vp := core.NewTxVictionProcessor(chainConfig, statedb, block.Number())
+	vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(statedb, block.Number())
 	zp := vp.ZeroGasPool()
 	for i, tx := range block.Transactions() {
 		// Prepare the trasaction for un-traced execution
@@ -926,7 +926,7 @@ func (api *PrivateDebugAPI) computeTxEnv(block *types.Block, txIndex int, reexec
 	signer := types.MakeSigner(cfg, block.Number())
 	// Running fee pool, decremented per replayed tx so the target tx sees the
 	// capacities as they stood just before it.
-	vp := core.NewTxVictionProcessor(cfg, statedb, block.Number())
+	vp := api.eth.blockchain.VictionProcessor().ForkAtBlock(statedb, block.Number())
 	zp := vp.ZeroGasPool()
 
 	for idx, tx := range block.Transactions() {
