@@ -1763,7 +1763,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 	for i, block := range chain {
 		headers[i] = block.Header()
-		seals[i] = false
+		seals[i] = !bc.chainConfig.IsViction() && verifySeals
 	}
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)

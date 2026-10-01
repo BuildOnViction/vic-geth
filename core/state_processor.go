@@ -20,6 +20,8 @@
 package core
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -104,13 +106,13 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, vp 
 		// Apply Viction-specific system transactions (BlockSigner, native trading/lending).
 		handled, receipt, _, err, _ := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 
 		if !handled {
 			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, vp.ZeroGasPool())
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 			}
 		}
 
