@@ -7,12 +7,10 @@
 - Only put code under `pkg/` if it's genuinely meant to be a public, importable API - don't use it as a dumping ground.
 - Group files within a package by responsibility, not by type (avoid generic buckets like `utils.go` or `helpers.go` when a more specific name fits).
 - Keep test files (`_test.go`) alongside the code they test, in the same package or a `_test` package for black-box tests.
-
 <!-- Project-specific / Guideline -->
 
 ## Layout
 
-```
 ├── .agents/        # shared AI agent instructions (coding conventions, PR/task checklists, project structure)
 ├── .github/        # GitHub-specific config (workflows, issue/PR templates)
 ├── .vscode/        # VS Code editor/workspace settings
@@ -42,8 +40,6 @@
 ├── go.mod          # Go module definition
 ├── go.sum          # Go module checksums
 ├── main.go         # default application entrypoint
-```
-
 <!-- Project-specific / Layout -->
 
 This repository is a go-ethereum (geth) fork for Viction — the actual layout differs from the generic template above. Agents MUST inspect the actual top-level directories (core protocol packages at root, `cmd/`, `internal/`, `build/`, `tests/`, `docs/`, `common/`, `contracts/`, `legacy/`) before assuming the generic layout applies. The generic template is a fallback only; project-specific layout wins on conflict.

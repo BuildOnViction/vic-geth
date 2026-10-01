@@ -17,7 +17,6 @@ Before opening or updating a pull request, verify:
 - [ ] CI (if configured) passes on the PR branch.
 - [ ] Linked issues/tickets are referenced, if applicable.
 - [ ] Working tree contains no conflict markers and no `*.rej` files (see [task-guideline.md](task-guideline.md)).
-
 <!-- Project-specific / Checklist -->
 
 ## Project-specific
