@@ -107,6 +107,8 @@ func (p *VictionProcessor) ZeroGasPool() types.BalanceMap {
 
 // Pre block processing: - Prepare internal state for block processing - Active Viction-specific hard forks.
 func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.StateDB) error {
+	// Legacy revert behavior applies only on Viction until the Prometheus fork.
+	statedb.SetLegacyRevert(p.config.IsViction() && !p.config.IsPrometheus(block.Number()))
 	if !p.isSupported() {
 		return nil
 	}

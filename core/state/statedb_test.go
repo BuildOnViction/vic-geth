@@ -915,3 +915,27 @@ func TestStateDBAccessList(t *testing.T) {
 		t.Fatalf("expected empty, got %d", got)
 	}
 }
+
+func TestSetLegacyRevert(t *testing.T) {
+	// Verifies the two revert semantic modes of the journal. For an address whose dirty count reaches zero on a disallowed entry type:
+	// - geth (default): reverting any journalled change removes the address from the dirty set.
+	// - legacy (viction): only touchChange and createObjectChange entries are allowed to fully remove an address from the dirty set, so changes like balance updates keep the address present.
+	acc := common.HexToAddress("0xdeadbeef")
+
+	for _, legacy := range []bool{false, true} {
+		state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
+		state.GetOrNewStateObject(acc) // seed the object so reverts don't nil out
+
+		journal := newJournal()
+		journal.append(balanceChange{account: &acc, prev: new(big.Int)})
+		journal.revert(state, 0, legacy)
+
+		_, dirty := journal.dirties[acc]
+		if legacy && !dirty {
+			t.Fatal("legacy revert dropped the changed account from the dirty set")
+		}
+		if !legacy && dirty {
+			t.Fatal("geth revert kept the changed account in the dirty set")
+		}
+	}
+}

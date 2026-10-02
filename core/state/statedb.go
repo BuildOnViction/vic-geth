@@ -148,8 +148,14 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 			sdb.snapStorage = make(map[common.Hash]map[common.Hash][]byte)
 		}
 	}
-	sdb.legacyRevert = true
 	return sdb, nil
+}
+
+// SetLegacyRevert toggles the legacy revert behavior on Viction.
+// When enabled, only touchChange and createObjectChange journal entries are allowed to fully remove an address from the dirty set.
+// Viction blocks use it until the Prometheus fork; everything else (including Ethereum reference state tests) runs with geth semantics.
+func (s *StateDB) SetLegacyRevert(v bool) {
+	s.legacyRevert = v
 }
 
 // StartPrefetcher initializes a new trie prefetcher to pull in nodes from the
