@@ -257,10 +257,20 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 			Time:       time - 10,
 			Difficulty: parent.Difficulty(),
 			UncleHash:  parent.UncleHash(),
+			// Initialize POSV fields as empty slices (always present in Viction)
+			Posv:         true,
+			NewAttestors: []byte{},
+			Attestor:     []byte{},
+			Penalties:    []byte{},
 		}),
 		GasLimit: CalcGasLimit(parent, parent.GasLimit(), parent.GasLimit()),
 		Number:   new(big.Int).Add(parent.Number(), common.Big1),
 		Time:     time,
+		// Initialize POSV fields as empty slices (always present in Viction)
+		Posv:         true,
+		NewAttestors: []byte{},
+		Attestor:     []byte{},
+		Penalties:    []byte{},
 	}
 }
 

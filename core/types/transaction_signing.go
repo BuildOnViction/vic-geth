@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -215,6 +217,11 @@ func (fs FrontierSigner) Hash(tx *Transaction) common.Hash {
 	})
 }
 
+func (tx *Transaction) CacheHash() {
+	v := rlpHash(tx)
+	tx.hash.Store(v)
+}
+
 func (fs FrontierSigner) Sender(tx *Transaction) (common.Address, error) {
 	return recoverPlain(fs.Hash(tx), tx.data.R, tx.data.S, tx.data.V, false)
 }
@@ -257,4 +264,43 @@ func deriveChainId(v *big.Int) *big.Int {
 	}
 	v = new(big.Int).Sub(v, big.NewInt(35))
 	return v.Div(v, big.NewInt(2))
+}
+
+func CacheSigner(signer Signer, tx *Transaction) {
+	if tx == nil {
+		return
+	}
+	addr, err := signer.Sender(tx)
+	if err != nil {
+		return
+	}
+	tx.from.Store(sigCache{signer: signer, from: addr})
+}
+
+func CacheSigners(signer Signer, txs Transactions) {
+	if txs.Len() == 0 {
+		return
+	}
+	nWorker := runtime.NumCPU()
+	chunkSize := txs.Len() / nWorker
+	if txs.Len()%nWorker != 0 {
+		chunkSize++
+	}
+	wg := sync.WaitGroup{}
+	wg.Add(nWorker)
+	for i := 0; i < nWorker; i++ {
+		from := i * chunkSize
+		to := from + chunkSize
+		if to > txs.Len() {
+			to = txs.Len()
+		}
+		go func(from int, to int) {
+			defer wg.Done()
+			for j := from; j < to; j++ {
+				CacheSigner(signer, txs[j])
+				txs[j].CacheHash()
+			}
+		}(from, to)
+	}
+	wg.Wait()
 }

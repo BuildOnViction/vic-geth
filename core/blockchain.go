@@ -167,12 +167,18 @@ type BlockChain struct {
 	triegc *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc time.Duration  // Accumulates canonical block processing for trie dumping
 
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
+
 	// txLookupLimit is the maximum number of blocks from head whose tx indices
 	// are reserved:
 	//  * 0:   means no limit and regenerate any missing indexes
 	//  * N:   means N block limit [HEAD-N+1, HEAD] and delete extra indexes
 	//  * nil: disable tx reindexer/deleter, but still index new blocks
 	txLookupLimit uint64
+
+	// syncThreshold is the maximum block height the node will accept. 0 means no limit.
+	syncThreshold uint64
 
 	hc            *HeaderChain
 	rmLogsFeed    event.Feed
@@ -230,10 +236,12 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	badBlocks, _ := lru.New(badBlockLimit)
 
 	bc := &BlockChain{
-		chainConfig: chainConfig,
-		cacheConfig: cacheConfig,
-		db:          db,
-		triegc:      prque.New(nil),
+		chainConfig:   chainConfig,
+		cacheConfig:   cacheConfig,
+		db:            db,
+		triegc:        prque.New(nil),
+		tradingTriegc: prque.New(nil),
+		lendingTriegc: prque.New(nil),
 		stateCache: state.NewDatabaseWithConfig(db, &trie.Config{
 			Cache:     cacheConfig.TrieCleanLimit,
 			Journal:   cacheConfig.TrieCleanJournal,
@@ -931,6 +939,14 @@ func (bc *BlockChain) GetReceiptsByHash(hash common.Hash) types.Receipts {
 	if receipts == nil {
 		return nil
 	}
+	// Correct mismatch block hash between header and transactions.
+	// The problem is due to PoSV double validation. Other chain will work fine even with this workaround.
+	for _, receipt := range receipts {
+		receipt.BlockHash = hash
+		for _, l := range receipt.Logs {
+			l.BlockHash = hash
+		}
+	}
 	bc.receiptsCache.Add(hash, receipts)
 	return receipts
 }
@@ -1046,6 +1062,9 @@ func (bc *BlockChain) Stop() {
 			log.Error("Dangling trie nodes after full cleanup")
 		}
 	}
+	// Flush any pending native trading/lending trie roots that haven't reached the
+	// TriesInMemory commit threshold yet.
+	bc.stopViction()
 	// Ensure all live cached entries be saved into disk, so that we can skip
 	// cache warmup when node restarts.
 	if bc.cacheConfig.TrieCleanJournal != "" {
@@ -1459,6 +1478,17 @@ func (bc *BlockChain) TxLookupLimit() uint64 {
 	return bc.txLookupLimit
 }
 
+// SetSyncThreshold sets the maximum block height the node will accept.
+// A value of 0 means no limit.
+func (bc *BlockChain) SetSyncThreshold(threshold uint64) {
+	bc.syncThreshold = threshold
+}
+
+// SyncThreshold retrieves the syncThreshold used by blockchain to keep the chain to a specific block height at most.
+func (bc *BlockChain) SyncThreshold() uint64 {
+	return bc.syncThreshold
+}
+
 var lastWrite uint64
 
 // writeBlockWithoutState writes only the block and its metadata to the database,
@@ -1666,6 +1696,16 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 		return 0, nil
 	}
 
+	// Check if any block exceeds the sync threshold
+	if bc.syncThreshold > 0 {
+		for i, block := range chain {
+			if block.NumberU64() > bc.syncThreshold {
+				log.Warn("Block exceeds sync threshold", "number", block.NumberU64(), "hash", block.Hash(), "threshold", bc.syncThreshold)
+				return i, fmt.Errorf("block %d exceeds sync threshold %d", block.NumberU64(), bc.syncThreshold)
+			}
+		}
+	}
+
 	bc.blockProcFeed.Send(true)
 	defer bc.blockProcFeed.Send(false)
 
@@ -1728,7 +1768,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 	for i, block := range chain {
 		headers[i] = block.Header()
-		seals[i] = verifySeals
+		seals[i] = !bc.chainConfig.IsViction() && verifySeals
 	}
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
@@ -1886,7 +1926,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		}
 		// Process block using the parent state as reference point
 		substart := time.Now()
-		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
+		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, nil, bc.vmConfig)
 		if err != nil {
 			bc.reportBlock(block, receipts, err)
 			atomic.StoreUint32(&followupInterrupt, 1)
@@ -1926,6 +1966,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		status, err := bc.writeBlockWithState(block, receipts, logs, statedb, false)
 		atomic.StoreUint32(&followupInterrupt, 1)
 		if err != nil {
+			return it.index, err
+		}
+		// Commit native trading/lending trie nodes to their LevelDB backing stores.
+		// This must happen after writeBlockWithState so the next block's *beforeProcess* can open the trading/lending trie from the correct root.
+		if err := bc.commitNativeExchangeState(block); err != nil {
 			return it.index, err
 		}
 
@@ -1968,6 +2013,15 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		dirty, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, it.index, dirty)
+		if bc.chainConfig.Posv != nil {
+			if bc.chainConfig.Posv.IsGapBlock(block.NumberU64()) {
+				err := bc.UpdateValidators()
+				if err != nil {
+					log.Error("[Blockchain] Error when updating validators list for next epoch. Stopping node!", "err", err)
+					return it.index, err
+				}
+			}
+		}
 	}
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && errors.Is(err, consensus.ErrFutureBlock) {
@@ -2111,6 +2165,30 @@ func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (i
 	return 0, nil
 }
 
+// posvAttestorEngine is implemented by *posv.Posv for M2 (attestor) recovery.
+type posvAttestorEngine interface {
+	Attestor(header *types.Header) (common.Address, error)
+}
+
+// reorgHeaderM1M2 returns the block creator (consensus Author, M1) and attestor
+// (M2) when the engine exposes Attestor; M2 is zero if unsupported or missing.
+func reorgHeaderM1M2(engine consensus.Engine, h *types.Header) (m1, m2 common.Address) {
+	var err error
+	m1, err = engine.Author(h)
+	if err != nil {
+		m1 = common.Address{}
+	}
+	eng, ok := engine.(posvAttestorEngine)
+	if !ok {
+		return m1, m2
+	}
+	m2, err = eng.Attestor(h)
+	if err != nil {
+		m2 = common.Address{}
+	}
+	return m1, m2
+}
+
 // reorg takes two blocks, an old chain and a new chain and will reconstruct the
 // blocks and inserts them to be part of the new canonical chain and accumulates
 // potential missing transactions and post an event about them.
@@ -2215,7 +2293,16 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 			return fmt.Errorf("invalid new chain")
 		}
 	}
-	// Ensure the user sees large reorgs
+	// Per-block detail for reorg analysis (M1 = Author/sealer, M2 = attestor on POSV).
+	for _, b := range oldChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::old", "branch", "old", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+	for _, b := range newChain {
+		m1, m2 := reorgHeaderM1M2(bc.engine, b.Header())
+		log.Debug("Chain reorg branch block::new", "branch", "new", "number", b.Number(), "hash", b.Hash(), "m1", m1, "m2", m2, "difficulty", b.Difficulty().String())
+	}
+
 	if len(oldChain) > 0 && len(newChain) > 0 {
 		logFn := log.Info
 		msg := "Chain reorg detected"

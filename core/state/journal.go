@@ -62,10 +62,16 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		// Undo the changes made by the operation
 		j.entries[i].revert(statedb)
 
-		// Drop any dirty tracking induced by the change
+		// Drop any dirty tracking induced by the change.
 		if addr := j.entries[i].dirtied(); addr != nil {
 			if j.dirties[*addr]--; j.dirties[*addr] == 0 {
-				delete(j.dirties, *addr)
+				// Only touchChange and createObjectChange are allowed to fully
+				// remove an address from the dirty set. This matches victionchain
+				// where only these two undo methods delete from stateObjectsDirty.
+				switch j.entries[i].(type) {
+				case touchChange, createObjectChange:
+					delete(j.dirties, *addr)
+				}
 			}
 		}
 	}

@@ -502,6 +502,11 @@ func (jst *Tracer) Stop(err error) {
 	atomic.StoreUint32(&jst.interrupt, 1)
 }
 
+// Set the tracer's underlying state database reference.
+func (jst *Tracer) SetStateDB(statedb vm.StateDB) {
+	jst.dbWrapper.db = statedb
+}
+
 // call executes a method on a JS object, catching any errors, formatting and
 // returning them as error objects.
 func (jst *Tracer) call(method string, args ...string) (json.RawMessage, error) {

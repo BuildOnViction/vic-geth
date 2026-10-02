@@ -69,6 +69,13 @@ const (
 	NewPooledTransactionHashesMsg = 0x08
 	GetPooledTransactionsMsg      = 0x09
 	PooledTransactionsMsg         = 0x0a
+
+	// Viction-specific message codes (shared with NewPooledTransactionHashesMsg /
+	// GetPooledTransactionsMsg code space, but only sent by victionchain peers
+	// running eth62/eth63).  vic-geth must accept and silently discard them to
+	// avoid dropping victionchain peers.
+	OrderTxMsg   = 0x08 // same code as NewPooledTransactionHashesMsg
+	LendingTxMsg = 0x09 // same code as GetPooledTransactionsMsg
 )
 
 type errCode int

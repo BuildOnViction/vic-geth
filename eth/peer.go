@@ -92,6 +92,7 @@ type peer struct {
 
 	version  int         // Protocol version negotiated
 	syncDrop *time.Timer // Timed connection dropper if sync progress isn't validated in time
+	posv     bool        // Whether this node runs a PoSV/Viction chain (controls wire encoding)
 
 	head common.Hash
 	td   *big.Int
@@ -109,11 +110,12 @@ type peer struct {
 	term chan struct{} // Termination channel to stop the broadcaster
 }
 
-func newPeer(version int, p *p2p.Peer, rw p2p.MsgReadWriter, getPooledTx func(hash common.Hash) *types.Transaction) *peer {
+func newPeer(version int, p *p2p.Peer, rw p2p.MsgReadWriter, getPooledTx func(hash common.Hash) *types.Transaction, posv bool) *peer {
 	return &peer{
 		Peer:            p,
 		rw:              rw,
 		version:         version,
+		posv:            posv,
 		id:              fmt.Sprintf("%x", p.ID().Bytes()[:8]),
 		knownTxs:        mapset.NewSet(),
 		knownBlocks:     mapset.NewSet(),
@@ -134,6 +136,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 		select {
 		case prop := <-p.queuedBlocks:
 			if err := p.SendNewBlock(prop.block, prop.td); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlock failed, removing peer", "number", prop.block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -141,6 +144,7 @@ func (p *peer) broadcastBlocks(removePeer func(string)) {
 
 		case block := <-p.queuedBlockAnns:
 			if err := p.SendNewBlockHashes([]common.Hash{block.Hash()}, []uint64{block.NumberU64()}); err != nil {
+				p.Log().Warn("[Peer] broadcastBlocks SendNewBlockHashes failed, removing peer", "number", block.NumberU64(), "err", err)
 				removePeer(p.id)
 				return
 			}
@@ -205,7 +209,8 @@ func (p *peer) broadcastTransactions(removePeer func(string)) {
 		case <-done:
 			done = nil
 
-		case <-fail:
+		case err := <-fail:
+			p.Log().Warn("[Peer] broadcastTransactions send failed, removing peer", "err", err)
 			removePeer(p.id)
 			return
 
@@ -469,6 +474,11 @@ func (p *peer) SendNewBlock(block *types.Block, td *big.Int) error {
 		p.knownBlocks.Pop()
 	}
 	p.knownBlocks.Add(block.Hash())
+	// For Viction chains, mark the block header as PoSV so it encodes with
+	// 18 fields. Plain Ethereum chains are left untouched.
+	if p.posv {
+		block.SetPosv(true)
+	}
 	return p2p.Send(p.rw, NewBlockMsg, []interface{}{block, td})
 }
 
@@ -489,6 +499,14 @@ func (p *peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 
 // SendBlockHeaders sends a batch of block headers to the remote peer.
 func (p *peer) SendBlockHeaders(headers []*types.Header) error {
+	// For Viction chains, mark all headers as PoSV so they encode with 18
+	// fields. This is needed for compatibility with victionchain peers which
+	// expect 18 fields. Plain Ethereum chains are left untouched.
+	if p.posv {
+		for _, h := range headers {
+			h.Posv = true
+		}
+	}
 	return p2p.Send(p.rw, BlockHeadersMsg, headers)
 }
 

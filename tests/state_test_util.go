@@ -200,7 +200,7 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
 	snapshot := statedb.Snapshot()
-	if _, err := core.ApplyMessage(evm, msg, gaspool); err != nil {
+	if _, err := core.ApplyMessage(evm, msg, gaspool, nil); err != nil {
 		statedb.RevertToSnapshot(snapshot)
 	}
 	// Commit block
