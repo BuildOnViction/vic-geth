@@ -53,6 +53,7 @@ When testing, follow these rules:
 - Test functions must follow the order of the code they test.
 - Execute tests per package to prevent timeout.
 <!-- Project-specific / Testing -->
+- Before running tests that use the fixtures in `tests/testdata`, update the git submodule to the revision pinned in the commit tree (not in a file): `git submodule update --init --checkout tests/testdata`.
 
 ## Checklist
 

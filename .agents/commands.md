@@ -12,6 +12,7 @@ Standard commands for building, testing, and maintaining this project.
 - `go test ./...` - run all tests
 - `go test ./... -run <TestName>` - run a single test
 <!-- Project-specific / Test -->
+- `git submodule update --init --checkout tests/testdata` - sync the `tests/testdata` submodule to the revision pinned in the commit tree; run this before tests that use those fixtures
 
 ## Lint
 
