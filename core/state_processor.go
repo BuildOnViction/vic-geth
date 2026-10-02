@@ -96,7 +96,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, vp 
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
 		// Apply Viction-specific system transactions (BlockSigner, native trading/lending).
-		handled, receipt, _, err, _ := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
+		handled, receipt, err := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
@@ -190,7 +190,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // chain_makers) path.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
 	// POSV: Viction system transactions bypass — same logic as block import.
-	if handled, receipt, _, err, _ := (&VictionProcessor{config: config}).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
+	if handled, receipt, err := NewVictionProcessor(config, nil, nil).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
 		return receipt, err
 	}
 

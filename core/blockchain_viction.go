@@ -235,10 +235,11 @@ func (bc *BlockChain) UpdateValidators() error {
 
 	var validators []posv.ValidatorInfo
 	for _, candidate := range candidates {
-		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
-		if candidate.String() != "0x0000000000000000000000000000000000000000" {
-			validators = append(validators, posv.ValidatorInfo{Address: candidate, Capacity: cap})
+		if candidate.IsZero() {
+			continue
 		}
+		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
+		validators = append(validators, posv.ValidatorInfo{Address: candidate, Capacity: cap})
 	}
 	if len(validators) == 0 {
 		return ErrNoValidators
@@ -255,15 +256,13 @@ func (bc *BlockChain) UpdateValidators() error {
 		})
 	}
 
-	vs := make([]common.Address, 0)
-	if len(validators) > int(bc.chainConfig.Viction.ValidatorMaxCount) {
-		for _, v := range validators[:bc.chainConfig.Viction.ValidatorMaxCount] {
-			vs = append(vs, v.Address)
-		}
-	} else {
-		for _, v := range validators {
-			vs = append(vs, v.Address)
-		}
+	count := len(validators)
+	if max := int(bc.chainConfig.Viction.ValidatorMaxCount); count > max {
+		count = max
+	}
+	vs := make([]common.Address, 0, count)
+	for _, v := range validators[:count] {
+		vs = append(vs, v.Address)
 	}
 	err = engine.SetCheckpointSigners(bc, header, vs)
 	if err != nil {
