@@ -256,7 +256,16 @@ func (h *Header) DecodeRLP(s *rlp.Stream) error {
 		return fmt.Errorf("read Posv: %w", err)
 	}
 	if kind == rlp.Byte {
-		_, _ = s.Bool()
+		// Disambiguate a single-byte item after the nonce: it can be the PoSV flag or a small BaseFee (RLP encodes values < 128 as a single byte).
+		// The encoder only emits the PoSV bool when a BaseFee follows it, so a trailing single-byte item with nothing after it must be BaseFee.
+		flag, _ := s.Uint()
+		if _, _, nerr := s.Kind(); nerr != nil && errors.Is(nerr, rlp.EOL) {
+			h.BaseFee = new(big.Int).SetUint64(flag)
+			if err := s.ListEnd(); err != nil {
+				return fmt.Errorf("close header struct (no Posv): %w", err)
+			}
+			return nil
+		}
 		h.Posv = true
 	}
 
