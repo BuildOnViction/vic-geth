@@ -34,11 +34,15 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// bypassBalanceFixBlock is the last block whose incorrect sender balances
+// are corrected before the transaction is applied; see Viction.GetBypassBalance.
+const bypassBalanceFixBlock = 9147459
+
 // VictionProcessor handles Viction-specific block and transaction logic.
 type VictionProcessor struct {
 	config        *params.ChainConfig // Chain configuration
 	chain         *BlockChain         // Canonical block chain, nil for tx-only consumers
-	engine        consensus.Engine    // Consensus engine, nil disables author-dependent paths
+	engine        consensus.Engine    // Consensus engine; nil fails blocks once native trading is active
 	lendingEngine LendingEngine       // Native lending engine
 	tradingEngine TradingEngine       // Native trading engine
 
@@ -112,6 +116,9 @@ func (p *VictionProcessor) ForkAtBlock(statedb *state.StateDB, blockNum *big.Int
 }
 
 // Return original balances snapshot.
+// Pre-Atlas the returned map is the processor's live per-block capacity pool:
+// StateTransition.buyGasZG checks sponsor capacity against it while
+// processing, and processZeroGas decrements it after each applied transaction.
 func (p *VictionProcessor) ZeroGasPool() types.BalanceMap {
 	if p == nil {
 		return nil
@@ -137,51 +144,78 @@ func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.St
 	misc.ApplyPosvHardForks(statedb, p.config, p.config.Viction, header.Number)
 
 	if p.config.IsNativeTradingEnabled(header.Number) && header.Number.Uint64() > p.config.Posv.Epoch {
-		parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)
-		if parent != nil {
-			parentAuthor, err := p.engine.Author(parent.Header())
-			if err != nil {
-				log.Warn("Failed to recover parent block author, using zero address", "block", parent.NumberU64(), "err", err)
-			}
-
-			if p.tradingEngine != nil {
-				tradingState, err := p.tradingEngine.GetTradingState(parent, parentAuthor)
-				if err != nil {
-					return fmt.Errorf("native_trading: failed to open StateDB at block %d: %w", header.Number, err)
-				}
-				p.tradingStateDB = tradingState
-
-				if header.Number.Uint64()%p.config.Posv.Epoch == 0 {
-					if err := p.tradingEngine.UpdateMediumPriceBeforeEpoch(
-						header.Number.Uint64()/p.config.Posv.Epoch,
-						tradingState, statedb,
-					); err != nil {
-						return fmt.Errorf("native_trading: failed to exec UpdateMediumPriceBeforeEpoch at block %d: %w", header.Number, err)
-					}
-				}
-			}
-
-			if p.lendingEngine != nil {
-				lendingState, err := p.lendingEngine.GetLendingState(parent, parentAuthor)
-				if err != nil {
-					return fmt.Errorf("native_lending: failed to open StateDB at block %d: %w", header.Number, err)
-				}
-				p.lendingStateDB = lendingState
-			}
+		if err := p.openNativeExchangeState(header, statedb); err != nil {
+			return err
 		}
-
-		if header.Number.Uint64()%p.config.Posv.Epoch == p.config.Viction.LendingLiquidateTradeBlock && p.IsLendingInitialized() {
-			_, _, _, _, _, err := p.lendingEngine.ProcessLiquidationData(header, p.chain, statedb, p.tradingStateDB, p.lendingStateDB)
-			if err != nil {
-				return fmt.Errorf("native_lending: failed to exec ProcessLiquidationData at block %d: %w", header.Number, err)
-			}
-			log.Info("[NativeLending] Epoch liquidation processed", "block", header.Number.Uint64())
+		if err := p.processLendingLiquidation(header, statedb); err != nil {
+			return err
 		}
 	}
 
 	signer := types.MakeSigner(p.config, header.Number)
 	types.CacheSigners(signer, block.Transactions())
 
+	return nil
+}
+
+// Open the native trading/lending state DBs on top of the parent block.
+func (p *VictionProcessor) openNativeExchangeState(header *types.Header, statedb *state.StateDB) error {
+	if p.chain == nil {
+		return fmt.Errorf("native_trading: chain context unavailable at block %d", header.Number)
+	}
+	if p.engine == nil {
+		return fmt.Errorf("native_trading: consensus engine unavailable at block %d", header.Number)
+	}
+	if p.tradingEngine == nil {
+		return fmt.Errorf("native_trading: trading engine not initialized at block %d", header.Number)
+	}
+	if p.lendingEngine == nil {
+		return fmt.Errorf("native_lending: lending engine not initialized at block %d", header.Number)
+	}
+	parent := p.chain.GetBlock(header.ParentHash, header.Number.Uint64()-1)
+	if parent == nil {
+		return fmt.Errorf("native_trading: parent block %d not found", header.Number.Uint64()-1)
+	}
+	parentAuthor, err := p.engine.Author(parent.Header())
+	if err != nil {
+		return fmt.Errorf("native_trading: failed to recover parent block author at block %d: %w", header.Number, err)
+	}
+
+	tradingState, err := p.tradingEngine.GetTradingState(parent, parentAuthor)
+	if err != nil {
+		return fmt.Errorf("native_trading: failed to open StateDB at block %d: %w", header.Number, err)
+	}
+	p.tradingStateDB = tradingState
+
+	isEpochStart := header.Number.Uint64()%p.config.Posv.Epoch == 0
+	if isEpochStart {
+		if err := p.tradingEngine.UpdateMediumPriceBeforeEpoch(
+			header.Number.Uint64()/p.config.Posv.Epoch,
+			tradingState, statedb,
+		); err != nil {
+			return fmt.Errorf("native_trading: failed to exec UpdateMediumPriceBeforeEpoch at block %d: %w", header.Number, err)
+		}
+	}
+
+	lendingState, err := p.lendingEngine.GetLendingState(parent, parentAuthor)
+	if err != nil {
+		return fmt.Errorf("native_lending: failed to open StateDB at block %d: %w", header.Number, err)
+	}
+	p.lendingStateDB = lendingState
+
+	return nil
+}
+
+// Process the epoch-scheduled lending liquidation on the opened native state DBs.
+func (p *VictionProcessor) processLendingLiquidation(header *types.Header, statedb *state.StateDB) error {
+	if header.Number.Uint64()%p.config.Posv.Epoch != p.config.Viction.LendingLiquidateTradeBlock || !p.IsLendingInitialized() {
+		return nil
+	}
+	_, _, _, _, _, err := p.lendingEngine.ProcessLiquidationData(header, p.chain, statedb, p.tradingStateDB, p.lendingStateDB)
+	if err != nil {
+		return fmt.Errorf("native_lending: failed to exec ProcessLiquidationData at block %d: %w", header.Number, err)
+	}
+	log.Info("[NativeLending] Epoch liquidation processed", "block", header.Number.Uint64())
 	return nil
 }
 
@@ -223,7 +257,7 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 	}
 
 	header := block.Header()
-	if header.Number.BitLen() <= 64 && header.Number.Uint64() <= 9147459 {
+	if header.Number.BitLen() <= 64 && header.Number.Uint64() <= bypassBalanceFixBlock {
 		if val := p.config.Viction.GetBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
 			statedb.SetBalance(msg.From(), val)
 		}
@@ -346,7 +380,7 @@ func (p *VictionProcessor) applyTradingTransaction(tx *types.Transaction, header
 		// The author is the address passed to ValidateTradingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("[NativeTrading] Failed to recover block author, using zero address", "err", err)
+			return true, nil, fmt.Errorf("native_trading: failed to recover block author at block %d: %w", header.Number.Uint64(), err)
 		}
 
 		for i, txDataMatch := range batch.Data {
@@ -383,7 +417,7 @@ func (p *VictionProcessor) applyLendingTransaction(tx *types.Transaction, header
 		// The author is the address passed to ValidateLendingOrder -> DoSettleBalance for validator fee accounting.
 		coinbase, err := p.engine.Author(header)
 		if err != nil {
-			log.Warn("[NativeLending] Failed to recover block author, using zero address", "err", err)
+			return true, nil, fmt.Errorf("native_lending: failed to recover block author at block %d: %w", header.Number.Uint64(), err)
 		}
 
 		for i, order := range batch.Data {
