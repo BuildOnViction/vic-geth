@@ -10,8 +10,8 @@ Important rules when working with the project; these must be strictly followed:
 - Understand the problem: read the task and the code it touches, trace the real flow end to end.
 - Write code that is maintainable: see the later sections `Sharing Code`, `Editing`, `Fixing`, `Testing`.
 <!-- Project-specific / Guideline -->
-- Viction integration is add-ons, Ethereum logic must be intact implementation. Consult the user if breaking changes is unavoidable.
-- Don't extracting code into helper functions when modifying existing Ethereum logic, as it creates diffs that make merging upstream changes harder.
+- Viction integration is add-ons, Ethereum logic must be intact after implementation. Consult the user if breaking changes is unavoidable.
+- Prefer addition over overwrite existing existing Ethereum logic to reduce diffs that make merging upstream changes harder.
 
 ### Sharing Code
 
@@ -53,6 +53,7 @@ When testing, follow these rules:
 - Test functions must follow the order of the code they test.
 - Execute tests per package to prevent timeout.
 <!-- Project-specific / Testing -->
+- Before running tests that use the fixtures in `tests/testdata`, update the git submodule to the revision pinned in the commit tree (not in a file): `git submodule update --init --checkout tests/testdata`.
 
 ## Checklist
 
