@@ -27,7 +27,7 @@ const (
 	VictionMajor = 1
 	VictionMinor = 1
 	VictionPatch = 0
-	VictionMeta  = "rc3"
+	VictionMeta  = "rc4"
 )
 
 const (
