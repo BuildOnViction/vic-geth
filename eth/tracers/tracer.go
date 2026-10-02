@@ -286,7 +286,10 @@ func (cw *contractWrapper) pushObject(vm *duktape.Context) {
 // Tracer provides an implementation of Tracer that evaluates a Javascript
 // function for each VM execution step.
 type Tracer struct {
-	inited bool // Flag whether the context was already inited from the EVM
+	inited        bool // Flag whether the context was already inited from the EVM
+	callTracer    bool // Filter only the built-in callTracer.
+	previousDepth int  // Depth of the previous instruction.
+	afterSystem   bool // Capture the step after a system opcode.
 
 	vm *duktape.Context // Javascript VM instance
 
@@ -317,11 +320,13 @@ type Tracer struct {
 // which must evaluate to an expression returning an object with 'step', 'fault'
 // and 'result' functions.
 func New(code string) (*Tracer, error) {
+	builtinCallTracer := code == "callTracer"
 	// Resolve any tracers by name and assemble the tracer object
 	if tracer, ok := tracer(code); ok {
 		code = tracer
 	}
 	tracer := &Tracer{
+		callTracer:      builtinCallTracer,
 		vm:              duktape.New(),
 		ctx:             make(map[string]interface{}),
 		opWrapper:       new(opWrapper),
@@ -575,12 +580,26 @@ func (jst *Tracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost 
 			jst.errorValue = new(string)
 			*jst.errorValue = err.Error()
 		}
+		// Skip ordinary steps that cannot change the built-in call trace.
+		// Keep wrappers current because CaptureFault uses this instruction's state.
+		if jst.callTracer && !jst.captureCallStep(op, depth, err) {
+			return nil
+		}
 		_, err := jst.call("step", "log", "db")
 		if err != nil {
 			jst.err = wrapError("step", err)
 		}
 	}
 	return nil
+}
+
+// Keep this filter in sync with call_tracer.js. Ordinary steps only handle
+// call descent and return.
+func (jst *Tracer) captureCallStep(op vm.OpCode, depth int, err error) bool {
+	capture := err != nil || op&0xf0 == 0xf0 || depth != jst.previousDepth || jst.afterSystem
+	jst.previousDepth = depth
+	jst.afterSystem = op&0xf0 == 0xf0
+	return capture
 }
 
 // CaptureFault implements the Tracer interface to trace an execution fault
