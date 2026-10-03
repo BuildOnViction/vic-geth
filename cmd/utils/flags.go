@@ -741,7 +741,7 @@ var (
 	// Viction-specifc flags
 	SkipCompatRewindFlag = cli.BoolFlag{
 		Name:  "skip-compat-rewind",
-		Usage: "Disables automatic chain rewind when fork configuration is incompatible",
+		Usage: "Disables automatic chain rewind when fork configuration is incompatible (defaulted to true for chains with a Viction or Victest genesis)",
 	}
 	SyncThresholdFlag = cli.Uint64Flag{
 		Name:  "sync-threshold",
@@ -1628,7 +1628,8 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	}
 	// Viction-specific flags
 	if ctx.GlobalIsSet(SkipCompatRewindFlag.Name) {
-		cfg.SkipCompatRewind = ctx.GlobalBool(SkipCompatRewindFlag.Name)
+		val := ctx.GlobalBool(SkipCompatRewindFlag.Name)
+		cfg.SkipCompatRewind = &val
 	}
 	if ctx.GlobalIsSet(SyncThresholdFlag.Name) {
 		cfg.SyncThreshold = ctx.GlobalUint64(SyncThresholdFlag.Name)

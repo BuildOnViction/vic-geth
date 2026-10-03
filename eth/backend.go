@@ -186,7 +186,7 @@ func New(stack *node.Node, config *Config) (*Ethereum, error) {
 	eth.blockchain.SetSyncThreshold(config.SyncThreshold)
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
-		if config.SkipCompatRewind {
+		if config.SkipCompatRewindFor(genesisHash) {
 			log.Info("Skipping chain rewind for incompatible configuration", "err", compat)
 		} else {
 			log.Warn("Rewinding chain to upgrade configuration", "err", compat)

@@ -141,10 +141,13 @@ type Config struct {
 
 	// Database options
 	SkipBcVersionCheck bool `toml:"-"`
-	SkipCompatRewind   bool `toml:"-"`
-	DatabaseHandles    int  `toml:"-"`
-	DatabaseCache      int
-	DatabaseFreezer    string
+	// SkipCompatRewind forces skipping the chain rewind on incompatible fork
+	// configuration when set; when nil, the default is derived per chain by
+	// SkipCompatRewindFor.
+	SkipCompatRewind *bool `toml:"-"`
+	DatabaseHandles  int   `toml:"-"`
+	DatabaseCache    int
+	DatabaseFreezer  string
 
 	TrieCleanCache          int
 	TrieCleanCacheJournal   string        `toml:",omitempty"` // Disk journal directory for trie cache to survive node restarts
@@ -190,4 +193,16 @@ type Config struct {
 
 	// CheckpointOracle is the configuration for checkpoint oracle.
 	CheckpointOracle *params.CheckpointOracleConfig `toml:",omitempty"`
+}
+
+// SkipCompatRewindFor reports whether the chain rewind for an incompatible
+// fork configuration should be skipped. An explicit --skip-compat-rewind
+// setting always wins; otherwise the rewind is skipped by default for chains
+// with a Viction or Victest genesis (identified by the datadir's stored
+// genesis hash).
+func (config *Config) SkipCompatRewindFor(genesisHash common.Hash) bool {
+	if config.SkipCompatRewind != nil {
+		return *config.SkipCompatRewind
+	}
+	return genesisHash == params.VictionGenesisHash || genesisHash == params.VictestGenesisHash
 }
