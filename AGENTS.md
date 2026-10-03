@@ -10,7 +10,7 @@ Project-specific rules supplement the template rules; when they conflict, the pr
 |------|---------------|
 | [.agents/project-structure.md](.agents/project-structure.md) | Repository/package layout and where to put new code |
 | [.agents/coding-conventions.md](.agents/coding-conventions.md) | Naming, formatting, comment style, and other code conventions |
-| [.agents/task-guideline.md](.agents/task-guideline.md) | Guideline and checklist for making code changes |
+| [.agents/task-guideline.md](.agents/task-guideline.md) | Guideline and checklist for making code changes and testing |
 | [.agents/pull-request-guideline.md](.agents/pull-request-guideline.md) | Checklist to run through before opening/updating a pull request |
 | [.agents/commands.md](.agents/commands.md) | Commands for building, testing, formatting, and running the project |
 <!-- Project-specific / Topics -->

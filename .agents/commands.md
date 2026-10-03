@@ -32,4 +32,4 @@ Standard commands for building, testing, and maintaining this project.
 
 <!-- Project-specific -->
 
-This project supports up to Go 1.19. When building or testing, set the environment variable GOTOOLCHAIN=go1.19.13 to ensure a consistent result across development environments.
+This project supports up to Go 1.18. When building or testing, set the environment variable `GOTOOLCHAIN=go1.18.10` to ensure a consistent result across development environments.

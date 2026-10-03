@@ -1,6 +1,6 @@
 # Project Structure
 
-This file defines the overall architecture of the project. For detailed instructions on how to make changes, see [task-guideline.md](task-guideline.md).
+This file defines the overall architecture of the project. For detailed instructions on how to make changes or test, see [task-guideline.md](task-guideline.md).
 
 ## Guideline
 
