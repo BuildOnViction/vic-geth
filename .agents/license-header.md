@@ -9,7 +9,7 @@
 
 The default header for new code file is:
 
-```go
+```
 // Copyright 2025 The Viction Authors
 // (modifications)
 // This file is part of the go-ethereum library.
@@ -31,7 +31,7 @@ The default header for new code file is:
 <!-- Project-specific / Guideline -->
 
 If editing existing code file, modify header follow this form:
-```go
+```
 // Copyright 2017 The go-ethereum Authors
 // (original work)
 // Copyright 2025 The Viction Authors

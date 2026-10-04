@@ -1,5 +1,7 @@
 # Project Structure
 
+This file defines the overall architecture of the project. For detailed instructions on how to make changes or test, see [task-guideline.md](task-guideline.md).
+
 ## Guideline
 
 - Keep `main()` functions thin: parse flags/config, wire dependencies, then delegate to `internal/` packages.
@@ -11,6 +13,7 @@
 
 ## Layout
 
+```
 ├── .agents/        # shared AI agent instructions (coding conventions, PR/task checklists, project structure)
 ├── .github/        # GitHub-specific config (workflows, issue/PR templates)
 ├── .vscode/        # VS Code editor/workspace settings
@@ -41,6 +44,7 @@
 ├── go.sum          # Go module checksums
 ├── main.go         # default application entrypoint
 <!-- Project-specific / Layout -->
+```
 
 This repository is a go-ethereum (geth) fork for Viction — the actual layout differs from the generic template above. Agents MUST inspect the actual top-level directories (core protocol packages at root, `cmd/`, `internal/`, `build/`, `tests/`, `docs/`, `common/`, `contracts/`, `legacy/`) before assuming the generic layout applies. The generic template is a fallback only; project-specific layout wins on conflict.
 
