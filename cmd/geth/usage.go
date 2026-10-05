@@ -137,6 +137,7 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.HTTPApiFlag,
 			utils.HTTPCORSDomainFlag,
 			utils.HTTPVirtualHostsFlag,
+			utils.HTTPTimeoutFlag,
 			utils.WSEnabledFlag,
 			utils.WSListenAddrFlag,
 			utils.WSPortFlag,

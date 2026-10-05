@@ -20,6 +20,8 @@ import (
 	"math/big"
 	"reflect"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 func TestCheckCompatible(t *testing.T) {
@@ -94,5 +96,29 @@ func TestCheckCompatible(t *testing.T) {
 		if !reflect.DeepEqual(err, test.wantErr) {
 			t.Errorf("error mismatch:\nstored: %v\nnew: %v\nhead: %v\nerr: %v\nwant: %v", test.stored, test.new, test.head, err, test.wantErr)
 		}
+	}
+}
+
+func TestIsVictionGenesisHash(t *testing.T) {
+	tests := []struct {
+		name string
+		hash common.Hash
+		want bool
+	}{
+		{"viction mainnet", VictionGenesisHash, true},
+		{"victest testnet", VictestGenesisHash, true},
+		{"vicdev excluded", VicdevGenesisHash, false},
+		{"ethereum mainnet", MainnetGenesisHash, false},
+		{"empty hash", common.Hash{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// act
+			got := IsVictionGenesisHash(tt.hash)
+			// assert
+			if got != tt.want {
+				t.Errorf("IsVictionGenesisHash(%s) = %v, want %v", tt.hash.Hex(), got, tt.want)
+			}
+		})
 	}
 }
