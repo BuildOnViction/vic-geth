@@ -92,6 +92,7 @@ type peer struct {
 
 	version  int         // Protocol version negotiated
 	syncDrop *time.Timer // Timed connection dropper if sync progress isn't validated in time
+	posv     bool        // Whether this node runs a PoSV/Viction chain (controls wire encoding)
 
 	head common.Hash
 	td   *big.Int
@@ -109,11 +110,12 @@ type peer struct {
 	term chan struct{} // Termination channel to stop the broadcaster
 }
 
-func newPeer(version int, p *p2p.Peer, rw p2p.MsgReadWriter, getPooledTx func(hash common.Hash) *types.Transaction) *peer {
+func newPeer(version int, p *p2p.Peer, rw p2p.MsgReadWriter, getPooledTx func(hash common.Hash) *types.Transaction, posv bool) *peer {
 	return &peer{
 		Peer:            p,
 		rw:              rw,
 		version:         version,
+		posv:            posv,
 		id:              fmt.Sprintf("%x", p.ID().Bytes()[:8]),
 		knownTxs:        mapset.NewSet(),
 		knownBlocks:     mapset.NewSet(),
@@ -472,8 +474,11 @@ func (p *peer) SendNewBlock(block *types.Block, td *big.Int) error {
 		p.knownBlocks.Pop()
 	}
 	p.knownBlocks.Add(block.Hash())
-	// Ensure the block header is marked as PoSV so it encodes with 18 fields.
-	block.SetPosv(true)
+	// For Viction chains, mark the block header as PoSV so it encodes with
+	// 18 fields. Plain Ethereum chains are left untouched.
+	if p.posv {
+		block.SetPosv(true)
+	}
 	return p2p.Send(p.rw, NewBlockMsg, []interface{}{block, td})
 }
 
@@ -494,10 +499,13 @@ func (p *peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 
 // SendBlockHeaders sends a batch of block headers to the remote peer.
 func (p *peer) SendBlockHeaders(headers []*types.Header) error {
-	// Ensure all headers are marked as PoSV so they encode with 18 fields.
-	// This is needed for compatibility with victionchain peers which expect 18 fields.
-	for _, h := range headers {
-		h.Posv = true
+	// For Viction chains, mark all headers as PoSV so they encode with 18
+	// fields. This is needed for compatibility with victionchain peers which
+	// expect 18 fields. Plain Ethereum chains are left untouched.
+	if p.posv {
+		for _, h := range headers {
+			h.Posv = true
+		}
 	}
 	return p2p.Send(p.rw, BlockHeadersMsg, headers)
 }

@@ -20,8 +20,9 @@
 package core
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -43,22 +44,15 @@ type StateProcessor struct {
 	// viction owns all Viction-specific processing hooks (hardfork activation,
 	// system transactions, VRC25 fees, native trading/lending replay). See viction.Processor.
 	viction *VictionProcessor
-
-	// Deferred trie GC fields for native trading/lending (full-node path).
-	// These are managed entirely by blockchain_viction.go / commitVictionState.
-	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
-	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config:        config,
-		bc:            bc,
-		engine:        engine,
-		viction:       NewVictionProcessor(config, bc, engine),
-		tradingTriegc: prque.New(nil),
-		lendingTriegc: prque.New(nil),
+		config:  config,
+		bc:      bc,
+		engine:  engine,
+		viction: NewVictionProcessor(config, bc, engine),
 	}
 }
 
@@ -102,15 +96,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, vp 
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 
 		// Apply Viction-specific system transactions (BlockSigner, native trading/lending).
-		handled, receipt, _, err, _ := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
+		handled, receipt, err := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 
 		if !handled {
 			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv, vp.ZeroGasPool())
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 			}
 		}
 
@@ -196,7 +190,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // chain_makers) path.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
 	// POSV: Viction system transactions bypass — same logic as block import.
-	if handled, receipt, _, err, _ := (&VictionProcessor{config: config}).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
+	if handled, receipt, err := NewVictionProcessor(config, nil, nil).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
 		return receipt, err
 	}
 
