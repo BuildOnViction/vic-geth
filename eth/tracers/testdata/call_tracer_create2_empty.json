@@ -1,0 +1,58 @@
+{
+  "context": {
+    "difficulty": "196608",
+    "gasLimit": "1000000",
+    "miner": "0x0000000000000000000000000000000000000000",
+    "number": "8000000",
+    "timestamp": "5"
+  },
+  "genesis": {
+    "config": {
+      "chainId": 1337,
+      "homesteadBlock": 0,
+      "eip150Block": 0,
+      "eip150Hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "eip155Block": 0,
+      "eip158Block": 0,
+      "byzantiumBlock": 0,
+      "constantinopleBlock": 0,
+      "petersburgBlock": 0,
+      "istanbulBlock": 0,
+      "ethash": {}
+    },
+    "gasLimit": "0xf4240",
+    "difficulty": "0x30000",
+    "alloc": {
+      "00000000000000000000000000000000deadbeef": {
+        "code": "0x6000600060006000f55000",
+        "balance": "0x0",
+        "nonce": "0x1"
+      },
+      "7e5f4552091a69125d5dfcb7b8c2659029395bdf": {
+        "balance": "0xde0b6b3a7640000"
+      }
+    }
+  },
+  "input": "0xf8628001830f42409400000000000000000000000000000000deadbeef8080820a96a0b749ae56caf099d9b9325af78bbc0e894c47e39c527781460303282b55805d79a04eaa0e0d438acff75d3b412ac4079fd5e6f1e625d3bedd3371c50b006f3ad142",
+  "result": {
+    "calls": [
+      {
+        "from": "0x00000000000000000000000000000000deadbeef",
+        "gasUsed": "0x0",
+        "input": "0x",
+        "output": "0x",
+        "to": "0x2ce805aa05f88325a4ab0411965a56f607363ed0",
+        "type": "CREATE2",
+        "value": "0x0"
+      }
+    ],
+    "from": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+    "gas": "0xef038",
+    "gasUsed": "0x7d0e",
+    "input": "0x",
+    "output": "0x",
+    "to": "0x00000000000000000000000000000000deadbeef",
+    "type": "CALL",
+    "value": "0x0"
+  }
+}
