@@ -40,6 +40,12 @@ var (
 	VicdevGenesisHash  = common.HexToHash("0x672b317f13b6c0bce7427009577674351c0f98d991f20f230454147d152cff0e")
 )
 
+// IsVictionGenesisHash reports whether the given hash is the genesis hash
+// of a Viction chain (Viction mainnet or Victest testnet).
+func IsVictionGenesisHash(ghash common.Hash) bool {
+	return ghash == VictionGenesisHash || ghash == VictestGenesisHash
+}
+
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
 // the chain it belongs to.
 var TrustedCheckpoints = map[common.Hash]*TrustedCheckpoint{
