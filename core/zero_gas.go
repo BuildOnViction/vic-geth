@@ -34,19 +34,16 @@ var (
 )
 
 // Pay Transaction fee using VRC25 token.
-func PayTxFeeUsingToken(statedb *state.StateDB, from common.Address, token common.Address) error {
-	if statedb == nil {
-		return ErrInvalidParams
-	}
+func PayTxFeeUsingToken(statedb *state.StateDB, from common.Address, token common.Address) {
 	issuer := statedb.VicGetVrc25Issuer(token)
 	if issuer == (common.Address{}) {
-		return nil
+		return
 	}
 	minFee := statedb.VicGetVrc25MinFee(token)
 
 	fromBalance := statedb.VicGetVrc25Balance(token, from)
 	if fromBalance.Sign() <= 0 {
-		return nil
+		return
 	}
 	feeUsed := new(big.Int).Set(minFee)
 	if fromBalance.Cmp(minFee) < 0 {
@@ -59,8 +56,6 @@ func PayTxFeeUsingToken(statedb *state.StateDB, from common.Address, token commo
 	issuerBalance := statedb.VicGetVrc25Balance(token, issuer)
 	issuerBalance.Add(issuerBalance, feeUsed)
 	statedb.VicSetVrc25Balance(token, issuer, issuerBalance)
-
-	return nil
 }
 
 // Check given transaction is valid for sponsoring fee.

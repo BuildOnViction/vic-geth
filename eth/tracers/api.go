@@ -544,7 +544,7 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
 		statedb.Prepare(tx.Hash(), i)
 		vmenv := vm.NewEVM(blockCtx, core.NewEVMTxContext(msg), statedb, api.backend.ChainConfig(), vm.Config{})
-		zp := core.NewTxVictionProcessor(api.backend.ChainConfig(), statedb, block.Number()).ZeroGasPool()
+		zp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp); err != nil {
 			failed = err
 			break
@@ -658,7 +658,7 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 		// Execute the transaction and flush any traces to disk
 		vmenv := vm.NewEVM(vmctx, txContext, statedb, chainConfig, vmConf)
 		statedb.Prepare(tx.Hash(), i)
-		zp := core.NewTxVictionProcessor(chainConfig, statedb, block.Number()).ZeroGasPool()
+		zp := core.NewVictionProcessor(chainConfig, nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
 		_, err = core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
 		if writer != nil {
 			writer.Flush()
@@ -823,7 +823,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 	// Call Prepare to clear out the statedb access list
 	statedb.Prepare(txctx.TxHash, txctx.TxIndex)
 
-	zp := core.NewTxVictionProcessor(api.backend.ChainConfig(), statedb, vmctx.BlockNumber).ZeroGasPool()
+	zp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, vmctx.BlockNumber).ZeroGasPool()
 	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), zp)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)

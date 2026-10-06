@@ -174,7 +174,7 @@ func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec 
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(context, txContext, statedb, eth.blockchain.Config(), vm.Config{})
 		statedb.Prepare(tx.Hash(), idx)
-		zp := core.NewTxVictionProcessor(eth.blockchain.Config(), statedb, block.Number()).ZeroGasPool()
+		zp := core.NewVictionProcessor(eth.blockchain.Config(), nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp); err != nil {
 			return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}

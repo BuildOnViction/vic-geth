@@ -166,6 +166,9 @@ type BlockChain struct {
 	triegc *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc time.Duration  // Accumulates canonical block processing for trie dumping
 
+	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
+	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
+
 	// txLookupLimit is the maximum number of blocks from head whose tx indices
 	// are reserved:
 	//  * 0:   means no limit and regenerate any missing indexes
@@ -233,6 +236,10 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		cacheConfig: cacheConfig,
 		db:          db,
 		triegc:      prque.New(nil),
+
+		tradingTriegc: prque.New(nil),
+		lendingTriegc: prque.New(nil),
+
 		stateCache: state.NewDatabaseWithConfig(db, &trie.Config{
 			Cache:     cacheConfig.TrieCleanLimit,
 			Journal:   cacheConfig.TrieCleanJournal,
@@ -1043,7 +1050,7 @@ func (bc *BlockChain) Stop() {
 
 	// Flush any pending native trading/lending trie roots that haven't reached the
 	// TriesInMemory commit threshold yet.
-	bc.flushNativeExchangeCache()
+	bc.stopViction()
 	// Ensure all live cached entries be saved into disk, so that we can skip
 	// cache warmup when node restarts.
 	if bc.cacheConfig.TrieCleanJournal != "" {

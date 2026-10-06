@@ -24,61 +24,168 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
-// Commit native trading/lending trie nodes for the given block to their LevelDB backing stores.
-func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
+// Return underlying VictionProcessor instance in the Proccesor.
+func (bc *BlockChain) VictionProcessor() *VictionProcessor {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok || p == nil {
 		return nil
 	}
-
-	if bc.cacheConfig.TrieDirtyDisabled {
-		if err := p.CommitTradingState(block); err != nil {
-			return err
-		}
-		return p.CommitLendingState(block)
-	}
-	if err := p.CommitTradingStateDeferred(block); err != nil {
-		return err
-	}
-	return p.CommitLendingStateDeferred(block)
+	return p.viction
 }
 
-// Flush any in-memory trading/lending trie roots not yet committed to LevelDB.
-func (bc *BlockChain) flushNativeExchangeCache() {
-	p, ok := bc.processor.(*StateProcessor)
-	if !ok || p == nil {
+// nativeTrieAccess groups the per-platform accessors needed to flush a native state trie.
+type nativeTrieAccess struct {
+	logTag string                                 // log prefix, e.g. "[NativeLending]"
+	errTag string                                 // error prefix, e.g. "native_lending"
+	ready  func(*VictionProcessor) bool           // reports whether the platform is initialized
+	root   func(*VictionProcessor) common.Hash    // returns the last committed state root
+	trieDB func(*VictionProcessor) *trie.Database // returns the platform trie DB, or nil if the engine is unset
+	triegc *prque.Prque                           // deferred GC queue for the platform trie roots
+}
+
+// Return the per-blockchain accessors for the native lending trie.
+func (bc *BlockChain) lendingTrieAccess() nativeTrieAccess {
+	return nativeTrieAccess{
+		logTag: "[NativeLending]",
+		errTag: "native_lending",
+		ready:  (*VictionProcessor).IsLendingInitialized,
+		root:   (*VictionProcessor).CommittedLendingRoot,
+		trieDB: func(p *VictionProcessor) *trie.Database {
+			engine := p.LendingEngine()
+			if engine == nil {
+				return nil
+			}
+			return engine.GetStateCache().TrieDB()
+		},
+		triegc: bc.lendingTriegc,
+	}
+}
+
+// Return the per-blockchain accessors for the native trading trie.
+func (bc *BlockChain) tradingTrieAccess() nativeTrieAccess {
+	return nativeTrieAccess{
+		logTag: "[NativeTrading]",
+		errTag: "native_trading",
+		ready:  (*VictionProcessor).IsTradingInitialized,
+		root:   (*VictionProcessor).CommittedTradingRoot,
+		trieDB: func(p *VictionProcessor) *trie.Database {
+			engine := p.TradingEngine()
+			if engine == nil {
+				return nil
+			}
+			return engine.GetStateCache().TrieDB()
+		},
+		triegc: bc.tradingTriegc,
+	}
+}
+
+// Flush current block native state trie to LevelDB.
+func (bc *BlockChain) commitNativeTrie(a nativeTrieAccess, block *types.Block) error {
+	p := bc.VictionProcessor()
+	if p == nil || !a.ready(p) {
+		return nil
+	}
+	root := a.root(p)
+	if root == (common.Hash{}) {
+		return nil
+	}
+	if err := a.trieDB(p).Commit(root, false, nil); err != nil {
+		return fmt.Errorf("%s: failed to commit Trie at block %d: %w", a.errTag, block.NumberU64(), err)
+	}
+	log.Debug(a.logTag+" Flushed Trie to disk", "block", block.NumberU64(), "root", root.Hex())
+	return nil
+}
+
+// Flush current block native state trie in GC cache to LevelDB.
+func (bc *BlockChain) commitNativeTrieDeferred(a nativeTrieAccess, block *types.Block) error {
+	p := bc.VictionProcessor()
+	if p == nil || !a.ready(p) {
+		return nil
+	}
+	current := block.NumberU64()
+	root := a.root(p)
+	if root == (common.Hash{}) {
+		return nil
+	}
+	trieDB := a.trieDB(p)
+	trieDB.Reference(root, common.Hash{})
+	a.triegc.Push(root, -int64(current))
+
+	if err := trieDB.Commit(root, true, nil); err != nil {
+		return fmt.Errorf("%s: failed to commit Trie at block %d: %w", a.errTag, current, err)
+	}
+	log.Debug(a.logTag+" Flushed Trie to disk", "block", current, "root", root.Hex())
+
+	if current > TriesInMemory {
+		// If we exceeded our memory allowance, flush matured singleton nodes to disk
+		var (
+			nodes, imgs = trieDB.Size()
+			limit       = common.StorageSize(bc.cacheConfig.TrieDirtyLimit) * 1024 * 1024
+		)
+		if nodes > limit || imgs > 4*1024*1024 {
+			trieDB.Cap(limit - ethdb.IdealBatchSize)
+		}
+		chosen := current - TriesInMemory
+		for !a.triegc.Empty() {
+			root, number := a.triegc.Pop()
+			if uint64(-number) > chosen {
+				a.triegc.Push(root, number)
+				break
+			}
+			trieDB.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
+
+// Flush all native state trie entries in GC cache to LevelDB.
+func (bc *BlockChain) flushNativeTrieGCCache(a nativeTrieAccess) {
+	p := bc.VictionProcessor()
+	if bc.cacheConfig.TrieDirtyDisabled || p == nil {
 		return
 	}
-	p.FlushTradingStateGCCache()
-	p.FlushLendingStateGCCache()
+	trieDB := a.trieDB(p)
+	if trieDB == nil {
+		return
+	}
+	for !a.triegc.Empty() {
+		root := a.triegc.PopItem()
+		if err := trieDB.Commit(root.(common.Hash), true, nil); err != nil {
+			log.Error(a.logTag+" Failed to commit Trie on shutdown", "root", root, "err", err)
+		}
+		trieDB.Dereference(root.(common.Hash))
+	}
 }
 
 // Inject the Native Trading Engine into the Processor.
 func (bc *BlockChain) SetTradingEngine(engine TradingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain] Native Trading engine not installed: Processor is not a *StateProcessor")
+		log.Error("[NativeTrading] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetTradingEngine(engine)
-	log.Info("[Blockchain] Native Trading engine has been installed on state processor")
+	log.Info("[NativeTrading] Engine installed on state processor")
 }
 
 // Inject the Native Lending Engine into the Processor.
 func (bc *BlockChain) SetLendingEngine(engine LendingEngine) {
 	p, ok := bc.processor.(*StateProcessor)
 	if !ok {
-		log.Error("[Blockchain] Native Lending engine not installed: Processor is not a *StateProcessor")
+		log.Error("[NativeLending] Engine not installed: Processor is not a *StateProcessor")
 		return
 	}
 	p.viction.SetLendingEngine(engine)
-	log.Info("[Blockchain] Native Lending engine has been installed on state processor")
+	log.Info("[NativeLending] Engine installed on state processor")
 }
 
 func (bc *BlockChain) UpdateValidators() error {
@@ -102,10 +209,11 @@ func (bc *BlockChain) UpdateValidators() error {
 
 	var validators []posv.ValidatorInfo
 	for _, candidate := range candidates {
-		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
-		if candidate.String() != "0x0000000000000000000000000000000000000000" {
-			validators = append(validators, posv.ValidatorInfo{Address: candidate, Capacity: cap})
+		if candidate.IsZero() {
+			continue
 		}
+		_, cap := stateDB.VicGetValidatorInfo(contractAddress, candidate)
+		validators = append(validators, posv.ValidatorInfo{Address: candidate, Capacity: cap})
 	}
 	if len(validators) == 0 {
 		return ErrNoValidators
@@ -122,15 +230,13 @@ func (bc *BlockChain) UpdateValidators() error {
 		})
 	}
 
-	vs := make([]common.Address, 0)
-	if len(validators) > int(bc.chainConfig.Viction.ValidatorMaxCount) {
-		for _, v := range validators[:bc.chainConfig.Viction.ValidatorMaxCount] {
-			vs = append(vs, v.Address)
-		}
-	} else {
-		for _, v := range validators {
-			vs = append(vs, v.Address)
-		}
+	count := len(validators)
+	if max := int(bc.chainConfig.Viction.ValidatorMaxCount); count > max {
+		count = max
+	}
+	vs := make([]common.Address, 0, count)
+	for _, v := range validators[:count] {
+		vs = append(vs, v.Address)
 	}
 	err = engine.SetCheckpointSigners(bc, header, vs)
 	if err != nil {
@@ -160,4 +266,24 @@ func (bc *BlockChain) AreTwoBlockSamePath(bh1 common.Hash, bh2 common.Hash) bool
 	}
 
 	return hash1 == bh2
+}
+
+// Commit native trading/lending trie nodes for the given block to their LevelDB backing stores.
+func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
+	if bc.cacheConfig.TrieDirtyDisabled {
+		if err := bc.commitNativeTrie(bc.tradingTrieAccess(), block); err != nil {
+			return err
+		}
+		return bc.commitNativeTrie(bc.lendingTrieAccess(), block)
+	}
+	if err := bc.commitNativeTrieDeferred(bc.tradingTrieAccess(), block); err != nil {
+		return err
+	}
+	return bc.commitNativeTrieDeferred(bc.lendingTrieAccess(), block)
+}
+
+// Flush any in-memory trading/lending trie roots not yet committed to LevelDB.
+func (bc *BlockChain) stopViction() {
+	bc.flushNativeTrieGCCache(bc.tradingTrieAccess())
+	bc.flushNativeTrieGCCache(bc.lendingTrieAccess())
 }

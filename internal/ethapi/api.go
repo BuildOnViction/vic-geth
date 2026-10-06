@@ -923,7 +923,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	zp := core.NewTxVictionProcessor(evm.ChainConfig(), state, header.Number).ZeroGasPool()
+	zp := core.NewVictionProcessor(evm.ChainConfig(), nil, nil).ForkAtBlock(state, header.Number).ZeroGasPool()
 	result, err := core.ApplyMessage(evm, msg, gp, zp)
 	if err := vmError(); err != nil {
 		return nil, err

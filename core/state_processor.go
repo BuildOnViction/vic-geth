@@ -24,7 +24,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -44,22 +43,15 @@ type StateProcessor struct {
 	engine consensus.Engine    // Consensus engine used for block rewards
 
 	viction *VictionProcessor
-
-	// Deferred trie GC fields for native trading/lending (full-node path).
-	// These are managed entirely by blockchain_viction.go / commitVictionState.
-	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
-	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 }
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
 	return &StateProcessor{
-		config:        config,
-		bc:            bc,
-		engine:        engine,
-		viction:       NewVictionProcessor(config, bc, engine),
-		tradingTriegc: prque.New(nil),
-		lendingTriegc: prque.New(nil),
+		config:  config,
+		bc:      bc,
+		engine:  engine,
+		viction: NewVictionProcessor(config, bc, engine),
 	}
 }
 
@@ -101,9 +93,9 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		statedb.Prepare(tx.Hash(), i)
 
-		handled, receipt, _, err, _ := p.viction.ApplyNativeTransaction(tx, header, statedb, usedGas)
+		handled, receipt, err := p.viction.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 
 		if !handled {
@@ -182,7 +174,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	if handled, receipt, _, err, _ := (&VictionProcessor{config: config}).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
+	if handled, receipt, err := NewVictionProcessor(config, nil, nil).ApplyNativeTransaction(tx, header, statedb, usedGas); handled {
 		return receipt, err
 	}
 
