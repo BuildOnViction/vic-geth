@@ -62,9 +62,12 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // Process returns the receipts and logs accumulated during the process and
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
-func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
+func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, vp *VictionProcessor, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
+	if vp == nil {
+		vp = p.viction
+	}
 	// Viction hooks
-	if err := p.viction.PreBlockProcess(block, statedb); err != nil {
+	if err := vp.PreBlockProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 	var (
@@ -88,18 +91,18 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
-		if err := p.viction.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+		if err := vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
 			return nil, nil, 0, err
 		}
 		statedb.Prepare(tx.Hash(), i)
 
-		handled, receipt, err := p.viction.ApplyNativeTransaction(tx, header, statedb, usedGas)
+		handled, receipt, err := vp.ApplyNativeTransaction(tx, header, statedb, usedGas)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 
 		if !handled {
-			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, p.viction.ZeroGasPool(), statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+			receipt, err = applyTransaction(msg, p.config, p.bc, nil, gp, vp.ZeroGasPool(), statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 			if err != nil {
 				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 			}
@@ -107,7 +110,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 		// Execute Viction-specific post-transaction logic.
 		failed := receipt.Status == types.ReceiptStatusFailed
-		if err := p.viction.PostApplyTransaction(tx, msg, statedb, receipt.GasUsed, failed); err != nil {
+		if err := vp.PostApplyTransaction(tx, msg, statedb, receipt.GasUsed, failed); err != nil {
 			return nil, nil, 0, err
 		}
 		receipts = append(receipts, receipt)
@@ -117,7 +120,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
 	// Execute Viction-specific post-processing logic.
-	if err := p.viction.PostBlockProcess(block, statedb); err != nil {
+	if err := vp.PostBlockProcess(block, statedb); err != nil {
 		return nil, nil, 0, err
 	}
 
