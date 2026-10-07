@@ -34,6 +34,16 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// Markers for Viction native system transactions handled without the EVM.
+// NativeTxNone means the transaction is a regular EVM transaction.
+const (
+	NativeTxNone             = ""
+	NativeTxTrading          = "trading"          // 0x91
+	NativeTxTradingState     = "tradingState"     // 0x92
+	NativeTxLending          = "lending"          // 0x93
+	NativeTxLendingFinalized = "lendingFinalized" // 0x94
+)
+
 // VictionProcessor handles Viction-specific block and transaction logic.
 type VictionProcessor struct {
 	config        *params.ChainConfig // Chain configuration
@@ -278,30 +288,20 @@ func (p *VictionProcessor) ApplyNativeTransaction(tx *types.Transaction, header 
 		return p.applyBlockSigningTransaction(tx, header, statedb, usedGas)
 	}
 
-	// 0x91 — Trading order-matching batch.
-	if tx.IsTradingTransaction(vicConfig.TradingContract) && p.config.IsNativeTradingEnabled(header.Number) {
+	switch NativeTransactionKind(p.config, tx, header) {
+	case NativeTxNone:
+		return false, nil, nil
+	case NativeTxTradingState, NativeTxLendingFinalized:
+		return p.applyEmptyTransaction(tx, header, statedb, usedGas)
+	case NativeTxTrading:
 		if batch, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
 			return p.applyTradingTransaction(tx, header, statedb, usedGas, batch)
 		}
-	}
-
-	// 0x92 — Trading state root commit, verified in AfterBlockProcess.
-	if *tx.To() == vicConfig.TradingStateContract && p.config.IsNativeTradingEnabled(header.Number) {
-		return p.applyEmptyTransaction(tx, header, statedb, usedGas)
-	}
-
-	// 0x93 — Lending order-matching batch.
-	if tx.IsLendingTransaction(vicConfig.LendingContract) && p.config.IsNativeTradingEnabled(header.Number) {
+	case NativeTxLending:
 		if batch, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
 			return p.applyLendingTransaction(tx, header, statedb, usedGas, batch)
 		}
 	}
-
-	// 0x94 — Lending finalized trade.
-	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && p.config.IsNativeTradingEnabled(header.Number) {
-		return p.applyEmptyTransaction(tx, header, statedb, usedGas)
-	}
-
 	return false, nil, nil
 }
 
@@ -531,4 +531,43 @@ func (p *VictionProcessor) flushRemainCapacities(statedb *state.StateDB) {
 		return
 	}
 	statedb.VicSetZeroGasCapacities(p.config.Viction.VRC25RegistryContract, p.updatedZeroGasCapacities, p.totalUsedZeroGasCapacities)
+}
+
+// Try to determine Viction native transactions.
+func NativeTransactionKind(config *params.ChainConfig, tx *types.Transaction, header *types.Header) string {
+	if config == nil || config.Posv == nil || config.Viction == nil || tx.To() == nil {
+		return NativeTxNone
+	}
+	vicConfig := config.Viction
+
+	// 0x91 — Trading order-matching batch.
+	if tx.IsTradingTransaction(vicConfig.TradingContract) && config.IsNativeTradingEnabled(header.Number) {
+		if _, err := tradingstate.DecodeTxMatchesBatch(tx.Data()); err == nil {
+			return NativeTxTrading
+		}
+	}
+	// 0x92 — Trading state root commit.
+	if *tx.To() == vicConfig.TradingStateContract && config.IsNativeTradingEnabled(header.Number) {
+		return NativeTxTradingState
+	}
+	// 0x93 — Lending order-matching batch.
+	if tx.IsLendingTransaction(vicConfig.LendingContract) && config.IsNativeTradingEnabled(header.Number) {
+		if _, err := lendingstate.DecodeTxLendingBatch(tx.Data()); err == nil {
+			return NativeTxLending
+		}
+	}
+	// 0x94 — Lending finalized trade.
+	if tx.IsLendingFinalizedTradeTransaction(vicConfig.LendingFinalizedContract) && config.IsNativeTradingEnabled(header.Number) {
+		return NativeTxLendingFinalized
+	}
+	return NativeTxNone
+}
+
+// Perform post transaction adjustment to match block import behavior.
+func PostTraceTx(statedb *state.StateDB, kind string, msg Message) {
+	if kind == NativeTxNone {
+		return
+	}
+	from := msg.From()
+	statedb.SetNonce(from, statedb.GetNonce(from)-1)
 }

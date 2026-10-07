@@ -34,43 +34,54 @@ func (leth *LightEthereum) stateAtBlock(ctx context.Context, block *types.Block,
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
-func (leth *LightEthereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (leth *LightEthereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, types.BalanceMap, string, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
-		return nil, vm.BlockContext{}, nil, errors.New("no transaction in genesis")
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, errors.New("no transaction in genesis")
 	}
 	// Create the parent state database
 	parent, err := leth.blockchain.GetBlock(ctx, block.ParentHash(), block.NumberU64()-1)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, err
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
 	}
 	statedb, err := leth.stateAtBlock(ctx, parent, reexec)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, err
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
 	}
 	if txIndex == 0 && len(block.Transactions()) == 0 {
-		return nil, vm.BlockContext{}, statedb, nil
+		return nil, vm.BlockContext{}, statedb, nil, core.NativeTxNone, nil
 	}
 	// Recompute transactions up to the target index.
 	signer := types.MakeSigner(leth.blockchain.Config(), block.Number())
+	vp := core.NewVictionProcessor(leth.blockchain.Config(), nil, nil).ForkAtBlock(statedb, block.Number())
+	zp := vp.ZeroGasPool()
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before execution, mirroring block import.
+		if err := vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
+		}
 		txContext := core.NewEVMTxContext(msg)
 		context := core.NewEVMBlockContext(block.Header(), leth.blockchain, nil)
 		statedb.Prepare(tx.Hash(), idx)
 		if idx == txIndex {
-			return msg, context, statedb, nil
+			kind := core.NativeTransactionKind(leth.blockchain.Config(), tx, block.Header())
+			return msg, context, statedb, zp, kind, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(context, txContext, statedb, leth.blockchain.Config(), vm.Config{})
-		zp := core.NewVictionProcessor(leth.blockchain.Config(), nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp); err != nil {
-			return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp)
+		if err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		}
+		core.PostTraceTx(statedb, core.NativeTransactionKind(leth.blockchain.Config(), tx, block.Header()), msg)
+		if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
 		}
 		// Ensure any modifications are committed to the state
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
 	}
-	return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+	return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }

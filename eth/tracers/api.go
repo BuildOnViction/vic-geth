@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -71,7 +72,7 @@ type Backend interface {
 	Engine() consensus.Engine
 	ChainDb() ethdb.Database
 	StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive bool) (*state.StateDB, error)
-	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error)
+	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, types.BalanceMap, string, error)
 }
 
 // API is the collection of tracing APIs exposed over the private debugging endpoint.
@@ -207,8 +208,9 @@ type blockTraceResult struct {
 // txTraceTask represents a single transaction trace task when an entire block
 // is being traced.
 type txTraceTask struct {
-	statedb *state.StateDB // Intermediate state prepped for tracing
-	index   int            // Transaction offset in the block
+	statedb *state.StateDB   // Intermediate state prepped for tracing
+	index   int              // Transaction offset in the block
+	zp      types.BalanceMap // Snapshot of the VRC25 fee pool for the transaction
 }
 
 // TraceChain returns the structured logs created during the execution of EVM
@@ -265,6 +267,7 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 			for task := range tasks {
 				signer := types.MakeSigner(api.backend.ChainConfig(), task.block.Number())
 				blockCtx := core.NewEVMBlockContext(task.block.Header(), api.chainContext(localctx), nil)
+				vp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(task.statedb, task.block.Number())
 				// Trace all the transactions contained within
 				for i, tx := range task.block.Transactions() {
 					msg, _ := tx.AsMessage(signer, task.block.BaseFee())
@@ -273,8 +276,28 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 						TxIndex:   i,
 						TxHash:    tx.Hash(),
 					}
-					res, err := api.traceTx(localctx, msg, txctx, blockCtx, task.statedb, config)
+					// Reproduce Viction per-tx pre-checks (balance override + blacklist) before execution, mirroring block import.
+					if err := vp.PreApplyTransaction(task.block, tx, msg, task.statedb); err != nil {
+						task.results[i] = &txTraceResult{Error: err.Error()}
+						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
+						break
+					}
+					kind := core.NativeTransactionKind(api.backend.ChainConfig(), tx, task.block.Header())
+					res, err := api.traceTx(localctx, msg, txctx, blockCtx, task.statedb, vp.ZeroGasPool(), config)
 					if err != nil {
+						task.results[i] = &txTraceResult{Error: err.Error()}
+						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
+						break
+					}
+					usedGas, txFailed := uint64(0), false
+					switch res := res.(type) {
+					case *ethapi.ExecutionResult:
+						usedGas, txFailed = res.Gas, res.Failed
+					case json.RawMessage:
+						usedGas, txFailed = extractGasInfo(res)
+					}
+					core.PostTraceTx(task.statedb, kind, msg)
+					if err := vp.PostApplyTransaction(tx, msg, task.statedb, usedGas, txFailed); err != nil {
 						task.results[i] = &txTraceResult{Error: err.Error()}
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
 						break
@@ -525,7 +548,7 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 					TxIndex:   task.index,
 					TxHash:    txs[task.index].Hash(),
 				}
-				res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, config)
+				res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, task.zp, config)
 				if err != nil {
 					results[task.index] = &txTraceResult{Error: err.Error()}
 					continue
@@ -535,17 +558,30 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 		}()
 	}
 	// Feed the transactions into the tracers and return
+	vp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, block.Number())
+	zp := vp.ZeroGasPool()
 	var failed error
 	for i, tx := range txs {
 		// Send the trace task over for execution
-		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i}
+		msg, _ := tx.AsMessage(signer, block.BaseFee())
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before execution, mirroring block import.
+		if err := vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			failed = err
+			break
+		}
+		jobs <- &txTraceTask{statedb: statedb.Copy(), index: i, zp: vp.ZeroGasPool().Copy()}
 
 		// Generate the next state snapshot fast without tracing
-		msg, _ := tx.AsMessage(signer, block.BaseFee())
 		statedb.Prepare(tx.Hash(), i)
 		vmenv := vm.NewEVM(blockCtx, core.NewEVMTxContext(msg), statedb, api.backend.ChainConfig(), vm.Config{})
-		zp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp); err != nil {
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
+		if err != nil {
+			failed = err
+			break
+		}
+		kind := core.NativeTransactionKind(api.backend.ChainConfig(), tx, block.Header())
+		core.PostTraceTx(statedb, kind, msg)
+		if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
 			failed = err
 			break
 		}
@@ -624,6 +660,8 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 			canon = false
 		}
 	}
+	vp := core.NewVictionProcessor(chainConfig, nil, nil).ForkAtBlock(statedb, block.Number())
+	zp := vp.ZeroGasPool()
 	for i, tx := range block.Transactions() {
 		// Prepare the trasaction for un-traced execution
 		var (
@@ -634,6 +672,10 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 			writer    *bufio.Writer
 			err       error
 		)
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before execution, mirroring block import.
+		if err = vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			return dumps, err
+		}
 		// If the transaction needs tracing, swap out the configs
 		if tx.Hash() == txHash || txHash == (common.Hash{}) {
 			// Generate a unique temporary file to dump it into
@@ -658,14 +700,19 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 		// Execute the transaction and flush any traces to disk
 		vmenv := vm.NewEVM(vmctx, txContext, statedb, chainConfig, vmConf)
 		statedb.Prepare(tx.Hash(), i)
-		zp := core.NewVictionProcessor(chainConfig, nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
-		_, err = core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), zp)
 		if writer != nil {
 			writer.Flush()
 		}
 		if dump != nil {
 			dump.Close()
 			log.Info("Wrote standard trace", "file", dump.Name())
+		}
+		if err == nil {
+			core.PostTraceTx(statedb, core.NativeTransactionKind(chainConfig, tx, block.Header()), msg)
+			if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
+				return dumps, err
+			}
 		}
 		if err != nil {
 			return dumps, err
@@ -712,7 +759,7 @@ func (api *API) TraceTransaction(ctx context.Context, hash common.Hash, config *
 	if err != nil {
 		return nil, err
 	}
-	msg, vmctx, statedb, err := api.backend.StateAtTransaction(ctx, block, int(index), reexec)
+	msg, vmctx, statedb, zp, kind, err := api.backend.StateAtTransaction(ctx, block, int(index), reexec)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +768,12 @@ func (api *API) TraceTransaction(ctx context.Context, hash common.Hash, config *
 		TxIndex:   int(index),
 		TxHash:    hash,
 	}
-	return api.traceTx(ctx, msg, txctx, vmctx, statedb, config)
+	result, err := api.traceTx(ctx, msg, txctx, vmctx, statedb, zp, config)
+	if err != nil {
+		return nil, err
+	}
+	core.PostTraceTx(statedb, kind, msg)
+	return result, err
 }
 
 // TraceCall lets you trace a given eth_call. It collects the structured logs
@@ -775,13 +827,14 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 			Reexec:    config.Reexec,
 		}
 	}
-	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig)
+	zp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, block.Number()).ZeroGasPool()
+	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, zp, traceConfig)
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, zp types.BalanceMap, config *TraceConfig) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer    vm.Tracer
@@ -826,7 +879,6 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 	// Call Prepare to clear out the statedb access list
 	statedb.Prepare(txctx.TxHash, txctx.TxIndex)
 
-	zp := core.NewVictionProcessor(api.backend.ChainConfig(), nil, nil).ForkAtBlock(statedb, vmctx.BlockNumber).ZeroGasPool()
 	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), zp)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)

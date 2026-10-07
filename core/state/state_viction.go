@@ -218,11 +218,11 @@ func (statedb *StateDB) VicGetZeroGasCapacity(contractAddress common.Address, to
 }
 
 // Return remaining sponsoring capacities for all tokens.
-func (statedb *StateDB) VicGetZeroGasCapacities(contractAddress common.Address) map[common.Address]*big.Int {
+func (statedb *StateDB) VicGetZeroGasCapacities(contractAddress common.Address) types.BalanceMap {
 	tokenCapacityMappingSlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokensState"])
 	tokenArraySlot := StorageLocationFromSlot(vicZeroGasStorageMap["tokens"])
 	tokenArrayLength := statedb.GetState(contractAddress, tokenArraySlot.Hash()).Big().Uint64()
-	capacities := map[common.Address]*big.Int{}
+	capacities := make(types.BalanceMap)
 	for i := uint64(0); i < tokenArrayLength; i++ {
 		tokenSlot := StorageLocationOfDynamicArrayElement(tokenArraySlot, i, 1)
 		tokenData := statedb.GetState(contractAddress, tokenSlot.Hash())
@@ -242,7 +242,7 @@ func (statedb *StateDB) VicSetZeroGasCapacity(contractAddress common.Address, to
 }
 
 // Set sponsoring capacities for all tokens.
-func (statedb *StateDB) VicSetZeroGasCapacities(contract common.Address, newBalances map[common.Address]*big.Int, totalFeeUsed *big.Int) {
+func (statedb *StateDB) VicSetZeroGasCapacities(contract common.Address, newBalances types.BalanceMap, totalFeeUsed *big.Int) {
 	for token, balance := range newBalances {
 		statedb.VicSetZeroGasCapacity(contract, token, balance)
 	}
