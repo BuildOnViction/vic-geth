@@ -48,8 +48,21 @@ func TestBlockNumberJSONUnmarshal(t *testing.T) {
 		15: {`""`, true, BlockNumber(0)},
 		16: {``, true, BlockNumber(0)},
 	}
-
+	// Override canonical tests for `rpc: support decimal block number`
+	testsOverride := map[string]struct {
+		mustFail bool
+		expected BlockNumber
+	}{
+		`"0x00"`: {false, BlockNumber(0)},
+		`"0x01"`: {false, BlockNumber(1)},
+		`0`:      {false, BlockNumber(0)},
+		`""`:     {false, BlockNumber(0)},
+	}
 	for i, test := range tests {
+		if override, ok := testsOverride[test.input]; ok {
+			test.mustFail = override.mustFail
+			test.expected = override.expected
+		}
 		var num BlockNumber
 		err := json.Unmarshal([]byte(test.input), &num)
 		if test.mustFail && err == nil {
@@ -100,7 +113,20 @@ func TestBlockNumberOrHash_UnmarshalJSON(t *testing.T) {
 		25: {`{"blockNumber":"0x1", "blockHash":"0x0000000000000000000000000000000000000000000000000000000000000000"}`, true, BlockNumberOrHash{}},
 	}
 
+	// Override canonical tests for `rpc: support decimal block number`
+	testsOverride := map[string]struct {
+		mustFail bool
+		expected BlockNumberOrHash
+	}{
+		`"0x00"`: {false, BlockNumberOrHashWithNumber(0)},
+		`"0x01"`: {false, BlockNumberOrHashWithNumber(1)},
+		`""`:     {false, BlockNumberOrHashWithNumber(0)},
+	}
 	for i, test := range tests {
+		if override, ok := testsOverride[test.input]; ok {
+			test.mustFail = override.mustFail
+			test.expected = override.expected
+		}
 		var bnh BlockNumberOrHash
 		err := json.Unmarshal([]byte(test.input), &bnh)
 		if test.mustFail && err == nil {

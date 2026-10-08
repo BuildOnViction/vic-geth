@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -30,6 +33,18 @@ var MainnetBootnodes = []string{
 	"enode://103858bdb88756c71f15e9b5e09b56dc1be52f0a5021d46301dbbfb7e130029cc9d0d6f73f693bc29b665770fff7da4d34f3c6379fe12721b5d7a0bcb5ca1fc1@191.234.162.198:30303", // bootnode-azure-brazilsouth-001
 	"enode://715171f50508aba88aecd1250af392a45a330af91d7b90701c436b618c86aaa1589c9184561907bebbb56439b8f8787bc01f49a7c77276c58c1b09822d75e8e8@52.231.165.108:30303",  // bootnode-azure-koreasouth-001
 	"enode://5d6d7cd20d6da4bb83a1d28cadb5d409b64edf314c0335df658c1a54e32c7c4a7ab7823d57c39b6a757556e68ff1df17c748b698544a55cb488b52479a92b60f@104.42.217.25:30303",   // bootnode-azure-westus-001
+}
+
+// VictionBootnodes are the enode URLs of the P2P bootstrap nodes running on
+// the Viction Mainnet network.
+var VictionBootnodes = []string{
+	"enode://af875affaad976598cfe4e0753f4cde5faea078c9e6e26648f169325493e880de7506dc690408e39532d26999faa1abbcf621a05666da7dad708f0d577114233@162.19.43.250:11233",
+	"enode://eb4951eb91c59d2475a56ea9a762ba9cbdf47f746a7c91066ccdf1d55ac7d10b2ae7525aab55f86187a2f2b37a5c3bbe6c3de22399f0f75bea4a38b3a249d4bd@162.19.43.250:15233",
+	"enode://00aeddb507e8b24d2be4dd4c25257f13883b56c585b0463a1f54e0796c2912bf602664cff6901f804dc61869cbae734ccbc792b0e8343c58ac76d28cc9014690@15.235.228.11:11233",
+	"enode://2d9697582189548fdd3d310798b5aaa8ae6ac8ea9a288b2c3586ec71cb61bb68153b911361210bea6a6a47ac5943dcb5f01e260618cc108e8870f6fe02a80532@15.235.228.11:15233",
+	"enode://cb7d3cfa345c727ba185963f63b823e4b84c4add66d82c9efaf002efdae00d3951c5a2f68ff5d7d2d1dd013fdae9532700148a59830062a5b68c32038ad4bfbe@51.77.4.223:30001",
+	"enode://6239b4e3aa982b0bacf8b0dffea4e8cb314f5539321c6419370cf6cd6998065d590a9bbcd49b5acbaaf407ae51fef0a8ccf550c770414e8111ac48eb2bd2a8f0@57.128.235.169:30006",
+	"enode://ebfaf177ddadc34cacd7c36391272a3016d9369e0568aeb161e05d9d4bdcc2ad3c6544173034317423349c0b7ef49bd8408d536f75372c9a854e0bd1e613a2f7@148.113.49.199:30007",
 }
 
 // RopstenBootnodes are the enode URLs of the P2P bootstrap nodes running on the
@@ -71,6 +86,16 @@ var GoerliBootnodes = []string{
 // Calaveras ephemeral test network.
 var CalaverasBootnodes = []string{
 	"enode://9e1096aa59862a6f164994cb5cb16f5124d6c992cdbf4535ff7dea43ea1512afe5448dca9df1b7ab0726129603f1a3336b631e4d7a1a44c94daddd03241587f9@3.9.20.133:30303",
+}
+
+// VictestBootnodes are the enode URLs of the P2P bootstrap nodes running on
+// the Viction Testnet network.
+var VictestBootnodes = []string{
+	"enode://ea3bb45458146901142ae826f4bfb4fed3a34996e2addc2ba5294fab0493a19e175c4032312d0a1724b3959f43d15de989b466275ca7090ea4526b703695a7b5@162.19.43.250:14233",
+	"enode://c4a3e2195003163ba32bf584d372c22538013d3632b7aa7de2e28ac3d01b285f8e9228a2d9a41091ea50a2415a90d264fa3b33a73a7e393a0ba066c282eeeafb@162.19.43.250:18233",
+	"enode://aa7df5c9b474c177a2bdd2b454527a2ff45900fe4bdf501c1bf77acc8d97cdc4ee6d6ed728fc008396949d56507ce15885baf8a5cd5173e10d1d82a013cb59ff@15.235.228.11:14233",
+	"enode://5a72325fc202994a125473d33a6be0229d200bb2d21d7fc647d971ee9dd87749ee80ae23c88fc09d2ca571571625377fd9f9ee3994ad5c79560ea2ff7fb49a11@15.235.228.11:18233",
+	"enode://797ea884ccaa532d73a2956a21ff035765c115449841fecf779f2252414bdf073eff04935b2268b7aa196948108dd13fdf757a152338c23b1337b30b2d84968b@139.99.203.247:30002",
 }
 
 var V5Bootnodes = []string{
