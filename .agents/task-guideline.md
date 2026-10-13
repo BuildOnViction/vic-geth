@@ -89,6 +89,8 @@ When writing tests, follow these rules:
 - Never weaken, skip, or delete failing tests; restore the test, fix the code, or report the conflict and stop.
 <!-- Project-specific / Testing -->
 - Before running tests that use the fixtures in `tests/testdata`, update the git submodule to the revision pinned in the commit tree (not in a file): `git submodule update --init --checkout tests/testdata`.
+- Known failures on Windows (observed 2026-10-04, Go 1.18.10, windows/amd64): these are environment-specific and flaky, not code regressions; do not weaken, skip, or sleep around them — rerun the package individually and treat isolated failures as known flakiness:
+  - `accounts/keystore`: `TestWatchNoDir`, `TestUpdatedKeyfileContents` — fsnotify watcher startup race on Windows; in one full-suite run they failed while 2 of 3 focused reruns passed. Transient symptoms: `open ...\aaa: The file exists.`, or `got []` because the watcher never delivered file events.
 
 ### Agent Smells
 

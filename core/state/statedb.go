@@ -114,6 +114,8 @@ type StateDB struct {
 	SnapshotAccountReads time.Duration
 	SnapshotStorageReads time.Duration
 	SnapshotCommits      time.Duration
+
+	legacyRevert bool // Whether to use legacy revert behavior (victionchain) or not (geth)
 }
 
 // New creates a new state from a given trie.
@@ -153,6 +155,13 @@ func (s *StateDB) setError(err error) {
 
 func (s *StateDB) Error() error {
 	return s.dbErr
+}
+
+// SetLegacyRevert toggles the legacy revert behavior on Viction.
+// When enabled, only touchChange and createObjectChange journal entries are allowed to fully remove an address from the dirty set.
+// Viction blocks use it until the Prometheus fork; everything else (including Ethereum reference state tests) runs with geth semantics.
+func (s *StateDB) SetLegacyRevert(v bool) {
+	s.legacyRevert = v
 }
 
 // Reset clears out all ephemeral state objects from the state db, but keeps
@@ -739,7 +748,7 @@ func (s *StateDB) RevertToSnapshot(revid int) {
 	snapshot := s.validRevisions[idx].journalIndex
 
 	// Replay the journal to undo changes and remove invalidated snapshots
-	s.journal.revert(s, snapshot)
+	s.journal.revert(s, snapshot, s.legacyRevert)
 	s.validRevisions = s.validRevisions[:idx]
 }
 

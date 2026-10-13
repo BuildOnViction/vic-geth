@@ -395,10 +395,11 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	var snapshot = evm.StateDB.Snapshot()
 
 	// We do an AddBalance of zero here, just in order to trigger a touch.
-	// For POSV, keep this behavior only after TIP2021 fork.
-	// For non-POSV chains, keep the original always-touch behavior.
-
-	if evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
+	// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
+	// but is the correct thing to do and matters on other networks, in tests, and potential
+	// future scenarios.
+	// On Viction, historical data is not fully compatible with this touch until TIP2021.
+	if !evm.ChainConfig().IsViction() || evm.ChainConfig().IsTIP2021(evm.Context.BlockNumber) {
 		evm.StateDB.AddBalance(addr, big0)
 	}
 

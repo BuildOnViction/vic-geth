@@ -474,8 +474,7 @@ func (p *peer) SendNewBlock(block *types.Block, td *big.Int) error {
 		p.knownBlocks.Pop()
 	}
 	p.knownBlocks.Add(block.Hash())
-	// For Viction chains, mark the block header as PoSV so it encodes with
-	// 18 fields. Plain Ethereum chains are left untouched.
+	// Ensure the block header is marked as PoSV so it encodes with 18 fields.
 	if p.posv {
 		block.SetPosv(true)
 	}
@@ -499,9 +498,7 @@ func (p *peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 
 // SendBlockHeaders sends a batch of block headers to the remote peer.
 func (p *peer) SendBlockHeaders(headers []*types.Header) error {
-	// For Viction chains, mark all headers as PoSV so they encode with 18
-	// fields. This is needed for compatibility with victionchain peers which
-	// expect 18 fields. Plain Ethereum chains are left untouched.
+	// Ensure all headers are marked as PoSV so they encode with 18 fields.
 	if p.posv {
 		for _, h := range headers {
 			h.Posv = true

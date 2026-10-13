@@ -34,10 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// bypassBalanceFixBlock is the last block whose incorrect sender balances
-// are corrected before the transaction is applied; see Viction.GetBypassBalance.
-const bypassBalanceFixBlock = 9147459
-
 // VictionProcessor handles Viction-specific block and transaction logic.
 type VictionProcessor struct {
 	config        *params.ChainConfig // Chain configuration
@@ -128,6 +124,8 @@ func (p *VictionProcessor) ZeroGasPool() types.BalanceMap {
 
 // Pre block processing: - Prepare internal state for block processing - Active Viction-specific hard forks.
 func (p *VictionProcessor) PreBlockProcess(block *types.Block, statedb *state.StateDB) error {
+	// Legacy revert behavior applies only on Viction until the Prometheus fork.
+	statedb.SetLegacyRevert(p.config.IsViction() && !p.config.IsPrometheus(block.Number()))
 	if !p.isSupported() {
 		return nil
 	}
@@ -257,10 +255,8 @@ func (p *VictionProcessor) PreApplyTransaction(block *types.Block, tx *types.Tra
 	}
 
 	header := block.Header()
-	if header.Number.BitLen() <= 64 && header.Number.Uint64() <= bypassBalanceFixBlock {
-		if val := p.config.Viction.GetBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
-			statedb.SetBalance(msg.From(), val)
-		}
+	if val := p.config.Viction.GetBypassBalance(header.Number.Uint64(), msg.From()); val != nil {
+		statedb.SetBalance(msg.From(), val)
 	}
 	if sender, receiver := misc.ValidateVictionBlackList(p.config, msg.From(), tx.To(), header.Number); sender || receiver {
 		return ErrBlacklistedAddress

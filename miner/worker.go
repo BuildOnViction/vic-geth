@@ -661,6 +661,8 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	if err != nil {
 		return err
 	}
+	// Match the legacy revert behavior used by the chain processor when replaying Viction blocks before the Prometheus fork.
+	state.SetLegacyRevert(w.chainConfig.IsViction() && !w.chainConfig.IsPrometheus(header.Number))
 	env := &environment{
 		signer:    types.NewEIP155Signer(w.chainConfig.ChainID),
 		state:     state,

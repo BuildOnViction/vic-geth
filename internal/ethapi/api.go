@@ -1179,6 +1179,7 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 		"receiptsRoot":     head.ReceiptHash,
 	}
 	if head.Posv {
+		fields["posv"] = head.Posv
 		fields["newAttestors"] = hexutil.Bytes(head.NewAttestors)
 		fields["validators"] = hexutil.Bytes(head.NewAttestors)
 		fields["attestor"] = hexutil.Bytes(head.Attestor)
