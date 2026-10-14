@@ -3,7 +3,7 @@
 ## Guideline
 
 - Start every code file, including test files, with the license header below.
-- The header comes first, before the `package` clause, followed by a blank line.
+- The header comes first in the code file, followed by a blank line.
 
 ## Full header
 

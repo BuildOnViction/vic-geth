@@ -4,19 +4,16 @@
 
 Before opening or updating a pull request, verify:
 
-- [ ] Whole project is built successfully (see [commands.md](commands.md)).
-- [ ] Code files are formatted, passed static analysis (see [commands.md](commands.md)).
-- [ ] Imports are tidy (see [commands.md](commands.md)).
-- [ ] All tests are passed, except the ones documented as known failures (see [commands.md](commands.md)).
+- [ ] Development checklist is completed (see [development-guideline.md](development-guideline.md)).
+- [ ] No failing tests were weakened, skipped, or deleted (see [Testing](development-guideline.md#testing)).
 - [ ] Commit messages are clear and describe the *why*, not just the *what*.
+- [ ] PR is scoped to a single logical change.
 - [ ] PR description explains the motivation and summarizes the change.
-- [ ] PR is scoped to a single logical change - split unrelated changes into separate PRs.
-- [ ] Breaking changes are called out explicitly in the PR description.
-- [ ] Code duplication is justified (the same logic should not be duplicated, as it hurts maintainability).
-- [ ] Any new dependency is justified (avoid adding dependencies for trivial functionality).
+- [ ] Breaking changes are called out explicitly.
+- [ ] Code duplication is justified.
+- [ ] Any new dependency is justified.
 - [ ] CI (if configured) passes on the PR branch.
 - [ ] Linked issues/tickets are referenced, if applicable.
-- [ ] Working tree contains no conflict markers and no `*.rej` files (see [task-guideline.md](task-guideline.md)).
 <!-- Project-specific / Checklist -->
 
 ## Project-specific
