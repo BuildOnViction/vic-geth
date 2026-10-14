@@ -573,6 +573,11 @@ var (
 		Usage: "HTTP path path prefix on which JSON-RPC is served. Use '/' to serve on all paths.",
 		Value: "",
 	}
+	HTTPTimeoutFlag = cli.IntFlag{
+		Name:  "http.timeout",
+		Usage: "Read/Write timeout for the RPC server in seconds",
+		Value: 120,
+	}
 	GraphQLEnabledFlag = cli.BoolFlag{
 		Name:  "graphql",
 		Usage: "Enable GraphQL on the HTTP-RPC server. Note that GraphQL can only be started if an HTTP server is started as well.",
@@ -993,6 +998,12 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 	}
 	if ctx.GlobalIsSet(AllowUnprotectedTxs.Name) {
 		cfg.AllowUnprotectedTxs = ctx.GlobalBool(AllowUnprotectedTxs.Name)
+	}
+
+	httpTimeout := time.Duration(ctx.GlobalInt(HTTPTimeoutFlag.Name)) * time.Second
+	if httpTimeout > 0 {
+		cfg.HTTPTimeouts.ReadTimeout = httpTimeout
+		cfg.HTTPTimeouts.WriteTimeout = httpTimeout
 	}
 }
 

@@ -166,6 +166,7 @@ var (
 		utils.HTTPPortFlag,
 		utils.HTTPCORSDomainFlag,
 		utils.HTTPVirtualHostsFlag,
+		utils.HTTPTimeoutFlag,
 		utils.LegacyRPCEnabledFlag,
 		utils.LegacyRPCListenAddrFlag,
 		utils.LegacyRPCPortFlag,
