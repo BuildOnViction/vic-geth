@@ -1,0 +1,10 @@
+# Changes here will be overwritten by Copier; DO NOT EDIT MANUALLY
+_commit: v0.9.0
+_src_path: gh:tforce-io/dotfiles-go
+copyright_holder: The Viction Authors
+copyright_year: 2025
+languages:
+- go
+license: GPL-3.0-or-later
+license_header: Full
+project_name: Vic-Geth

@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -378,6 +381,16 @@ func (tx *Transaction) Hash() common.Hash {
 	}
 	tx.hash.Store(h)
 	return h
+}
+
+func (tx *Transaction) CacheHash() {
+	var v common.Hash
+	if tx.Type() == LegacyTxType {
+		v = rlpHash(tx.inner)
+	} else {
+		v = prefixedRlpHash(tx.Type(), tx.inner)
+	}
+	tx.hash.Store(v)
 }
 
 // Size returns the true RLP encoded storage size of the transaction, either by
