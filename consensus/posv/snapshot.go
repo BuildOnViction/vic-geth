@@ -239,7 +239,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		}
 		// Temporarily skip signer check inside snapshot. Use verifyValidators flow instead.
 		// if _, ok := snap.Signers[signer]; !ok {
-		// 	log.Info("[PoSV][Snapshot] unauthorized signer", "number", number, "hash", header.Hash(), "signer", signer, "signers", snap.Signers)
+		// 	log.Info("[PoSV] unauthorized signer", "number", number, "hash", header.Hash(), "signer", signer, "signers", snap.Signers)
 		// 	return nil, errUnauthorizedSigner
 		// }
 		// for seen, recent := range snap.Recents {

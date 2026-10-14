@@ -78,7 +78,7 @@ func (c *Posv) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 							break
 						}
 						if time.Since(lastcheck) >= time.Duration(c.config.Period)*time.Second {
-							log.Info("[PoSV][VerifyHeader] Waiting for gap block to be available",
+							log.Info("[PoSV] Waiting for gap block to be available",
 								"checkpoint", number, "requiredBlock", requiredBlock, "currentBlock", cb.NumberU64(),
 							)
 							retryCount++

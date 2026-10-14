@@ -249,7 +249,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		// If an on-disk checkpoint snapshot can be found, use that
 		if number%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Info("[PoSV][Snapshot] Loaded checkpoint snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
+				log.Info("[PoSV] Loaded checkpoint snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
 				snap = s
 				c.recents.Add(hash, snap)
 				break
@@ -257,7 +257,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		}
 		if (number+c.config.Gap)%c.config.Epoch == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
-				log.Info("[PoSV][Snapshot] Loaded gap snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
+				log.Info("[PoSV] Loaded gap snapshot from disk", "number", number, "hash", hash, "signers", len(s.signers()))
 				snap = s
 				c.recents.Add(hash, snap)
 				break
@@ -280,7 +280,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 				if err := snap.store(c.db); err != nil {
 					return nil, err
 				}
-				log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", number, "hash", hash, "signers", len(signers))
+				log.Info("[PoSV] Stored checkpoint snapshot to disk", "number", number, "hash", hash, "signers", len(signers))
 				break
 			}
 		}
@@ -318,7 +318,7 @@ func (c *Posv) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			return nil, err
 		}
 		c.recents.Add(snap.Hash, snap)
-		log.Info("[PoSV][Snapshot] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", len(snap.signers()))
+		log.Info("[PoSV] Stored checkpoint snapshot to disk", "number", snap.Number, "hash", snap.Hash, "signers", len(snap.signers()))
 	}
 	return snap, err
 }
@@ -444,15 +444,15 @@ func (c *Posv) Finalize(chainH consensus.ChainHeaderReader, header *types.Header
 		if epoch > 0 && number%epoch == 0 && number > epoch {
 			chain, ok := chainH.(consensus.ChainReader)
 			if !ok {
-				log.Warn("[PoSV][Finalize] an error has occurred", "block", number, "err", errNoChainReader)
+				log.Warn("[PoSV] an error has occurred", "block", number, "err", errNoChainReader)
 			}
 			epochReward, err := c.backend.PosvGetEpochRewards(header, config, config.Posv, config.Viction, chain, state, log.Root())
 			if err != nil {
-				log.Warn("[PoSV][Finalize] cannot get epoch rewards", "block", number, "err", err)
+				log.Warn("[PoSV] cannot get epoch rewards", "block", number, "err", err)
 			}
 			err = c.backend.PosvDistributeEpochRewards(header, epochReward, state)
 			if err != nil {
-				log.Warn("[PoSV][Finalize] cannot distribute epoch rewards", "block", number, "err", err)
+				log.Warn("[PoSV] cannot distribute epoch rewards", "block", number, "err", err)
 			}
 		}
 	}
@@ -530,7 +530,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 					// Allow epoch blocks through even if recently signed
 					if number%c.config.Epoch != 0 {
 						log.Info(
-							"[PoSV][Seal] Signed recently, must wait for others",
+							"[PoSV] Signed recently, must wait for others",
 							"signer", signer, "number", number, "sealhash", SealHash(header),
 							"recentBlock", seen, "recentsLimit", limit, "signers", len(snap.Signers),
 						)
@@ -548,7 +548,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 	}
 	copy(header.Extra[len(header.Extra)-ExtraSeal:], sighash)
 	// Wait until sealing is terminated or delay timeout.
-	log.Trace("[PoSV][Seal] Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	log.Trace("[PoSV] Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
 	go func() {
 		select {
 		case <-stop:
@@ -559,7 +559,7 @@ func (c *Posv) Seal(chain consensus.ChainHeaderReader, block *types.Block, resul
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			log.Warn("[PoSV][Seal] Sealing result is not read by miner", "sealhash", SealHash(header))
+			log.Warn("[PoSV] Sealing result is not read by miner", "sealhash", SealHash(header))
 		}
 	}()
 
