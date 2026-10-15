@@ -1,4 +1,7 @@
 // Copyright 2017 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -50,4 +53,12 @@ func tracer(name string) (string, bool) {
 		return tracer, true
 	}
 	return "", false
+}
+
+// IsBuiltin reports whether name exactly matches a bundled JavaScript tracer.
+// No normalization is applied, so callers can use it as an allowlist in front
+// of New, which evaluates any other string as JavaScript source.
+func IsBuiltin(name string) bool {
+	_, ok := all[name]
+	return ok
 }
