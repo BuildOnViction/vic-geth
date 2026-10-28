@@ -61,6 +61,8 @@ func (s *posvTestBackend) PosvRandomNumber(block *types.Block) error { return ni
 
 func (s *posvTestBackend) PosvSignBlock(block *types.Block) error { return nil }
 
+func (s *posvTestBackend) PosvPeriod() uint64 { return 0 }
+
 // makeChain creates a chain of n blocks starting at and including parent.
 // the returned hash chain is ordered head->parent. In addition, every 3rd block
 // contains a transaction and every 5th an uncle to allow testing correct block

@@ -37,10 +37,17 @@ type PosvBackend interface {
 
 	// Create new BlockSign transaction and submit to TxPool.
 	PosvSignBlock(block *types.Block) error
+
+	// Return the configured block period in seconds.
+	PosvPeriod() uint64
 }
 
 // Reverify a PoSV block to see it's still eligible for further processing.
 func (f *BlockFetcher) retryPosvBlock(peer string, block *types.Block) (requireAttest, dropPeer bool) {
+	if f.posvBackend == nil {
+		return false, false
+	}
+	posvPeriod := time.Duration(f.posvBackend.PosvPeriod()) * time.Second
 	maxRetries := 3
 	for retries := 0; retries <= maxRetries; retries++ {
 		switch err := f.verifyHeader(block.Header()); err {
@@ -49,12 +56,16 @@ func (f *BlockFetcher) retryPosvBlock(peer string, block *types.Block) (requireA
 
 		case consensus.ErrFutureBlock:
 			if retries == maxRetries {
-				log.Debug("Propagated block is still from the future, timed out.", "peer", peer, "number", block.Number(), "hash", block.Hash())
+				log.Debug("[Fetcher] Propagated block is still from the future, timed out.", "peer", peer, "number", block.Number(), "hash", block.Hash())
 				return false, true
 			}
 			until := time.Unix(int64(block.Time()), 0)
 			if duration := time.Until(until); duration > 0 {
-				log.Debug("Propagated block is from the future, waiting", "peer", peer, "number", block.Number(), "hash", block.Hash(), "duration", duration)
+				if duration > posvPeriod {
+					log.Debug("[Fetcher] Propagated block is too far in the future, dropping peer", "peer", peer, "number", block.Number(), "hash", block.Hash(), "duration", duration, "posvPeriod", posvPeriod)
+					return false, true
+				}
+				log.Debug("[Fetcher] Propagated block is from the future, waiting", "peer", peer, "number", block.Number(), "hash", block.Hash(), "duration", duration)
 				time.Sleep(duration)
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -63,7 +74,7 @@ func (f *BlockFetcher) retryPosvBlock(peer string, block *types.Block) (requireA
 			return true, false
 
 		default:
-			log.Warn("Propagated block verification failed", "peer", peer, "number", block.Number(), "hash", block.Hash(), "err", err)
+			log.Warn("[Fetcher] Propagated block verification failed", "peer", peer, "number", block.Number(), "hash", block.Hash(), "err", err)
 			return false, true
 		}
 	}
