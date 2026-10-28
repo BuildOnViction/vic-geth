@@ -1,22 +1,31 @@
 # Pull Request Guideline
 
+## Guideline
+
+- Keep one logical change per pull request; split unrelated work into separate ones.
+- Title the pull request with a short imperative summary of the change (e.g. `Add retry to the payment client`).
+- Follow the repository's pull request template when it has one; otherwise write the description in these parts, writing "None" for an empty one:
+  - Motivation: the problem or request, with linked issues/tickets.
+  - Changes: what changed, grouped by intent.
+  - Verification: the checks that ran, with their results; the checks that did not run, and why.
+  - Breaking changes: every broken contract, and what its users must do.
+  - Follow-ups: findings reported but not fixed.
+<!-- Project-specific / Guideline -->
+
 ## Checklist
 
 Before opening or updating a pull request, verify:
 
-- [ ] Whole project is built successfully (see [commands.md](commands.md)).
-- [ ] Code files are formatted, passed static analysis (see [commands.md](commands.md)).
-- [ ] Imports are tidy (see [commands.md](commands.md)).
-- [ ] All tests are passed, except the ones documented as known failures (see [commands.md](commands.md)).
+- [ ] Development checklist is completed (see [development-guideline.md's Checklist](development-guideline.md#checklist)).
+- [ ] No failing tests were weakened, skipped, or deleted (see [Testing](development-guideline.md#testing)).
 - [ ] Commit messages are clear and describe the *why*, not just the *what*.
+- [ ] PR is scoped to a single logical change.
 - [ ] PR description explains the motivation and summarizes the change.
-- [ ] PR is scoped to a single logical change - split unrelated changes into separate PRs.
-- [ ] Breaking changes are called out explicitly in the PR description.
-- [ ] Code duplication is justified (the same logic should not be duplicated, as it hurts maintainability).
-- [ ] Any new dependency is justified (avoid adding dependencies for trivial functionality).
+- [ ] Breaking changes are called out explicitly.
+- [ ] Code duplication is justified.
+- [ ] Any new dependency is justified.
 - [ ] CI (if configured) passes on the PR branch.
 - [ ] Linked issues/tickets are referenced, if applicable.
-- [ ] Working tree contains no conflict markers and no `*.rej` files (see [task-guideline.md](task-guideline.md)).
 <!-- Project-specific / Checklist -->
 
 ## Project-specific
