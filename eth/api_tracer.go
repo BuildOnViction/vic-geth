@@ -74,6 +74,22 @@ type StdTraceConfig struct {
 	TxHash common.Hash
 }
 
+// errCustomTracer is returned when a trace request names anything other than a
+// bundled tracer. tracers.New would evaluate such a string as JavaScript.
+var errCustomTracer = errors.New("custom JavaScript tracers are disabled, use a built-in tracer name")
+
+// validateTracerConfig rejects a requested tracer unless it is a bundled one.
+// A nil config or nil tracer selects the struct logger and is allowed.
+func validateTracerConfig(config *TraceConfig) error {
+	if config == nil || config.Tracer == nil {
+		return nil
+	}
+	if !tracers.IsBuiltin(*config.Tracer) {
+		return errCustomTracer
+	}
+	return nil
+}
+
 // txTraceResult is the result of a single transaction trace.
 type txTraceResult struct {
 	Result interface{} `json:"result,omitempty"` // Trace results produced by the tracer
@@ -108,6 +124,9 @@ type txTraceTask struct {
 // TraceChain returns the structured logs created during the execution of EVM
 // between two blocks (excluding start) and returns them as a JSON object.
 func (api *PrivateDebugAPI) TraceChain(ctx context.Context, start, end rpc.BlockNumber, config *TraceConfig) (*rpc.Subscription, error) {
+	if err := validateTracerConfig(config); err != nil {
+		return nil, err
+	}
 	// Fetch the block interval that we want to trace
 	var from, to *types.Block
 
@@ -467,6 +486,9 @@ func (api *PrivateDebugAPI) StandardTraceBadBlockToFile(ctx context.Context, has
 // executes all the transactions contained within. The return value will be one item
 // per transaction, dependent on the requestd tracer.
 func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, config *TraceConfig) ([]*txTraceResult, error) {
+	if err := validateTracerConfig(config); err != nil {
+		return nil, err
+	}
 	// Create the parent state database
 	parent := api.eth.blockchain.GetBlock(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
@@ -773,6 +795,9 @@ func (api *PrivateDebugAPI) computeStateDB(block *types.Block, reexec uint64) (*
 // TraceTransaction returns the structured logs created during the execution of EVM
 // and returns them as a JSON object.
 func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *TraceConfig) (interface{}, error) {
+	if err := validateTracerConfig(config); err != nil {
+		return nil, err
+	}
 	// Retrieve the transaction and assemble its EVM context
 	tx, blockHash, _, index := rawdb.ReadTransaction(api.eth.ChainDb(), hash)
 	if tx == nil {
@@ -804,6 +829,9 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 // if the given transaction was added on top of the provided block and returns them as a JSON object.
 // You can provide -2 as a block number to trace on top of the pending block.
 func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceConfig) (interface{}, error) {
+	if err := validateTracerConfig(config); err != nil {
+		return nil, err
+	}
 	// First try to retrieve the state
 	statedb, header, err := api.eth.APIBackend.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	// zp is populated only when state is recomputed from a block below;
@@ -841,6 +869,10 @@ func (api *PrivateDebugAPI) TraceCall(ctx context.Context, args ethapi.CallArgs,
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
 func (api *PrivateDebugAPI) traceTx(ctx context.Context, message core.Message, vmctx vm.BlockContext, statedb *state.StateDB, zp types.BalanceMap, config *TraceConfig) (interface{}, error) {
+	// Reject custom JavaScript before tracers.New can evaluate it.
+	if err := validateTracerConfig(config); err != nil {
+		return nil, err
+	}
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer    vm.Tracer
