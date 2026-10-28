@@ -6,6 +6,30 @@ The file holding the layout attuned to this project is [context.md](../.attunic/
 
 The files holding the rules for working with this project are [coding-conventions.md](coding-conventions.md) and [development-guideline.md](development-guideline.md).
 
+## General structure
+
+### Layout
+
+Entries a project commonly has at its root, whatever its languages; each layout below lists only what its language or framework adds:
+
+```
+├── .agents/            # shared AI agent instructions (coding conventions, PR/task checklists, project structure)
+├── .attunic/           # project memory (context, decisions, work in progress)
+├── .github/            # GitHub-specific config (workflows, issue/PR templates)
+├── .vscode/            # VS Code editor/workspace settings
+├── .copier-answers.yml # Copier answers replayed by `copier update`; never edited by hand
+├── .editorconfig       # editor formatting rules
+├── .gitignore          # git ignore patterns
+├── AGENTS.md           # instructions for AI coding agents
+├── CLAUDE.md           # points to AGENTS.md
+├── CONTRIBUTING.md     # contribution guidelines
+├── COPYING             # license text for GPL, LGPL, and AGPL
+├── COPYING.LESSER      # LGPL additions, beside COPYING
+├── LICENSE             # license text for other licenses (e.g. MIT, Apache-2.0)
+├── README.md           # project overview
+<!-- Project-specific / Layout -->
+```
+
 ## Go structure
 
 ### Guideline
@@ -16,14 +40,11 @@ The files holding the rules for working with this project are [coding-convention
 - Group files within a package by responsibility, not by type.
 - Keep test files (`_test.go`) alongside the code they test, in the same package or a `_test` package for black-box tests.
 - Mirror the module's existing layout (`internal/`, `pkg/`, or flat) instead of introducing a second convention.
-<!-- Project-specific / Guideline -->
+<!-- Project-specific / Go-Guideline -->
 
 ### Layout
 
 ```
-├── .agents/        # shared AI agent instructions (coding conventions, PR/task checklists, project structure)
-├── .github/        # GitHub-specific config (workflows, issue/PR templates)
-├── .vscode/        # VS Code editor/workspace settings
 ├── api/            # OpenAPI/Swagger specs, JSON schemas, protocol definitions
 ├── assets/         # repository assets (images, logos, etc)
 ├── cmd/            # main packages (one subdirectory per binary)
@@ -39,17 +60,12 @@ The files holding the rules for working with this project are [coding-convention
 ├── tui/            # terminal UI components
 ├── vendor/         # application dependencies (created by `go mod vendor`)
 ├── web/            # web app components: static assets, server-side templates, SPAs
-├── .editorconfig   # editor formatting rules
-├── .gitignore      # git ignore patterns
-├── AGENTS.md       # instructions for AI coding agents
-├── CLAUDE.md       # instructions specific for Claude coding agents
-├── CONTRIBUTING.md # contribution guidelines
 ├── Dockerfile      # container build definition
 ├── Makefile        # build/test/lint task automation (optional)
 ├── go.mod          # Go module definition
 ├── go.sum          # Go module checksums
 ├── main.go         # default application entrypoint
-<!-- Project-specific / Layout -->
+<!-- Project-specific / Go-Layout -->
 ```
 
 ### Layer Dependencies
@@ -63,12 +79,12 @@ Notes for declaring layers in the `Layer Dependencies` section of `.attunic/cont
 |-------|--------------|------------|--------------------|
 | domain | internal/\<app\>/domain | itself | framework types, database, HTTP |
 | application | internal/\<app\>/app | domain | database access, HTTP handlers |
-| adapter | internal/\<app\>/transport | application, domain | SQL, external clients |
-| infrastructure | internal/\<app\>/infra | application (its ports), domain | business rules |
+| adapters | internal/\<app\>/adapters | application (its ports), domain | business rules |
+| transport | internal/\<app\>/transport | application, domain | SQL, external clients |
 
 - `pkg/` is a public boundary for other modules; keep application-internal layer types out of it.
 - Check by hand: reading imports or `go list -deps ./...` must never show an inner package importing an outer one.
-<!-- Project-specific / Layer Dependencies -->
+<!-- Project-specific / Go-Layer Dependencies -->
 
 ## Project-specific
 

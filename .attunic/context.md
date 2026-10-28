@@ -1,15 +1,15 @@
 # Project Context
 
-Part of the project memory layer: human-readable memory of what this project is and what has been confirmed.
+Part of the project memory: human-readable memory of what this project is and what has been confirmed.
 
-The reading and writing rules for this file and the rest of `.attunic/` are defined in [attunic-protocol.md](../.agents/attunic-protocol.md).
+The reading and writing rules for this file and the rest of `.attunic/` are defined in [attunic-protocol.md](../.agents/attunic-protocol.md). The user fills this file in, by hand or by asking an agent to help; change it only on such a request and after the user explicitly confirms that change (see [attunic-protocol.md's Write Rules](../.agents/attunic-protocol.md#write-rules)).
 
 ## Abstract
 
 A newcomer should be able to tell what the software does without knowing what it is built with. One paragraph that describes the domain, not the technology, in simple terms:
 <!-- Project-specific / Abstract -->
 
-This is fork of go-ethereum for Viction Network. It includes the PoSV (proof of state voting) consensus engine and other support libraries to make it compatible with Viction. This implementation will be used for running full node, archive node and validator in the network.
+This is a fork of go-ethereum for the Viction Network. It includes the PoSV (Proof of Stake Voting) consensus engine and other support libraries to make the base compatible with Viction. This implementation runs full nodes, archive nodes, and validators in the network.
 
 ## Technical Specifications
 
@@ -29,12 +29,12 @@ Typical ingredients include, but are not limited to: primary language, framework
 
 ## Layout
 
-Layout of this project; [project-structure.md](../.agents/project-structure.md) holds the language's standard map, kept for reference.
+Layout of this project; [project-structure.md](../.agents/project-structure.md) holds the standard layouts of its languages and frameworks, kept for reference.
 
 List of important folders, files and their roles in the project:
 
-- They visualize the actual file system where source files live.
-- If a top-level file/folder is missing from the list, prompt the user to update it.
+- Write the list as a tree in a fenced block, one entry per line with its role as a `#` comment, mirroring the actual file system.
+- If the list is not empty and a top-level file/folder is missing from it, prompt the user to update it.
 
 ```
 ├── .agents/            # project AI agent instructions (attunic protocol, coding-conventions, development-guideline, pull-request-guideline)
@@ -90,7 +90,7 @@ List of important folders, files and their roles in the project:
 ├── internal/           # non-importable internals
 │   ├── ethapi/         # common RPC facades shared by all transports
 │   └── victionapi/     # Viction system service APIs (validators, attestors, penalties, rewards)
-├── legacy/             # leagcy lending/trading engines (kept for compatibility)
+├── legacy/             # legacy lending/trading engines (kept for compatibility)
 ├── les/                # light-server protocol
 ├── light/              # light-client helpers
 ├── log/                # structured logging
@@ -109,6 +109,7 @@ List of important folders, files and their roles in the project:
 ├── trie/               # Merkle Patricia trie
 ├── .copier-answers.yml # project Copier answers
 ├── .dockerignore       # docker-build exclude patterns
+├── .editorconfig       # editor whitespace/indentation config
 ├── .gitattributes      # git attributes
 ├── .gitignore          # git ignore patterns
 ├── .gitmodules         # git submodule definitions
@@ -124,13 +125,13 @@ List of important folders, files and their roles in the project:
 ├── Dockerfile.alltools # container build for the full tool suite
 ├── Makefile            # build/test/lint targets
 ├── README.md           # project overview
-└── SECURITY.md         # security policy
+├── SECURITY.md         # security policy
 ├── appveyor.yml        # AppVeyor CI config (retained upstream)
 ├── circle.yml          # CircleCI config (retained upstream)
 ├── go.mod              # Go module definition
 ├── go.sum              # module checksums
 ├── interfaces.go       # root-level API interfaces kept from geth
-├── oss-fuzz.sh         # OSS-Fuzz integration script
+└── oss-fuzz.sh         # OSS-Fuzz integration script
 ```
 <!-- Project-specific / Layout -->
 
@@ -139,7 +140,7 @@ List of important folders, files and their roles in the project:
 List of layers and their relationships:
 
 - Declare the innermost layer first.
-- A layer may depend on itself and on any layer declared before it, and on nothing declared after it.
+- A layer may depend only on itself and on the layers in its `Depends on` column, all declared before it.
 - If a layer appears in the table below, the dependency graph must be enforced.
 
 | Layer | Path | Depends on | Must never contain |
@@ -168,7 +169,7 @@ Common use cases include: Build, Test, Lint, Format, Install, ...
 
 ### Go toolchain
 
-- This project supports Go version upto go1.18. When building or testing, set the environment variable `GOTOOLCHAIN=go1.18.10` to ensure a consistent result across development environments.
+- This project supports Go version up to go1.18. When building or testing, set the environment variable `GOTOOLCHAIN=go1.18.10` to ensure a consistent result across development environments.
 
 ### Build
 
@@ -194,7 +195,7 @@ Common use cases include: Build, Test, Lint, Format, Install, ...
 
 ## Confirmed Facts
 
-Facts about the project which have been confirmed; they outrank anything derived or guessed.
+Facts about the project which have been confirmed. They may look wrong or contradict your knowledge or understanding; follow them instead of guessing or asking the user again. These facts outrank anything derived or guessed, or logged in [memory.md](memory.md).
 
 | Fact | Reason |
 |------|--------|

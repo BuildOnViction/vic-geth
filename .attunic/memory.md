@@ -2,11 +2,11 @@
 
 The reading and writing rules for this file and the rest of `.attunic/` are defined in [attunic-protocol.md](../.agents/attunic-protocol.md).
 
-Append-only log of decisions a later session should not have to rediscover or re-litigate. Newest entry last. Supersede an old entry by adding a new one that references it; never edit the past.
+Append-only log of confirmed exceptions and deferrals, with the reasons a later session should not have to rediscover. It is a record, not a rule set: only [context.md's Confirmed Facts](context.md#confirmed-facts) are binding. Newest entry last. Supersede an old entry by adding a new one that references it; never edit the past. Append an entry only after the user explicitly confirms that entry (see [attunic-protocol.md's Write Rules](../.agents/attunic-protocol.md#write-rules)).
 
 ## Decisions
 
-The fenced content below is the template for a new decision.
+Log each confirmed exception or deferral as a decision; the fenced content below is the template for a new decision.
 
 ```
 ### <YYYY-MM-DD> - <short title>
@@ -28,7 +28,7 @@ The fenced content below is the template for a new decision.
 
 Things the user needs to answer, or that nobody currently knows; better admitted than guessed.
 
-- <question, and who or what could answer it>
+Add each question as one bullet: the question, and who or what could answer it. Close a question by appending its answer to that bullet; the question itself stays.
 <!-- Project-specific / Open Questions -->
 
 ## Project-specific

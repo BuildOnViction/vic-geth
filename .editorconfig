@@ -8,10 +8,16 @@ indent_style = tab
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-[*.{json,md,toml,yaml,yml}]
+[{Makefile,makefile,GNUmakefile,*.mk}]
+indent_style = tab
+
+[*.md]
 indent_style = space
 
-[*.{go}]
+[*.{yaml,yml}]
+indent_style = space
+
+[{*.go,go.mod,go.work}]
 indent_style = tab
 
 # Project-specific

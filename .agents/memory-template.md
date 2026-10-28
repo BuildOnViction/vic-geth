@@ -1,10 +1,10 @@
 # Memory Template
 
-Create a file by copying its skeleton below, keeping the headings and replacing the placeholders. Do not create a file before its trigger arrives.
-
-Check the language notes in [project-structure.md](project-structure.md) first.
+Create a file only when its trigger arrives, by copying the fenced skeleton of its section, keeping the headings and replacing the placeholders; then apply the project-specific additions below that section's marker, if any.
 
 ## `.attunic/wip.md`
+
+Trigger: the user consents to an audit or cleanup campaign (see [attunic-protocol.md's Write Rules](attunic-protocol.md#write-rules)).
 
 ````markdown
 # WIP
@@ -27,7 +27,7 @@ Recorded before the first change, verbatim:
 
 One batch = one intent; never mix a mechanical sweep with structural edits in the same diff.
 
-- [ ] 1. <module or smell family> - <what changes> - commit: <sha>
+- [ ] 1. <module or smell family> - <what changes> - commit: <sha, if the user asked for one>
 
 ## Found But Not Fixed
 
@@ -43,6 +43,8 @@ Deliberately out of scope, with the reason.
 | What | Why deferred | Revisit when |
 |------|--------------|--------------|
 ````
+
+<!-- Project-specific / .attunic/wip.md -->
 
 ## Project-specific
 
