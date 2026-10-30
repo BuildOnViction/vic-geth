@@ -18,18 +18,20 @@
 package web3ext
 
 var Modules = map[string]string{
-	"admin":    AdminJs,
-	"clique":   CliqueJs,
-	"ethash":   EthashJs,
-	"debug":    DebugJs,
-	"eth":      EthJs,
-	"miner":    MinerJs,
-	"net":      NetJs,
-	"personal": PersonalJs,
-	"rpc":      RpcJs,
-	"txpool":   TxpoolJs,
-	"les":      LESJs,
-	"vflux":    VfluxJs,
+	"admin":     AdminJs,
+	"clique":    CliqueJs,
+	"posv":      PosvJs,
+	"posvdebug": PosvDebugJs,
+	"ethash":    EthashJs,
+	"debug":     DebugJs,
+	"eth":       EthJs,
+	"miner":     MinerJs,
+	"net":       NetJs,
+	"personal":  PersonalJs,
+	"rpc":       RpcJs,
+	"txpool":    TxpoolJs,
+	"les":       LESJs,
+	"vflux":     VfluxJs,
 }
 
 const CliqueJs = `
@@ -84,6 +86,94 @@ web3._extend({
 		new web3._extend.Property({
 			name: 'proposals',
 			getter: 'clique_proposals'
+		}),
+	]
+});
+`
+
+const PosvJs = `
+web3._extend({
+	property: 'posv',
+	methods: [
+		new web3._extend.Method({
+			name: 'getRewardByHash',
+			call: 'posv_getRewardByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByHashOrNumber',
+			call: 'posv_getRewardByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByNumber',
+			call: 'posv_getRewardByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getSigner',
+			call: 'posv_getSigner',
+			params: 1,
+			inputFormatter: [null]
+		}),
+		new web3._extend.Method({
+			name: 'getSigners',
+			call: 'posv_getSigners',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getSignersAtHash',
+			call: 'posv_getSignersAtHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getSnapshot',
+			call: 'posv_getSnapshot',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getSnapshotAtHash',
+			call: 'posv_getSnapshotAtHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getValidators',
+			call: 'posv_getValidators',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+	]
+});
+`
+
+const PosvDebugJs = `
+web3._extend({
+	property: 'posvdebug',
+	methods: [
+		new web3._extend.Method({
+			name: 'getRewardByHash',
+			call: 'posvdebug_getRewardByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByHashOrNumber',
+			call: 'posvdebug_getRewardByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getRewardByNumber',
+			call: 'posvdebug_getRewardByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getValidators',
+			call: 'posvdebug_getValidators',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 	]
 });

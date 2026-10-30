@@ -20,7 +20,9 @@
 package eth
 
 import (
+	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -29,9 +31,11 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/internal/victionapi"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
+// PublicPosvAPI is the API exclusive to PoSV consensus.
 type PublicPosvAPI struct {
 	e *Ethereum
 }
@@ -39,6 +43,27 @@ type PublicPosvAPI struct {
 // NewPublicPosvAPI creates a new PoSV consensus API for full nodes.
 func NewPublicPosvAPI(e *Ethereum) *PublicPosvAPI {
 	return &PublicPosvAPI{e}
+}
+
+// Return the epoch reward breakdown for the checkpoint block identified by hash.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint hash returns an error.
+func (api *PublicPosvAPI) GetRewardByHash(hash common.Hash) (*posv.EpochReward, error) {
+	return getRewardByCheckpointHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+}
+
+// Return the epoch reward breakdown for the checkpoint block identified by either a block hash or a block number.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint identifier returns an error.
+func (api *PublicPosvAPI) GetRewardByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (*posv.EpochReward, error) {
+	return getRewardByCheckpointHeader(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+}
+
+// Return the epoch reward breakdown for the checkpoint block at the given number.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint number returns an error.
+func (api *PublicPosvAPI) GetRewardByNumber(blockNr rpc.BlockNumber) (*posv.EpochReward, error) {
+	return getRewardByCheckpointHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
 // Return validators for given block number.
@@ -65,6 +90,7 @@ func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Addre
 	return victionapi.GetValidators(block.Header(), chainConfig, chainConfig.Viction, statedb)
 }
 
+// PublicPosvDebugAPI mirrors PublicPosvAPI with detailed calculation steps that are useful for debugging.
 type PublicPosvDebugAPI struct {
 	e *Ethereum
 }
@@ -74,10 +100,20 @@ func NewPublicPosvDebugAPI(e *Ethereum) *PublicPosvDebugAPI {
 	return &PublicPosvDebugAPI{e}
 }
 
+// GetRewardResult stores the epoch reward breakdown with the block and epoch context it was computed at.
+type GetRewardResult struct {
+	BlockNumber        uint64                      `json:"number"`
+	BlockHash          string                      `json:"hash"`
+	Epoch              uint64                      `json:"epoch"`
+	EpochSize          uint64                      `json:"epochSize"`
+	Reward             *posv.EpochReward           `json:"reward"`
+	StakeholderRewards map[common.Address]*big.Int `json:"stakeholderRewards"` // exposed here; EpochReward hides them (json:"-")
+}
+
 type GetValidatorsResult struct {
 	BlockNumber      uint64                          `json:"number"`
 	BlockHash        string                          `json:"hash"`
-	Candidates       []*GetValidatorsCandidateDetail `json:"candidatess"`
+	Candidates       []*GetValidatorsCandidateDetail `json:"candidates"`
 	SortedCandidates []*GetValidatorsCandidateDetail `json:"sortedCandidates"`
 	SortType         string                          `json:"sortType"`
 	Validators       []*GetValidatorsValidatorDetail `json:"validators"`
@@ -95,6 +131,30 @@ type GetValidatorsValidatorDetail struct {
 	Index    int    `json:"index"`
 	Address  string `json:"address"`
 	Capacity string `json:"capacity"`
+}
+
+// Return the epoch reward breakdown for the checkpoint block identified by hash,
+// with the block and epoch context it was computed at.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint hash returns an error.
+func (api *PublicPosvDebugAPI) GetRewardByHash(hash common.Hash) (*GetRewardResult, error) {
+	return getRewardByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+}
+
+// Return the epoch reward breakdown for the checkpoint block identified by either a block hash or a block number,
+// with the block and epoch context it was computed at.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint identifier returns an error.
+func (api *PublicPosvDebugAPI) GetRewardByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (*GetRewardResult, error) {
+	return getRewardByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+}
+
+// Return the epoch reward breakdown for the checkpoint block at the given number,
+// with the block and epoch context it was computed at.
+// The block must be a checkpoint block (number divisible by the epoch size).
+// Passing a non-checkpoint number returns an error.
+func (api *PublicPosvDebugAPI) GetRewardByNumber(blockNr rpc.BlockNumber) (*GetRewardResult, error) {
+	return getRewardByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
 // Return validators for given block number with detailed steps.
@@ -175,4 +235,69 @@ func (api *PublicPosvDebugAPI) GetValidators(blockNr rpc.BlockNumber) (*GetValid
 	}
 
 	return result, nil
+}
+
+// Resolve a block number or hash to a header:
+//   - "latest" resolves to the current chain head.
+//   - Any other number to the canonical chain.
+//   - When no header matches return nil.
+func headerByNumberOrHash(e *Ethereum, blockNrOrHash rpc.BlockNumberOrHash) *types.Header {
+	if blockNr, ok := blockNrOrHash.Number(); ok {
+		if blockNr == rpc.LatestBlockNumber {
+			return e.blockchain.CurrentHeader()
+		}
+		return e.blockchain.GetHeaderByNumber(uint64(blockNr))
+	}
+	if blockHash, ok := blockNrOrHash.Hash(); ok {
+		return e.blockchain.GetHeaderByHash(blockHash)
+	}
+	return nil
+}
+
+// Compute the epoch reward for a checkpoint header.
+// Return an error when the header is missing, is not a checkpoint block, or its state is unavailable.
+func getRewardByCheckpointHeader(e *Ethereum, header *types.Header) (*posv.EpochReward, error) {
+	if header == nil {
+		return nil, errors.New("header at block number or hash is not found")
+	}
+	cfg := e.blockchain.Config()
+	if cfg.Posv == nil || cfg.Viction == nil {
+		return nil, core.ErrPosvRequired
+	}
+	if !cfg.Posv.IsCheckpointBlock(header.Number.Uint64()) {
+		return nil, errors.New("header is not a checkpoint block")
+	}
+	if _, ok := e.engine.(*posv.Posv); !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+	statedb, err := e.blockchain.StateAt(header.Root)
+	if err != nil {
+		log.Info("[PosvAPI] Failed to get state at checkpoint", "hash", header.Hash(), "err", err)
+		return nil, err
+	}
+	epochReward, err := e.PosvGetEpochRewards(header, cfg, cfg.Posv, cfg.Viction, e.blockchain, statedb, log.Root())
+	if err != nil {
+		return nil, err
+	}
+	if epochReward == nil {
+		return nil, errors.New("epoch reward is nil")
+	}
+	return epochReward, nil
+}
+
+// Compute the epoch reward for a checkpoint header and wrap it with the block and epoch context for the posvdebug API.
+func getRewardByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*GetRewardResult, error) {
+	epochReward, err := getRewardByCheckpointHeader(e, header)
+	if err != nil {
+		return nil, err
+	}
+	cfg := e.blockchain.Config()
+	return &GetRewardResult{
+		BlockNumber:        header.Number.Uint64(),
+		BlockHash:          header.Hash().Hex(),
+		Epoch:              header.Number.Uint64() / cfg.Posv.Epoch,
+		EpochSize:          cfg.Posv.Epoch,
+		Reward:             epochReward,
+		StakeholderRewards: epochReward.StakeholderRewards,
+	}, nil
 }

@@ -71,7 +71,7 @@ type EpochReward struct {
 	StakeholderRewards map[common.Address]*big.Int                    `json:"-"`
 }
 
-// EpochReward stores the rewards of a validator.
+// ValidatorReward stores the rewards of a validator.
 type ValidatorReward struct {
 	Sign   uint64   `json:"sign"`
 	Reward *big.Int `json:"reward"`
