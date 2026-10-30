@@ -140,6 +140,22 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
+			name: 'getValidatorPairsByHash',
+			call: 'posv_getValidatorPairsByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getValidatorPairsByHashOrNumber',
+			call: 'posv_getValidatorPairsByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getValidatorPairsByNumber',
+			call: 'posv_getValidatorPairsByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
 			name: 'getValidators',
 			call: 'posv_getValidators',
 			params: 1,
@@ -166,6 +182,22 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'getRewardByNumber',
 			call: 'posvdebug_getRewardByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getValidatorPairsByHash',
+			call: 'posvdebug_getValidatorPairsByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getValidatorPairsByHashOrNumber',
+			call: 'posvdebug_getValidatorPairsByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getValidatorPairsByNumber',
+			call: 'posvdebug_getValidatorPairsByNumber',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),

@@ -66,6 +66,27 @@ func (api *PublicPosvAPI) GetRewardByNumber(blockNr rpc.BlockNumber) (*posv.Epoc
 	return getRewardByCheckpointHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
+// Return the validator pairs (validator-attestor) effective at the block identified by hash.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvAPI) GetValidatorPairsByHash(hash common.Hash) (map[common.Address]common.Address, error) {
+	pairs, _, _, err := getValidatorPairsByCheckpointHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+	return pairs, err
+}
+
+// Return the validator pairs (validator-attestor) effective at the block identified by either a block hash or a block number.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvAPI) GetValidatorPairsByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address]common.Address, error) {
+	pairs, _, _, err := getValidatorPairsByCheckpointHeader(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+	return pairs, err
+}
+
+// Return the validator pairs (validator-attestor) effective at the block at the given number.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvAPI) GetValidatorPairsByNumber(blockNr rpc.BlockNumber) (map[common.Address]common.Address, error) {
+	pairs, _, _, err := getValidatorPairsByCheckpointHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
+	return pairs, err
+}
+
 // Return validators for given block number.
 func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Address, error) {
 	chainConfig := api.e.BlockChain().Config()
@@ -108,6 +129,19 @@ type GetRewardResult struct {
 	EpochSize          uint64                      `json:"epochSize"`
 	Reward             *posv.EpochReward           `json:"reward"`
 	StakeholderRewards map[common.Address]*big.Int `json:"stakeholderRewards"` // exposed here; EpochReward hides them (json:"-")
+}
+
+// GetValidatorPairsResult stores the validator pairs (validator-attestor) with the block and epoch context it was computed at,
+// together with the checkpoint header and rotation offset it was derived from.
+type GetValidatorPairsResult struct {
+	BlockNumber      uint64                            `json:"number"`
+	BlockHash        string                            `json:"hash"`
+	Epoch            uint64                            `json:"epoch"`
+	EpochSize        uint64                            `json:"epochSize"`
+	CheckpointNumber uint64                            `json:"checkpointNumber"`
+	CheckpointHash   string                            `json:"checkpointHash"`
+	Offset           uint64                            `json:"offset"`
+	Pairs            map[common.Address]common.Address `json:"pairs"`
 }
 
 type GetValidatorsResult struct {
@@ -155,6 +189,27 @@ func (api *PublicPosvDebugAPI) GetRewardByHashOrNumber(blockNrOrHash rpc.BlockNu
 // Passing a non-checkpoint number returns an error.
 func (api *PublicPosvDebugAPI) GetRewardByNumber(blockNr rpc.BlockNumber) (*GetRewardResult, error) {
 	return getRewardByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
+}
+
+// Return the validator pairs (validator-attestor) effective at the block identified by hash,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvDebugAPI) GetValidatorPairsByHash(hash common.Hash) (*GetValidatorPairsResult, error) {
+	return getValidatorPairsByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+}
+
+// Return the validator pairs (validator-attestor) effective at the block identified by either a block hash or a block number,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvDebugAPI) GetValidatorPairsByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (*GetValidatorPairsResult, error) {
+	return getValidatorPairsByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+}
+
+// Return the validator pairs (validator-attestor) effective at the block at the given number,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The pairs are derived from the checkpoint header governing the block's epoch.
+func (api *PublicPosvDebugAPI) GetValidatorPairsByNumber(blockNr rpc.BlockNumber) (*GetValidatorPairsResult, error) {
+	return getValidatorPairsByCheckpointHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
 // Return validators for given block number with detailed steps.
@@ -299,5 +354,49 @@ func getRewardByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types.Header)
 		EpochSize:          cfg.Posv.Epoch,
 		Reward:             epochReward,
 		StakeholderRewards: epochReward.StakeholderRewards,
+	}, nil
+}
+
+// Compute the validator pairs (validator-attestor) effective at the given header,
+// together with the rotation offset and the checkpoint header they were derived from.
+// Return an error when the header is missing, its checkpoint header is missing, or the pairs cannot be derived.
+func getValidatorPairsByCheckpointHeader(e *Ethereum, header *types.Header) (map[common.Address]common.Address, uint64, *types.Header, error) {
+	if header == nil {
+		return nil, 0, nil, errors.New("header at block number or hash is not found")
+	}
+	cfg := e.blockchain.Config()
+	if cfg.Posv == nil || cfg.Viction == nil {
+		return nil, 0, nil, core.ErrPosvRequired
+	}
+	if _, ok := e.engine.(*posv.Posv); !ok {
+		return nil, 0, nil, errors.New("engine is not a posv engine")
+	}
+	checkpointHeader := posv.GetCheckpointHeader(cfg.Posv, header, nil, e.blockchain)
+	if checkpointHeader == nil {
+		return nil, 0, nil, errors.New("checkpoint header not found")
+	}
+	pairs, offset, err := e.PosvGetCreatorAttestorPairs(header, checkpointHeader, cfg, cfg.Posv, cfg.Viction)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return pairs, offset, checkpointHeader, nil
+}
+
+// Compute the validator pairs (validator-attestor) for a header and wrap them with the block and epoch context for the debugging.
+func getValidatorPairsByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*GetValidatorPairsResult, error) {
+	pairs, offset, checkpointHeader, err := getValidatorPairsByCheckpointHeader(e, header)
+	if err != nil {
+		return nil, err
+	}
+	cfg := e.blockchain.Config()
+	return &GetValidatorPairsResult{
+		BlockNumber:      header.Number.Uint64(),
+		BlockHash:        header.Hash().Hex(),
+		Epoch:            header.Number.Uint64() / cfg.Posv.Epoch,
+		EpochSize:        cfg.Posv.Epoch,
+		CheckpointNumber: checkpointHeader.Number.Uint64(),
+		CheckpointHash:   checkpointHeader.Hash().Hex(),
+		Offset:           offset,
+		Pairs:            pairs,
 	}, nil
 }
