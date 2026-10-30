@@ -45,6 +45,27 @@ func NewPublicPosvAPI(e *Ethereum) *PublicPosvAPI {
 	return &PublicPosvAPI{e}
 }
 
+// Return the finality percentage of the block identified by hash.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvAPI) GetBlockFinalityByHash(hash common.Hash) (uint, error) {
+	finality, _, _, _, err := getBlockFinalityByHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+	return finality, err
+}
+
+// Return the finality percentage of the block identified by either a block hash or a block number.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvAPI) GetBlockFinalityByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (uint, error) {
+	finality, _, _, _, err := getBlockFinalityByHeader(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+	return finality, err
+}
+
+// Return the finality percentage of the block at the given number.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvAPI) GetBlockFinalityByNumber(blockNr rpc.BlockNumber) (uint, error) {
+	finality, _, _, _, err := getBlockFinalityByHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
+	return finality, err
+}
+
 // Return the validators that signed the block identified by hash.
 // The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
 func (api *PublicPosvAPI) GetBlockSignersByHash(hash common.Hash) ([]common.Address, error) {
@@ -142,6 +163,20 @@ func NewPublicPosvDebugAPI(e *Ethereum) *PublicPosvDebugAPI {
 	return &PublicPosvDebugAPI{e}
 }
 
+// GetBlockFinalityResult stores the block finality with the block and epoch context it was computed at,
+// together with the signer share and the nearest finalized block ahead it was reconciled with.
+type GetBlockFinalityResult struct {
+	BlockNumber              uint64 `json:"number"`
+	BlockHash                string `json:"hash"`
+	Epoch                    uint64 `json:"epoch"`
+	EpochSize                uint64 `json:"epochSize"`
+	Finality                 uint   `json:"finality"`
+	SignerFinality           uint   `json:"signerFinality"`
+	ClosestFinalizedNumber   uint64 `json:"closestFinalizedNumber,omitempty"`
+	ClosestFinalizedHash     string `json:"closestFinalizedHash,omitempty"`
+	ClosestFinalizedFinality uint   `json:"closestFinalizedFinality,omitempty"`
+}
+
 // GetBlockSignersResult stores the block signers with the block and epoch context it was computed at,
 // together with the signed block and validator set they were derived from.
 type GetBlockSignersResult struct {
@@ -199,6 +234,27 @@ type GetValidatorsValidatorDetail struct {
 	Index    int    `json:"index"`
 	Address  string `json:"address"`
 	Capacity string `json:"capacity"`
+}
+
+// Return the finality percentage of the block identified by hash,
+// with the block and epoch context and the reconciliation steps it was computed from.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvDebugAPI) GetBlockFinalityByHash(hash common.Hash) (*GetBlockFinalityResult, error) {
+	return getBlockFinalityByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+}
+
+// Return the finality percentage of the block identified by either a block hash or a block number,
+// with the block and epoch context and the reconciliation steps it was computed from.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvDebugAPI) GetBlockFinalityByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (*GetBlockFinalityResult, error) {
+	return getBlockFinalityByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+}
+
+// Return the finality percentage of the block at the given number,
+// with the block and epoch context and the reconciliation steps it was computed from.
+// The finality is the share of the governing validator set that signed the block, raised to the finality of the nearest finalized block ahead on the same path.
+func (api *PublicPosvDebugAPI) GetBlockFinalityByNumber(blockNr rpc.BlockNumber) (*GetBlockFinalityResult, error) {
+	return getBlockFinalityByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
 // Return the validators that signed the block identified by hash,
@@ -347,6 +403,46 @@ func (api *PublicPosvDebugAPI) GetValidators(blockNr rpc.BlockNumber) (*GetValid
 	return result, nil
 }
 
+// Scan forward from targetNumber to the current chain head for the block with the highest signer finality.
+// When the TIPSigning fork is active, only boundary blocks are checked, otherwise every block is checked.
+// Return the best header found and its finality percentage, or nil when no candidate could be evaluated.
+func findClosestFinalizedBlock(e *Ethereum, engine *posv.Posv, targetNumber uint64) (*types.Header, uint) {
+	cfg := e.blockchain.Config()
+	headNumber := e.blockchain.CurrentBlock().NumberU64()
+
+	step := uint64(1)
+	scanStart := targetNumber
+	if cfg.IsTIPSigning(new(big.Int).SetUint64(headNumber)) {
+		step = cfg.Viction.ValidatorSignInterval
+		if rem := targetNumber % step; rem != 0 {
+			scanStart = targetNumber + (step - rem)
+		}
+	}
+
+	var (
+		bestHeader   *types.Header
+		bestFinality uint
+	)
+	for number := scanStart; number <= headNumber; number += step {
+		header := e.blockchain.GetHeaderByNumber(number)
+		if header == nil {
+			continue
+		}
+		finality, err := getSignerFinalityOfHeader(e, header, engine)
+		if err != nil {
+			continue
+		}
+		if finality > bestFinality {
+			bestHeader = header
+			bestFinality = finality
+		}
+		if finality == 100 {
+			break
+		}
+	}
+	return bestHeader, bestFinality
+}
+
 // Return the header of the block whose BlockSigner transactions record the given header:
 //   - Under TIPSigning, signing is aggregated at ValidatorSignInterval boundaries, so the next boundary block is used.
 //   - Otherwise the given block itself.
@@ -386,6 +482,64 @@ func headerByNumberOrHash(e *Ethereum, blockNrOrHash rpc.BlockNumberOrHash) *typ
 		return e.blockchain.GetHeaderByHash(blockHash)
 	}
 	return nil
+}
+
+// Compute the finality percentage of the block at the given header, together with the signer share and the nearest finalized block ahead it was reconciled with.
+// Genesis is final by definition. A block whose signer share cannot be computed still gets the finality of the nearest finalized block ahead when that block is on the same path.
+func getBlockFinalityByHeader(e *Ethereum, header *types.Header) (uint, uint, *types.Header, uint, error) {
+	if header == nil {
+		return 0, 0, nil, 0, errors.New("header at block number or hash is not found")
+	}
+	cfg := e.blockchain.Config()
+	if cfg.Posv == nil || cfg.Viction == nil {
+		return 0, 0, nil, 0, core.ErrPosvRequired
+	}
+	engine, ok := e.engine.(*posv.Posv)
+	if !ok {
+		return 0, 0, nil, 0, errors.New("engine is not a posv engine")
+	}
+	if header.Number.Uint64() == 0 {
+		return 100, 100, nil, 0, nil
+	}
+
+	signerFinality, err := getSignerFinalityOfHeader(e, header, engine)
+	if err != nil {
+		// The signer share failed; the forward scan below still produces a finality.
+		log.Error("[PosvAPI] Failed to compute signer finality", "number", header.Number.Uint64(), "hash", header.Hash(), "err", err)
+	}
+	if signerFinality == 100 {
+		return 100, 100, nil, 0, nil
+	}
+
+	closestHeader, closestFinality := findClosestFinalizedBlock(e, engine, header.Number.Uint64())
+	if closestHeader != nil && closestFinality > signerFinality &&
+		e.blockchain.AreTwoBlockSamePath(closestHeader.Hash(), header.Hash()) {
+		return closestFinality, signerFinality, closestHeader, closestFinality, nil
+	}
+	return signerFinality, signerFinality, closestHeader, closestFinality, nil
+}
+
+// Compute the block finality for a header and wrap it with the block and epoch context and the reconciliation steps for the posvdebug API.
+func getBlockFinalityByHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*GetBlockFinalityResult, error) {
+	finality, signerFinality, closestHeader, closestFinality, err := getBlockFinalityByHeader(e, header)
+	if err != nil {
+		return nil, err
+	}
+	cfg := e.blockchain.Config()
+	result := &GetBlockFinalityResult{
+		BlockNumber:    header.Number.Uint64(),
+		BlockHash:      header.Hash().Hex(),
+		Epoch:          header.Number.Uint64() / cfg.Posv.Epoch,
+		EpochSize:      cfg.Posv.Epoch,
+		Finality:       finality,
+		SignerFinality: signerFinality,
+	}
+	if closestHeader != nil {
+		result.ClosestFinalizedNumber = closestHeader.Number.Uint64()
+		result.ClosestFinalizedHash = closestHeader.Hash().Hex()
+		result.ClosestFinalizedFinality = closestFinality
+	}
+	return result, nil
 }
 
 // Compute the validators that signed the block at the given header, together with the signed block header and the validator set they were filtered against.
@@ -435,6 +589,25 @@ func getBlockSignersByHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*G
 	return result, nil
 }
 
+// Return the validator set governing the block: the validators recorded in the checkpoint header of the block's signing window.
+// The window ends at the next ValidatorSignInterval boundary ahead of the block, or at the block itself when the boundary is not yet in the chain or the TIP2019 fork is inactive.
+func getGoverningValidators(e *Ethereum, header *types.Header) []common.Address {
+	cfg := e.blockchain.Config()
+	interval := cfg.Viction.ValidatorSignInterval
+	number := header.Number.Uint64()
+
+	windowEnd := number + (interval - (number % interval))
+	if windowEnd >= e.blockchain.CurrentBlock().NumberU64() || !cfg.IsTIP2019(header.Number) {
+		windowEnd = number
+	}
+	checkpointNumber := windowEnd - (windowEnd % cfg.Posv.Epoch)
+	checkpointHeader := e.blockchain.GetHeaderByNumber(checkpointNumber)
+	if checkpointHeader == nil {
+		return nil
+	}
+	return posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+}
+
 // Compute the epoch reward for a checkpoint header.
 // Return an error when the header is missing, is not a checkpoint block, or its state is unavailable.
 func getRewardByCheckpointHeader(e *Ethereum, header *types.Header) (*posv.EpochReward, error) {
@@ -481,6 +654,27 @@ func getRewardByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types.Header)
 		Reward:             epochReward,
 		StakeholderRewards: epochReward.StakeholderRewards,
 	}, nil
+}
+
+// Compute the signer finality of the block at the given header: the share of its governing validator set that signed the block, as recorded by the BlockSigner transactions of its signed block.
+// Blocks without a signed block, such as the genesis block, blocks whose governing validator set is empty and blocks off the canonical path of their signed block have zero signer finality.
+func getSignerFinalityOfHeader(e *Ethereum, header *types.Header, engine *posv.Posv) (uint, error) {
+	validators := getGoverningValidators(e, header)
+	if len(validators) == 0 {
+		return 0, nil
+	}
+	signedHeader := findNearestSignedBlock(e, header)
+	if signedHeader == nil {
+		return 0, nil
+	}
+	if !e.blockchain.AreTwoBlockSamePath(signedHeader.Hash(), header.Hash()) {
+		return 0, nil
+	}
+	signers, _, err := getSigners(e, signedHeader, engine)
+	if err != nil {
+		return 0, err
+	}
+	return uint(100 * len(signers) / len(validators)), nil
 }
 
 // Return the validators that signed the given signed block, together with the validator set the signers were filtered against.

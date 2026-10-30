@@ -96,6 +96,22 @@ web3._extend({
 	property: 'posv',
 	methods: [
 		new web3._extend.Method({
+			name: 'getBlockFinalityByHash',
+			call: 'posv_getBlockFinalityByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByHashOrNumber',
+			call: 'posv_getBlockFinalityByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByNumber',
+			call: 'posv_getBlockFinalityByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
 			name: 'getBlockSignersByHash',
 			call: 'posv_getBlockSignersByHash',
 			params: 1
@@ -185,6 +201,22 @@ const PosvDebugJs = `
 web3._extend({
 	property: 'posvdebug',
 	methods: [
+		new web3._extend.Method({
+			name: 'getBlockFinalityByHash',
+			call: 'posvdebug_getBlockFinalityByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByHashOrNumber',
+			call: 'posvdebug_getBlockFinalityByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockFinalityByNumber',
+			call: 'posvdebug_getBlockFinalityByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
 		new web3._extend.Method({
 			name: 'getBlockSignersByHash',
 			call: 'posvdebug_getBlockSignersByHash',
