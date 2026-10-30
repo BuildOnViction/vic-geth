@@ -96,6 +96,22 @@ web3._extend({
 	property: 'posv',
 	methods: [
 		new web3._extend.Method({
+			name: 'getBlockSignersByHash',
+			call: 'posv_getBlockSignersByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockSignersByHashOrNumber',
+			call: 'posv_getBlockSignersByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockSignersByNumber',
+			call: 'posv_getBlockSignersByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
 			name: 'getRewardByHash',
 			call: 'posv_getRewardByHash',
 			params: 1
@@ -169,6 +185,22 @@ const PosvDebugJs = `
 web3._extend({
 	property: 'posvdebug',
 	methods: [
+		new web3._extend.Method({
+			name: 'getBlockSignersByHash',
+			call: 'posvdebug_getBlockSignersByHash',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockSignersByHashOrNumber',
+			call: 'posvdebug_getBlockSignersByHashOrNumber',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getBlockSignersByNumber',
+			call: 'posvdebug_getBlockSignersByNumber',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
 		new web3._extend.Method({
 			name: 'getRewardByHash',
 			call: 'posvdebug_getRewardByHash',

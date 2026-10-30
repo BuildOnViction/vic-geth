@@ -45,6 +45,27 @@ func NewPublicPosvAPI(e *Ethereum) *PublicPosvAPI {
 	return &PublicPosvAPI{e}
 }
 
+// Return the validators that signed the block identified by hash.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvAPI) GetBlockSignersByHash(hash common.Hash) ([]common.Address, error) {
+	signers, _, _, err := getBlockSignersByHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+	return signers, err
+}
+
+// Return the validators that signed the block identified by either a block hash or a block number.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvAPI) GetBlockSignersByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) ([]common.Address, error) {
+	signers, _, _, err := getBlockSignersByHeader(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+	return signers, err
+}
+
+// Return the validators that signed the block at the given number.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvAPI) GetBlockSignersByNumber(blockNr rpc.BlockNumber) ([]common.Address, error) {
+	signers, _, _, err := getBlockSignersByHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
+	return signers, err
+}
+
 // Return the epoch reward breakdown for the checkpoint block identified by hash.
 // The block must be a checkpoint block (number divisible by the epoch size).
 // Passing a non-checkpoint hash returns an error.
@@ -121,6 +142,19 @@ func NewPublicPosvDebugAPI(e *Ethereum) *PublicPosvDebugAPI {
 	return &PublicPosvDebugAPI{e}
 }
 
+// GetBlockSignersResult stores the block signers with the block and epoch context it was computed at,
+// together with the signed block and validator set they were derived from.
+type GetBlockSignersResult struct {
+	BlockNumber       uint64           `json:"number"`
+	BlockHash         string           `json:"hash"`
+	Epoch             uint64           `json:"epoch"`
+	EpochSize         uint64           `json:"epochSize"`
+	SignedBlockNumber uint64           `json:"signedBlockNumber"`
+	SignedBlockHash   string           `json:"signedBlockHash"`
+	Validators        []common.Address `json:"validators"`
+	Signers           []common.Address `json:"signers"`
+}
+
 // GetRewardResult stores the epoch reward breakdown with the block and epoch context it was computed at.
 type GetRewardResult struct {
 	BlockNumber        uint64                      `json:"number"`
@@ -165,6 +199,27 @@ type GetValidatorsValidatorDetail struct {
 	Index    int    `json:"index"`
 	Address  string `json:"address"`
 	Capacity string `json:"capacity"`
+}
+
+// Return the validators that signed the block identified by hash,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvDebugAPI) GetBlockSignersByHash(hash common.Hash) (*GetBlockSignersResult, error) {
+	return getBlockSignersByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithHash(hash, false)))
+}
+
+// Return the validators that signed the block identified by either a block hash or a block number,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvDebugAPI) GetBlockSignersByHashOrNumber(blockNrOrHash rpc.BlockNumberOrHash) (*GetBlockSignersResult, error) {
+	return getBlockSignersByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, blockNrOrHash))
+}
+
+// Return the validators that signed the block at the given number,
+// with the block and epoch context and the derivation inputs it was computed from.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func (api *PublicPosvDebugAPI) GetBlockSignersByNumber(blockNr rpc.BlockNumber) (*GetBlockSignersResult, error) {
+	return getBlockSignersByHeaderWithDebugInfo(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 }
 
 // Return the epoch reward breakdown for the checkpoint block identified by hash,
@@ -292,6 +347,30 @@ func (api *PublicPosvDebugAPI) GetValidators(blockNr rpc.BlockNumber) (*GetValid
 	return result, nil
 }
 
+// Return the header of the block whose BlockSigner transactions record the given header:
+//   - Under TIPSigning, signing is aggregated at ValidatorSignInterval boundaries, so the next boundary block is used.
+//   - Otherwise the given block itself.
+//   - Return nil when no such block exists, e.g. for the genesis block.
+func findNearestSignedBlock(e *Ethereum, header *types.Header) *types.Header {
+	if header.Number.Int64() <= 0 {
+		return nil
+	}
+	cfg := e.blockchain.Config()
+	blockNumber := header.Number.Uint64()
+	signedBlockNumber := blockNumber + (cfg.Viction.ValidatorSignInterval - (blockNumber % cfg.Viction.ValidatorSignInterval))
+	latestBlockNumber := e.blockchain.CurrentBlock().NumberU64()
+	if signedBlockNumber >= latestBlockNumber || !cfg.IsTIPSigning(header.Number) {
+		signedBlockNumber = blockNumber
+	}
+
+	// The epoch checkpoint of the signed block must exist on the canonical chain.
+	checkpointNumber := signedBlockNumber - (signedBlockNumber % cfg.Posv.Epoch)
+	if e.blockchain.GetHeaderByNumber(checkpointNumber) == nil {
+		return nil
+	}
+	return e.blockchain.GetHeaderByNumber(signedBlockNumber)
+}
+
 // Resolve a block number or hash to a header:
 //   - "latest" resolves to the current chain head.
 //   - Any other number to the canonical chain.
@@ -307,6 +386,53 @@ func headerByNumberOrHash(e *Ethereum, blockNrOrHash rpc.BlockNumberOrHash) *typ
 		return e.blockchain.GetHeaderByHash(blockHash)
 	}
 	return nil
+}
+
+// Compute the validators that signed the block at the given header, together with the signed block header and the validator set they were filtered against.
+// Blocks without a signed block, such as the genesis block, return an empty list.
+func getBlockSignersByHeader(e *Ethereum, header *types.Header) ([]common.Address, *types.Header, []common.Address, error) {
+	if header == nil {
+		return nil, nil, nil, errors.New("header at block number or hash is not found")
+	}
+	cfg := e.blockchain.Config()
+	if cfg.Posv == nil || cfg.Viction == nil {
+		return nil, nil, nil, core.ErrPosvRequired
+	}
+	engine, ok := e.engine.(*posv.Posv)
+	if !ok {
+		return nil, nil, nil, errors.New("engine is not a posv engine")
+	}
+	signedHeader := findNearestSignedBlock(e, header)
+	if signedHeader == nil {
+		return []common.Address{}, nil, nil, nil
+	}
+	signers, validators, err := getSigners(e, signedHeader, engine)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return signers, signedHeader, validators, nil
+}
+
+// Compute the block signers for a header and wrap them with the block and epoch context for the debugging.
+func getBlockSignersByHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*GetBlockSignersResult, error) {
+	signers, signedHeader, validators, err := getBlockSignersByHeader(e, header)
+	if err != nil {
+		return nil, err
+	}
+	cfg := e.blockchain.Config()
+	result := &GetBlockSignersResult{
+		BlockNumber: header.Number.Uint64(),
+		BlockHash:   header.Hash().Hex(),
+		Epoch:       header.Number.Uint64() / cfg.Posv.Epoch,
+		EpochSize:   cfg.Posv.Epoch,
+		Validators:  validators,
+		Signers:     signers,
+	}
+	if signedHeader != nil {
+		result.SignedBlockNumber = signedHeader.Number.Uint64()
+		result.SignedBlockHash = signedHeader.Hash().Hex()
+	}
+	return result, nil
 }
 
 // Compute the epoch reward for a checkpoint header.
@@ -355,6 +481,87 @@ func getRewardByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types.Header)
 		Reward:             epochReward,
 		StakeholderRewards: epochReward.StakeholderRewards,
 	}, nil
+}
+
+// Return the validators that signed the given signed block, together with the validator set the signers were filtered against.
+// The signers are the creator and attestor of the given block plus unique senders of successful BlockSigner transactions for that block; all are restricted to the epoch's validator set.
+func getSigners(e *Ethereum, signedHeader *types.Header, engine *posv.Posv) ([]common.Address, []common.Address, error) {
+	cfg := e.blockchain.Config()
+	number := signedHeader.Number.Uint64()
+	checkpointNumber := number - (number % cfg.Posv.Epoch)
+	checkpointHeader := e.blockchain.GetHeaderByNumber(checkpointNumber)
+	if checkpointHeader == nil {
+		return nil, nil, fmt.Errorf("checkpoint header #%d not found", checkpointNumber)
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(validators) == 0 {
+		return nil, nil, fmt.Errorf("no validators at checkpoint #%d", checkpointNumber)
+	}
+
+	signers, err := getSignersFromBlocks(e, number, signedHeader.Hash(), validators)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A failed signature recovery yields no address the validator-set filter below would keep, so failed recoveries of the attestor and creator are skipped.
+	if attestor, err := engine.Attestor(signedHeader); err == nil {
+		signers = append(signers, attestor)
+	}
+	if creator, err := engine.Author(signedHeader); err == nil {
+		signers = append(signers, creator)
+	}
+
+	filtered := make([]common.Address, 0, len(validators))
+	for _, validator := range validators {
+		for _, signer := range signers {
+			if signer == validator {
+				filtered = append(filtered, validator)
+				break
+			}
+		}
+	}
+	return filtered, validators, nil
+}
+
+// Return the unique senders of successful BlockSigner transactions for the given block hash, scanned from the blocks following it up to the finality limit.
+func getSignersFromBlocks(e *Ethereum, blockNumber uint64, blockHash common.Hash, validators []common.Address) ([]common.Address, error) {
+	cfg := e.blockchain.Config()
+	addrs := []common.Address{}
+	isValidator := map[common.Address]bool{}
+	for _, validator := range validators {
+		isValidator[validator] = true
+	}
+	signer := types.MakeSigner(cfg, new(big.Int).SetUint64(blockNumber))
+
+	limitNumber := blockNumber + cfg.Viction.ConsensusLimitTimeFinality
+	if headNumber := e.blockchain.CurrentBlock().NumberU64(); limitNumber > headNumber {
+		limitNumber = headNumber
+	}
+	for i := blockNumber + 1; i <= limitNumber; i++ {
+		header := e.blockchain.GetHeaderByNumber(i)
+		if header == nil {
+			continue
+		}
+		signTxs, err := victionapi.GetBlockSignData(header, cfg, cfg.Viction, e.blockchain, e.blockchain, e.blockSignersCache)
+		if err != nil {
+			return addrs, err
+		}
+		for _, signtx := range signTxs {
+			blkHash := common.BytesToHash(signtx.Data()[len(signtx.Data())-32:])
+			from, err := types.Sender(signer, &signtx)
+			if err != nil {
+				// A sender that does not recover is not a signer; skip its transaction.
+				continue
+			}
+			if blkHash == blockHash && isValidator[from] {
+				addrs = append(addrs, from)
+				delete(isValidator, from)
+			}
+		}
+		if len(isValidator) == 0 {
+			break
+		}
+	}
+	return addrs, nil
 }
 
 // Compute the validator pairs (validator-attestor) effective at the given header,
