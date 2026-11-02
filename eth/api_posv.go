@@ -153,6 +153,29 @@ func (api *PublicPosvAPI) GetValidators(blockNr rpc.BlockNumber) ([]common.Addre
 	return victionapi.GetValidators(block.Header(), chainConfig, chainConfig.Viction, statedb)
 }
 
+// Return the owner of the given validator coinbase at the block identified by either a block hash or a block number.
+// A non-validator coinbase maps to the zero address.
+func (api *PublicPosvAPI) GetOwnerByCoinbase(coinbase common.Address, blockNrOrHash rpc.BlockNumberOrHash) (common.Address, error) {
+	chainConfig := api.e.BlockChain().Config()
+	if chainConfig.Posv == nil || chainConfig.Viction == nil {
+		return common.Address{}, core.ErrPosvRequired
+	}
+	if chainConfig.Viction.ValidatorContract == (common.Address{}) {
+		return common.Address{}, victionapi.ErrNoContractAddress
+	}
+
+	header := headerByNumberOrHash(api.e, blockNrOrHash)
+	if header == nil {
+		return common.Address{}, errors.New("header at block number or hash is not found")
+	}
+
+	statedb, err := api.e.BlockChain().StateAt(header.Root)
+	if err != nil {
+		return common.Address{}, err
+	}
+	return statedb.VicGetValidatorOwner(chainConfig.Viction.ValidatorContract, coinbase), nil
+}
+
 // PublicPosvDebugAPI mirrors PublicPosvAPI with detailed calculation steps that are useful for debugging.
 type PublicPosvDebugAPI struct {
 	e *Ethereum
