@@ -20,6 +20,7 @@
 package eth
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -91,13 +92,21 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 }
 
 // Calculate rewards at the end of each epoch.
+// Returns an error when the header's parent is unavailable, including at the genesis block.
 func (s *Ethereum) PosvGetEpochRewards(
 	header *types.Header,
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	chainReader consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	number := header.Number.Uint64()
+	if number == 0 {
+		// Genesis has no parent header; the number-1 lookup below would underflow.
+		return nil, errors.New("epoch reward is not available at the genesis block")
+	}
 	preCheckpointHeader := chainReader.GetHeader(header.ParentHash, number-1)
+	if preCheckpointHeader == nil {
+		return nil, fmt.Errorf("parent header of block %d not found", number)
+	}
 	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
 	if err != nil {
 		logger.Warn("[Backend] Get preCheckpoint state failed. Fallback to checkpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
