@@ -6,7 +6,8 @@
 - The header comes first in the code file, followed by a blank line; only a line a tool requires at the very top (a shebang, an encoding line) stays above it.
 - The header text below is plaintext; when writing it into a code file, prefix every line with the file language's line-comment token:
   - `go`: `//`
-- Formats without line comments (e.g. Markdown, JSON) don't carry the header, and neither do data formats that have them (e.g. YAML, TOML).
+- In a code file whose language has no line comments, wrap the header text in one block comment instead, with its opening and closing delimiters on lines of their own.
+- Documentation and data formats (e.g. Markdown, JSON, YAML, TOML) don't carry the header, even where they allow comments.
 <!-- Project-specific / Guideline -->
 
 ## Full header
@@ -45,4 +46,4 @@ This file is part of the go-ethereum library.
 
 ## Project-specific
 
-<!-- Project-specific -->
+<!-- Project-specific / Project-specific -->
