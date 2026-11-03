@@ -128,6 +128,11 @@ web3._extend({
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
+			name: 'getCandidates',
+			call: 'posv_getCandidates',
+			params: 1
+		}),
+		new web3._extend.Method({
 			name: 'getRewardByHash',
 			call: 'posv_getRewardByHash',
 			params: 1

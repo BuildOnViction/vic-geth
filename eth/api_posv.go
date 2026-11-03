@@ -29,10 +29,18 @@ import (
 	"github.com/ethereum/go-ethereum/common/sortlgc"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/internal/victionapi"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
+)
+
+// Candidate status values reported by GetCandidates.
+const (
+	statusMasternode = "MASTERNODE"
+	statusProposed   = "PROPOSED"
+	statusSlashed    = "SLASHED"
 )
 
 // PublicPosvAPI is the API exclusive to PoSV consensus.
@@ -85,6 +93,95 @@ func (api *PublicPosvAPI) GetBlockSignersByHashOrNumber(blockNrOrHash rpc.BlockN
 func (api *PublicPosvAPI) GetBlockSignersByNumber(blockNr rpc.BlockNumber) ([]common.Address, error) {
 	signers, _, _, err := getBlockSignersByHeader(api.e, headerByNumberOrHash(api.e, rpc.BlockNumberOrHashWithNumber(blockNr)))
 	return signers, err
+}
+
+// Return the candidate status board for the given epoch: every validator candidate with its status (PROPOSED, MASTERNODE or SLASHED) and its voting capacity.
+func (api *PublicPosvAPI) GetCandidates(epoch rpc.EpochNumber) (*GetCandidatesResult, error) {
+	cfg := api.e.blockchain.Config()
+	if cfg.Posv == nil || cfg.Viction == nil {
+		return nil, core.ErrPosvRequired
+	}
+	if _, ok := api.e.engine.(*posv.Posv); !ok {
+		return nil, errors.New("engine is not a posv engine")
+	}
+
+	checkpointNumber, epochNumber := previousCheckpointFromEpoch(api.e, epoch)
+	checkpointHeader := api.e.blockchain.GetHeaderByNumber(uint64(checkpointNumber))
+	if checkpointHeader == nil {
+		return nil, fmt.Errorf("checkpoint header #%d not found", checkpointNumber)
+	}
+
+	candidates, stateBlockNr, err := getCandidatesForEpoch(api.e, epoch, checkpointHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make(map[string]*CandidateStatus, len(candidates))
+	for _, candidate := range candidates {
+		statuses[candidate.Address.String()] = &CandidateStatus{Status: statusProposed, Capacity: candidate.Capacity}
+	}
+
+	// Candidates recorded in the governing checkpoint header are the epoch's masternodes.
+	masternodes := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+	if len(masternodes) == 0 {
+		return nil, errors.New("masternodes list cannot be found")
+	}
+	for _, masternode := range masternodes {
+		if status, ok := statuses[masternode.String()]; ok {
+			status.Status = statusMasternode
+		}
+	}
+
+	// A penalty recorded at the governing checkpoint or at any of the previous PenaltyEpochCount checkpoints slashes a candidate while it stays inside the top ValidatorMaxCount.
+	penalties := posv.DecodePenaltiesFromHeader(checkpointHeader.Penalties)
+	for i := uint64(1); i <= cfg.Viction.PenaltyEpochCount; i++ {
+		if checkpointHeader.Number.Uint64() < cfg.Posv.Epoch*i {
+			break
+		}
+		prevCheckpointHeader := api.e.blockchain.GetHeaderByNumber(checkpointHeader.Number.Uint64() - cfg.Posv.Epoch*i)
+		if prevCheckpointHeader == nil {
+			continue
+		}
+		penalties = append(penalties, posv.DecodePenaltiesFromHeader(prevCheckpointHeader.Penalties)...)
+	}
+	if len(penalties) > 0 {
+		sortedCandidates := append([]posv.ValidatorInfo(nil), candidates...)
+		forkBlockNumber := new(big.Int)
+		if stateBlockNr == rpc.PendingBlockNumber {
+			// While mining, the IsAtlas fork is evaluated at the chain head.
+			forkBlockNumber = api.e.blockchain.CurrentBlock().Number()
+		} else {
+			forkBlockNumber.SetUint64(uint64(stateBlockNr))
+		}
+		if cfg.IsAtlas(forkBlockNumber) {
+			sort.SliceStable(sortedCandidates, func(i, j int) bool {
+				return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
+			})
+		} else {
+			sortlgc.Slice(sortedCandidates, func(i, j int) bool {
+				return sortedCandidates[i].Capacity.Cmp(sortedCandidates[j].Capacity) >= 0
+			})
+		}
+		topCandidates := sortedCandidates
+		if maxCount := int(cfg.Viction.ValidatorMaxCount); len(sortedCandidates) > maxCount {
+			topCandidates = sortedCandidates[:maxCount]
+		}
+		for _, penalty := range penalties {
+			for _, candidate := range topCandidates {
+				if candidate.Address == penalty {
+					if status, ok := statuses[penalty.String()]; ok {
+						status.Status = statusSlashed
+					}
+				}
+			}
+		}
+	}
+
+	return &GetCandidatesResult{
+		Success:    true,
+		Epoch:      uint64(epochNumber),
+		Candidates: statuses,
+	}, nil
 }
 
 // Return the epoch reward breakdown for the checkpoint block identified by hash.
@@ -186,6 +283,12 @@ func NewPublicPosvDebugAPI(e *Ethereum) *PublicPosvDebugAPI {
 	return &PublicPosvDebugAPI{e}
 }
 
+// CandidateStatus stores a candidate's validator status and voting capacity.
+type CandidateStatus struct {
+	Status   string   `json:"status"`
+	Capacity *big.Int `json:"capacity"`
+}
+
 // GetBlockFinalityResult stores the block finality with the block and epoch context it was computed at,
 // together with the signer share and the nearest finalized block ahead it was reconciled with.
 type GetBlockFinalityResult struct {
@@ -211,6 +314,13 @@ type GetBlockSignersResult struct {
 	SignedBlockHash   string           `json:"signedBlockHash"`
 	Validators        []common.Address `json:"validators"`
 	Signers           []common.Address `json:"signers"`
+}
+
+// GetCandidatesResult stores the candidate status board with the epoch context it was computed at.
+type GetCandidatesResult struct {
+	Success    bool                        `json:"success"`
+	Epoch      uint64                      `json:"epoch"`
+	Candidates map[string]*CandidateStatus `json:"candidates"`
 }
 
 // GetRewardResult stores the epoch reward breakdown with the block and epoch context it was computed at.
@@ -612,6 +722,50 @@ func getBlockSignersByHeaderWithDebugInfo(e *Ethereum, header *types.Header) (*G
 	return result, nil
 }
 
+// Read the validator candidates (address and voting capacity) for an epoch query, together with the block number the state was read at:
+//   - "pending" while a block is being mined.
+//   - "latest" reads the pending state while a block is being mined, or the head state otherwise.
+//   - any other epoch reads the state at its governing checkpoint.
+func getCandidatesForEpoch(e *Ethereum, epoch rpc.EpochNumber, checkpointHeader *types.Header) ([]posv.ValidatorInfo, rpc.BlockNumber, error) {
+	stateBlockNr := rpc.BlockNumber(checkpointHeader.Number.Uint64())
+	var (
+		statedb *state.StateDB
+		err     error
+	)
+	if epoch == rpc.LatestEpochNumber {
+		if pendingBlock, pendingState := e.miner.Pending(); pendingBlock != nil && pendingState != nil {
+			// Pending returns a copied state snapshot; use it directly instead of resolving twice.
+			stateBlockNr = rpc.PendingBlockNumber
+			statedb = pendingState
+		} else {
+			head := e.blockchain.CurrentBlock()
+			stateBlockNr = rpc.BlockNumber(head.NumberU64())
+			statedb, err = e.blockchain.StateAt(head.Root())
+		}
+	} else {
+		statedb, err = e.blockchain.StateAt(checkpointHeader.Root)
+	}
+	if err != nil {
+		log.Info("[PosvAPI] Failed to get state at block", "block", stateBlockNr, "err", err)
+		return nil, 0, err
+	}
+
+	vicConfig := e.blockchain.Config().Viction
+	addresses := statedb.VicGetCandidates(vicConfig.ValidatorContract)
+	candidates := make([]posv.ValidatorInfo, 0, len(addresses))
+	for _, addr := range addresses {
+		if addr == (common.Address{}) {
+			continue
+		}
+		_, capacity := statedb.VicGetValidatorInfo(vicConfig.ValidatorContract, addr)
+		candidates = append(candidates, posv.ValidatorInfo{Address: addr, Capacity: capacity})
+	}
+	if len(candidates) == 0 {
+		return nil, 0, errors.New("candidates list cannot be found")
+	}
+	return candidates, stateBlockNr, nil
+}
+
 // Return the validator set governing the block: the validators recorded in the checkpoint header of the block's signing window.
 // The window ends at the next ValidatorSignInterval boundary ahead of the block, or at the block itself when the boundary is not yet in the chain or the TIP2019 fork is inactive.
 func getGoverningValidators(e *Ethereum, header *types.Header) []common.Address {
@@ -823,4 +977,26 @@ func getValidatorPairsByCheckpointHeaderWithDebugInfo(e *Ethereum, header *types
 		Offset:           offset,
 		Pairs:            pairs,
 	}, nil
+}
+
+// Resolve an epoch number to the checkpoint block governing it, together with the epoch number itself.
+// "latest" resolves to the current epoch: the last checkpoint on the chain, numbered as the epoch being mined when the chain is mid-epoch.
+// Epoch numbers below 2 resolve to the genesis block.
+func previousCheckpointFromEpoch(e *Ethereum, epochNum rpc.EpochNumber) (rpc.BlockNumber, rpc.EpochNumber) {
+	epoch := e.blockchain.Config().Posv.Epoch
+
+	if epochNum == rpc.LatestEpochNumber {
+		blockNumber := e.blockchain.CurrentBlock().NumberU64()
+		diff := blockNumber % epoch
+		checkpointNumber := blockNumber - diff
+		epochNum = rpc.EpochNumber(checkpointNumber / epoch)
+		if diff > 0 {
+			epochNum += 1
+		}
+		return rpc.BlockNumber(checkpointNumber), epochNum
+	}
+	if epochNum < 2 {
+		return rpc.BlockNumber(0), epochNum
+	}
+	return rpc.BlockNumber(epoch * (uint64(epochNum) - 1)), epochNum
 }

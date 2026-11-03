@@ -62,6 +62,7 @@ const (
 	PendingBlockNumber  = BlockNumber(-2)
 	LatestBlockNumber   = BlockNumber(-1)
 	EarliestBlockNumber = BlockNumber(0)
+	LatestEpochNumber   = EpochNumber(-1)
 )
 
 // UnmarshalJSON parses the given JSON fragment into a BlockNumber. It supports:
@@ -213,4 +214,39 @@ func (dh *DecimalOrHex) UnmarshalJSON(data []byte) error {
 	}
 	*dh = DecimalOrHex(value)
 	return nil
+}
+
+type EpochNumber int64
+
+// UnmarshalJSON parses the given JSON fragment into an EpochNumber. It supports:
+// - "latest" as a string argument
+// - the epoch number
+// Returned errors:
+// - an invalid number error when the given argument isn't a known string or a number
+// - an out of range error when the given epoch number is too large
+func (e *EpochNumber) UnmarshalJSON(data []byte) error {
+	input := strings.TrimSpace(string(data))
+	if len(input) >= 2 && input[0] == '"' && input[len(input)-1] == '"' {
+		input = input[1 : len(input)-1]
+	}
+
+	switch input {
+	case "latest":
+		*e = LatestEpochNumber
+		return nil
+	}
+
+	eNum, ok := mathutil.ParseUint64(input)
+	if !ok {
+		return fmt.Errorf("invalid number")
+	}
+	if eNum > math.MaxInt64 {
+		return fmt.Errorf("epoch number larger than int64")
+	}
+	*e = EpochNumber(eNum)
+	return nil
+}
+
+func (e EpochNumber) Int64() int64 {
+	return (int64)(e)
 }
