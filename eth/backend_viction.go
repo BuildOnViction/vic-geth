@@ -149,6 +149,11 @@ func (s *Ethereum) PosvGetValidators(
 	return victionapi.GetValidators(header, config, victionConfig, statedb)
 }
 
+// Return the configured block period in seconds.
+func (s *Ethereum) PosvPeriod() uint64 {
+	return s.blockchain.Config().Posv.Period
+}
+
 // Create new Randomize transaction and submit to TxPool.
 func (s *Ethereum) PosvRandomNumber(
 	block *types.Block,
