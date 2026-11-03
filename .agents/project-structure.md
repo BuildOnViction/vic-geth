@@ -14,7 +14,7 @@ Entries a project commonly has at its root, whatever its languages; each layout 
 
 ```
 ├── .agents/            # shared AI agent instructions (coding conventions, PR/task checklists, project structure)
-├── .attunic/           # project memory (context, decisions, work in progress)
+├── .attunic/           # project memory (context, confirmed facts, questions, work in progress)
 ├── .github/            # GitHub-specific config (workflows, issue/PR templates)
 ├── .vscode/            # VS Code editor/workspace settings
 ├── .copier-answers.yml # Copier answers replayed by `copier update`; never edited by hand
@@ -30,9 +30,9 @@ Entries a project commonly has at its root, whatever its languages; each layout 
 <!-- Project-specific / Layout -->
 ```
 
-## Go structure
+## Go
 
-### Guideline
+### Go-Guideline
 
 - Keep `main()` functions thin: parse flags/config, wire dependencies, then delegate to `internal/` packages.
 - Code that should never be imported by other projects belongs under `internal/`.
@@ -42,7 +42,7 @@ Entries a project commonly has at its root, whatever its languages; each layout 
 - Mirror the module's existing layout (`internal/`, `pkg/`, or flat) instead of introducing a second convention.
 <!-- Project-specific / Go-Guideline -->
 
-### Layout
+### Go-Layout
 
 ```
 ├── api/            # OpenAPI/Swagger specs, JSON schemas, protocol definitions
@@ -68,24 +68,24 @@ Entries a project commonly has at its root, whatever its languages; each layout 
 <!-- Project-specific / Go-Layout -->
 ```
 
-### Layer Dependencies
+### Go-Layer Dependencies
 
-Notes for declaring layers in the `Layer Dependencies` section of `.attunic/context.md`; adjust them to the project before declaring.
+Notes for declaring architecture layers in the `Layer Dependencies` section of `.attunic/context.md`; adjust them to the project before declaring.
 
-- `cmd/` is the outermost layer: entrypoints parse flags/config, wire dependencies, then delegate to `internal/`; it may import everything, and nothing imports it.
-- `internal/` holds the layers themselves; one suggestion, innermost first:
+- `cmd/` is the outermost architecture layer: entrypoints parse flags/config, wire dependencies, then delegate to `internal/`; it may import everything, and nothing imports it.
+- `internal/` holds the architecture layers themselves; one suggestion, innermost first:
 
-| Layer | Typical path | Depends on | Must never contain |
-|-------|--------------|------------|--------------------|
+| Architecture layer | Typical path | Depends on | Must never contain |
+|--------------------|--------------|------------|--------------------|
 | domain | internal/\<app\>/domain | itself | framework types, database, HTTP |
 | application | internal/\<app\>/app | domain | database access, HTTP handlers |
 | adapters | internal/\<app\>/adapters | application (its ports), domain | business rules |
 | transport | internal/\<app\>/transport | application, domain | SQL, external clients |
 
-- `pkg/` is a public boundary for other modules; keep application-internal layer types out of it.
+- `pkg/` is a public boundary for other modules; keep application-internal architecture layer types out of it.
 - Check by hand: reading imports or `go list -deps ./...` must never show an inner package importing an outer one.
 <!-- Project-specific / Go-Layer Dependencies -->
 
 ## Project-specific
 
-<!-- Project-specific -->
+<!-- Project-specific / Project-specific -->

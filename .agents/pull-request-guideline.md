@@ -30,4 +30,4 @@ Before opening or updating a pull request, verify:
 
 ## Project-specific
 
-<!-- Project-specific -->
+<!-- Project-specific / Project-specific -->

@@ -1,6 +1,6 @@
 # Project Context
 
-Part of the project memory: human-readable memory of what this project is and what has been confirmed.
+Part of the project memory: human-readable memory of what this project is.
 
 The reading and writing rules for this file and the rest of `.attunic/` are defined in [attunic-protocol.md](../.agents/attunic-protocol.md). The user fills this file in, by hand or by asking an agent to help; change it only on such a request and after the user explicitly confirms that change (see [attunic-protocol.md's Write Rules](../.agents/attunic-protocol.md#write-rules)).
 
@@ -13,9 +13,12 @@ This is a fork of go-ethereum for the Viction Network. It includes the PoSV (Pro
 
 ## Technical Specifications
 
-A brief overview of the ingredients used for developing this project. These are things developers should know when developing the project.
+A brief overview of the ingredients developers of this project should know.
 
-Typical ingredients include, but are not limited to: primary language, frameworks, architecture styles, environment prerequisites, libraries, test runners, tools, databases...
+Write one bullet per ingredient, as `- <Ingredient>: <value>.`, such as primary language, frameworks, architecture style, build system, test runner, linter, databases, environment prerequisites.
+
+Write `None` as the value of an ingredient the project lacks but an agent would look for, such as a build system, test runner, or linter.
+
 <!-- Project-specific / Technical Specifications -->
 
 - Primary language: Go, plus C for the ECDSA/signature packages.
@@ -33,12 +36,15 @@ Layout of this project; [project-structure.md](../.agents/project-structure.md) 
 
 List of important folders, files and their roles in the project:
 
-- Write the list as a tree in a fenced block, one entry per line with its role as a `#` comment, mirroring the actual file system.
-- If the list is not empty and a top-level file/folder is missing from it, prompt the user to update it.
+Write the list as a tree in a fenced block, one entry per line with its role as a `#` comment, mirroring the actual file system.
+
+When the list is not empty and a top-level file/folder is missing from it, prompt the user to update it.
+
+<!-- Project-specific / Layout -->
 
 ```
 ├── .agents/            # project AI agent instructions (attunic protocol, coding-conventions, development-guideline, pull-request-guideline)
-├── .attunic/           # project AI agent memory (context, memory, wip)
+├── .attunic/           # project AI agent memory (context, memory, questions, transient workstream)
 ├── .github/            # workflows, issue/PR templates
 ├── accounts/           # key management and account abstractions (keystore, HD wallets)
 ├── build/              # CI/build driver (`ci.go` behind the Makefile), lint tooling, `build/bin` for output binaries
@@ -101,7 +107,7 @@ List of important folders, files and their roles in the project:
 ├── node/               # node container/service registry
 ├── p2p/                # devp2p networking: discovery, transport
 ├── params/             # protocol constants and chain configurations
-│   └── chainspecs/     # genesis chainspecs for Viction Mainnet (viction) and Testnet (victest)
+│   └── chainspecs/     # genesis chainspecs for Viction Mainnet (viction), Testnet (victest), and Devnet (vicdev)
 ├── rlp/                # RLP encoding/decoding
 ├── rpc/                # JSON-RPC server implementation
 ├── signer/             # clef signer core
@@ -136,37 +142,38 @@ List of important folders, files and their roles in the project:
 ├── interfaces.go       # root-level API interfaces kept from geth
 └── oss-fuzz.sh         # OSS-Fuzz integration script
 ```
-<!-- Project-specific / Layout -->
 
 ## Layer Dependencies
 
-List of layers and their relationships:
+List of architecture layers and their relationships:
 
-- Declare the innermost layer first.
-- A layer may depend only on itself and on the layers in its `Depends on` column, all declared before it.
-- If a layer appears in the table below, the dependency graph must be enforced.
+- Declare the innermost architecture layer first.
+- An architecture layer may depend only on itself and on the architecture layers in its `Depends on` column, all declared before it.
+- If an architecture layer appears in the table below, the dependency graph must be enforced.
 
-| Layer | Path | Depends on | Must never contain |
-|-------|------|------------|--------------------|
-<!-- Project-specific / Layer Dependencies -->
+| Architecture layer | Path | Depends on | Must never contain |
+|--------------------|------|------------|--------------------|
+| <!-- Project-specific / Layer Dependencies --> | | | |
 
 ### Deliberate Exceptions
 
-List of documented exceptions that cannot follow the architecture rules above:
+List of documented exceptions that cannot follow the architecture layers above:
 
 - Any place the rules above are knowingly broken, with the reason and the condition for fixing it.
-- An undocumented exception is a defect; a documented one is a decision.
+- Only exceptions to the architecture layers above belong here.
+- An undocumented exception is a defect; a documented one is allowed, and revisited once its `Revisit-if` condition holds.
 
 | What | Why | Revisit-if |
 |------|-----|------------|
-<!-- Project-specific / Deliberate Exceptions -->
+| <!-- Project-specific / Deliberate Exceptions --> | | |
 
 ## Supporting Tools
 
 All the supporting tools declared here are opinionated for the sake of consistent results across development environments.
 
 List each required tool/library under its own heading, followed by the commands for each use case.
-Common use cases include: Build, Test, Lint, Format, Install, ...
+
+Common use cases include: Build, Test, Lint, Format, Install.
 
 <!-- Project-specific / Supporting Tools -->
 
@@ -176,34 +183,31 @@ Common use cases include: Build, Test, Lint, Format, Install, ...
 
 ### Build
 
-- `make geth` — build only the geth binary (via `build/ci.go install ./cmd/geth`), output in `./build/bin`.
-- `make all` — build the full suite of tools from `cmd/`.
-- Plain go alternative: `go build ./...` — on modern toolchains it requires `GOFLAGS=-ldflags=-checklinkname=0` (see Confirmed Facts).
+- `make geth` - build only the geth binary (via `build/ci.go install ./cmd/geth`), output in `./build/bin`.
+- `make all` - build the full suite of tools from `cmd/`.
+- Plain go alternative: `go build ./...` - on modern toolchains it requires `GOFLAGS=-ldflags=-checklinkname=0` (see Confirmed Facts).
 - Cross compile: `make geth-cross` (per-OS targets like `geth-linux-amd64` use `build/ci.go xgo`).
 
 ### Test
 
-- `go test ./...` — run the whole test suite with the go test runner.
-- `make test` — depends on `all` (rebuilds everything first), then `build/ci.go test`.
+- `go test ./...` - run the whole test suite with the go test runner.
+- `make test` - depends on `all` (rebuilds everything first), then `build/ci.go test`.
 - Narrower: `go test ./core/...`, `go test ./consensus/posv/...`, etc.
 
 ### Lint
 
-- `make lint` — runs golangci-lint through `build/ci.go lint`, configured by `.golangci.yml`.
+- `gofmt -l .` - check formatting; must report no files.
+- `gofmt -w .` - apply canonical formatting.
+- `go vet ./...` - go static analysis; run on every change that touches concurrency.
+- `goimports -l .` / `goimports -w .` - check/fix import grouping (stdlib, then third-party, then local).
+- `go mod tidy -diff` / `go mod tidy` - check/fix that `go.mod` and `go.sum` match the imports; the check must report no diff.
+- `make lint` - runs golangci-lint through `build/ci.go lint`, configured by `.golangci.yml`.
 
 ### Install
 
-- `make devtools` — installs `go generate` helper tools (stringer, go-bindata, abigen, ...).
-- `go install ./cmd/geth` — install geth into `GOPATH`/`GOBIN`.
-
-## Confirmed Facts
-
-Facts about the project which have been confirmed. They may look wrong or contradict your knowledge or understanding; follow them instead of guessing or asking the user again. These facts outrank anything derived or guessed, or logged in [memory.md](memory.md).
-
-| Fact | Reason |
-|------|--------|
-<!-- Project-specific / Confirmed Facts -->
+- `make devtools` - installs `go generate` helper tools (stringer, go-bindata, abigen, ...).
+- `go install ./cmd/geth` - install geth into `GOPATH`/`GOBIN`.
 
 ## Project-specific
 
-<!-- Project-specific -->
+<!-- Project-specific / Project-specific -->
