@@ -42,8 +42,10 @@ The state transitioning model does all the necessary work to work out a valid ne
 3) Create a new state object if the recipient is \0*32
 4) Value transfer
 == If contract creation ==
-  4a) Attempt to run transaction data
-  4b) If valid, use result as code for the new state object
+
+	4a) Attempt to run transaction data
+	4b) If valid, use result as code for the new state object
+
 == end ==
 5) Run Script section
 6) Derive new state root
@@ -60,6 +62,10 @@ type StateTransition struct {
 	data       []byte
 	state      vm.StateDB
 	evm        *vm.EVM
+
+	// Viction-specific
+	payer common.Address
+	zp    types.BalanceMap
 }
 
 // Message represents a message sent to a contract.
@@ -156,7 +162,7 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, zp types.BalanceMap) *StateTransition {
 	return &StateTransition{
 		gp:        gp,
 		evm:       evm,
@@ -167,6 +173,7 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition 
 		value:     msg.Value(),
 		data:      msg.Data(),
 		state:     evm.StateDB,
+		zp:        zp,
 	}
 }
 
@@ -177,8 +184,8 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition 
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool) (*ExecutionResult, error) {
-	return NewStateTransition(evm, msg, gp).TransitionDb()
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, zp types.BalanceMap) (*ExecutionResult, error) {
+	return NewStateTransition(evm, msg, gp, zp).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -190,16 +197,22 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas() error {
+	ok, err := st.buyGasZG()
+	if err != nil {
+		return err
+	}
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
 	mgval = mgval.Mul(mgval, st.gasPrice)
-	balanceCheck := mgval
-	if st.gasFeeCap != nil {
-		balanceCheck = new(big.Int).SetUint64(st.msg.Gas())
-		balanceCheck = balanceCheck.Mul(balanceCheck, st.gasFeeCap)
-		balanceCheck.Add(balanceCheck, st.value)
-	}
-	if have, want := st.state.GetBalance(st.msg.From()), balanceCheck; have.Cmp(want) < 0 {
-		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have, want)
+	if !ok {
+		balanceCheck := mgval
+		if st.gasFeeCap != nil {
+			balanceCheck = new(big.Int).SetUint64(st.msg.Gas())
+			balanceCheck = balanceCheck.Mul(balanceCheck, st.gasFeeCap)
+			balanceCheck.Add(balanceCheck, st.value)
+		}
+		if have, want := st.state.GetBalance(st.msg.From()), balanceCheck; have.Cmp(want) < 0 {
+			return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have, want)
+		}
 	}
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
@@ -207,7 +220,9 @@ func (st *StateTransition) buyGas() error {
 	st.gas += st.msg.Gas()
 
 	st.initialGas = st.msg.Gas()
-	st.state.SubBalance(st.msg.From(), mgval)
+	if !ok {
+		st.state.SubBalance(st.msg.From(), mgval)
+	}
 	return nil
 }
 
@@ -258,13 +273,13 @@ func (st *StateTransition) preCheck() error {
 // TransitionDb will transition the state by applying the current message and
 // returning the evm execution result with following fields.
 //
-// - used gas:
-//      total gas used (including gas being refunded)
-// - returndata:
-//      the returned data from evm
-// - concrete execution error:
-//      various **EVM** error which aborts the execution,
-//      e.g. ErrOutOfGas, ErrExecutionReverted
+//   - used gas:
+//     total gas used (including gas being refunded)
+//   - returndata:
+//     the returned data from evm
+//   - concrete execution error:
+//     various **EVM** error which aborts the execution,
+//     e.g. ErrOutOfGas, ErrExecutionReverted
 //
 // However if any consensus issue encountered, return the error directly with
 // nil evm execution result.
@@ -291,7 +306,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	contractCreation := msg.To() == nil
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, istanbul)
+	viction := st.evm.ChainConfig().IsViction()
+	prometheus := st.evm.ChainConfig().IsPrometheus(st.evm.Context.BlockNumber)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, (prometheus && viction) || (istanbul && !viction))
 	if err != nil {
 		return nil, err
 	}
@@ -328,11 +345,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// After EIP-3529: refunds are capped to gasUsed / 5
 		st.refundGas(params.RefundQuotientEIP3529)
 	}
-	effectiveTip := st.gasPrice
-	if london {
-		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
+	// Viction: if ZeroGas/TIPGasPrice rewards the validator owner, skip the
+	// coinbase reward. Otherwise apply the standard (London effective tip) reward.
+	if ok := st.rewardValidatorOwner(); !ok {
+		effectiveTip := st.gasPrice
+		if london {
+			effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
+		}
+		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip))
 	}
-	st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip))
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
@@ -351,7 +372,10 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
+	ok := st.refundGasZG(remaining)
+	if !ok {
+		st.state.AddBalance(st.msg.From(), remaining)
+	}
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.

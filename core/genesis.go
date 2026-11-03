@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -144,10 +147,10 @@ func (e *GenesisMismatchError) Error() string {
 // SetupGenesisBlock writes or updates the genesis block in db.
 // The block that will be used is:
 //
-//                          genesis == nil       genesis != nil
-//                       +------------------------------------------
-//     db has no genesis |  main-net default  |  genesis
-//     db has genesis    |  from DB           |  genesis (if compatible)
+//	                     genesis == nil       genesis != nil
+//	                  +------------------------------------------
+//	db has no genesis |  main-net default  |  genesis
+//	db has genesis    |  from DB           |  genesis (if compatible)
 //
 // The stored chain configuration will be updated if it is compatible (i.e. does not
 // specify a fork block below the local head block). In case of a conflict, the
@@ -242,6 +245,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return g.Config
 	case ghash == params.MainnetGenesisHash:
 		return params.MainnetChainConfig
+	case ghash == params.VictionGenesisHash:
+		return params.VictionChainConfig
 	case ghash == params.RopstenGenesisHash:
 		return params.RopstenChainConfig
 	case ghash == params.RinkebyGenesisHash:
@@ -250,6 +255,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.GoerliChainConfig
 	case ghash == params.CalaverasGenesisHash:
 		return params.CalaverasChainConfig
+	case ghash == params.VictestGenesisHash:
+		return params.VictestChainConfig
 	default:
 		return params.AllEthashProtocolChanges
 	}
@@ -300,6 +307,12 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 		} else {
 			head.BaseFee = new(big.Int).SetUint64(params.InitialBaseFee)
 		}
+	}
+	if g.Config != nil && g.Config.Posv != nil {
+		head.Posv = true
+		head.NewAttestors = []byte{}
+		head.Attestor = []byte{}
+		head.Penalties = []byte{}
 	}
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true, nil)
@@ -363,6 +376,21 @@ func DefaultGenesisBlock() *Genesis {
 	}
 }
 
+// DefaultVictionGenesisBlock returns the Viction mainnet genesis block.
+func DefaultVictionGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VictionChainConfig,
+		Nonce:      0,
+		Timestamp:  0x5c1358f5,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000001b82c4bf317fcafe3d77e8b444c82715d216afe845b7bd987fa22c9bac89b71f0ded03f6e150ba31ad670b2b166684657ffff95f4810380ae7381e9bce41231d5dd8cdd7499e418b648c00af75d184a2f9aba09a6fa4a46fb1a6a3919b027d9cac5aa6890000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   0x47b760,
+		Difficulty: big.NewInt(0x1),
+		Mixhash:    common.Hash{},
+		Coinbase:   common.Address{},
+		Alloc:      readPrealloc("allocs/viction.json"),
+	}
+}
+
 // DefaultRopstenGenesisBlock returns the Ropsten network genesis block.
 func DefaultRopstenGenesisBlock() *Genesis {
 	return &Genesis{
@@ -408,6 +436,21 @@ func DefaultCalaverasGenesisBlock() *Genesis {
 		GasLimit:   0x47b760,
 		Difficulty: big.NewInt(1),
 		Alloc:      decodePrealloc(calaverasAllocData),
+	}
+}
+
+// DefaultVictestGenesisBlock returns the Viction testnet genesis block.
+func DefaultVictestGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.VictestChainConfig,
+		Nonce:      0,
+		Timestamp:  0x65309e07,
+		ExtraData:  hexutil.MustDecode("0x00000000000000000000000000000000000000000000000000000000000000001acc82e4cafc08af311852da4722fb34529322c91e7c9fae96ec2efb129b69ff5e0e8a8b8acb6add4f4b5983cdf8f674fa63de933713f245502f97676fdef2bd0d35de1c72016cfbbf2a6f2c59b8c2977e40b530a68d1dd71b7941cfb53534c3806aa5180000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   0x47b760,
+		Difficulty: big.NewInt(0x1),
+		Mixhash:    common.Hash{},
+		Coinbase:   common.Address{},
+		Alloc:      readPrealloc("allocs/victest.json"),
 	}
 }
 

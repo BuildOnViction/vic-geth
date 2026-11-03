@@ -844,7 +844,7 @@ func TestStateDBAccessList(t *testing.T) {
 	verifySlots("cc", "01")
 
 	// now start rolling back changes
-	state.journal.revert(state, 7)
+	state.journal.revert(state, 7, false)
 	if _, ok := state.SlotInAccessList(addr("cc"), slot("01")); ok {
 		t.Fatalf("slot present, expected missing")
 	}
@@ -852,7 +852,7 @@ func TestStateDBAccessList(t *testing.T) {
 	verifySlots("aa", "01")
 	verifySlots("bb", "01", "02", "03")
 
-	state.journal.revert(state, 6)
+	state.journal.revert(state, 6, false)
 	if state.AddressInAccessList(addr("cc")) {
 		t.Fatalf("addr present, expected missing")
 	}
@@ -860,40 +860,40 @@ func TestStateDBAccessList(t *testing.T) {
 	verifySlots("aa", "01")
 	verifySlots("bb", "01", "02", "03")
 
-	state.journal.revert(state, 5)
+	state.journal.revert(state, 5, false)
 	if _, ok := state.SlotInAccessList(addr("aa"), slot("01")); ok {
 		t.Fatalf("slot present, expected missing")
 	}
 	verifyAddrs("aa", "bb")
 	verifySlots("bb", "01", "02", "03")
 
-	state.journal.revert(state, 4)
+	state.journal.revert(state, 4, false)
 	if _, ok := state.SlotInAccessList(addr("bb"), slot("03")); ok {
 		t.Fatalf("slot present, expected missing")
 	}
 	verifyAddrs("aa", "bb")
 	verifySlots("bb", "01", "02")
 
-	state.journal.revert(state, 3)
+	state.journal.revert(state, 3, false)
 	if _, ok := state.SlotInAccessList(addr("bb"), slot("02")); ok {
 		t.Fatalf("slot present, expected missing")
 	}
 	verifyAddrs("aa", "bb")
 	verifySlots("bb", "01")
 
-	state.journal.revert(state, 2)
+	state.journal.revert(state, 2, false)
 	if _, ok := state.SlotInAccessList(addr("bb"), slot("01")); ok {
 		t.Fatalf("slot present, expected missing")
 	}
 	verifyAddrs("aa", "bb")
 
-	state.journal.revert(state, 1)
+	state.journal.revert(state, 1, false)
 	if state.AddressInAccessList(addr("bb")) {
 		t.Fatalf("addr present, expected missing")
 	}
 	verifyAddrs("aa")
 
-	state.journal.revert(state, 0)
+	state.journal.revert(state, 0, false)
 	if state.AddressInAccessList(addr("aa")) {
 		t.Fatalf("addr present, expected missing")
 	}
@@ -913,5 +913,29 @@ func TestStateDBAccessList(t *testing.T) {
 	}
 	if got, exp := len(state.accessList.slots), 1; got != exp {
 		t.Fatalf("expected empty, got %d", got)
+	}
+}
+
+func TestSetLegacyRevert(t *testing.T) {
+	// Verifies the two revert semantic modes of the journal. For an address whose dirty count reaches zero on a disallowed entry type:
+	// - geth (default): reverting any journalled change removes the address from the dirty set.
+	// - legacy (viction): only touchChange and createObjectChange entries are allowed to fully remove an address from the dirty set, so changes like balance updates keep the address present.
+	acc := common.HexToAddress("0xdeadbeef")
+
+	for _, legacy := range []bool{false, true} {
+		state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
+		state.GetOrNewStateObject(acc) // seed the object so reverts don't nil out
+
+		journal := newJournal()
+		journal.append(balanceChange{account: &acc, prev: new(big.Int)})
+		journal.revert(state, 0, legacy)
+
+		_, dirty := journal.dirties[acc]
+		if legacy && !dirty {
+			t.Fatal("legacy revert dropped the changed account from the dirty set")
+		}
+		if !legacy && dirty {
+			t.Fatal("geth revert kept the changed account in the dirty set")
+		}
 	}
 }

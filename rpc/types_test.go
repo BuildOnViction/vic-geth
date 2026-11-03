@@ -48,8 +48,21 @@ func TestBlockNumberJSONUnmarshal(t *testing.T) {
 		15: {`""`, true, BlockNumber(0)},
 		16: {``, true, BlockNumber(0)},
 	}
-
+	// Override canonical tests for `rpc: support decimal block number`
+	testsOverride := map[string]struct {
+		mustFail bool
+		expected BlockNumber
+	}{
+		`"0x00"`: {false, BlockNumber(0)},
+		`"0x01"`: {false, BlockNumber(1)},
+		`0`:      {false, BlockNumber(0)},
+		`""`:     {false, BlockNumber(0)},
+	}
 	for i, test := range tests {
+		if override, ok := testsOverride[test.input]; ok {
+			test.mustFail = override.mustFail
+			test.expected = override.expected
+		}
 		var num BlockNumber
 		err := json.Unmarshal([]byte(test.input), &num)
 		if test.mustFail && err == nil {
@@ -100,7 +113,20 @@ func TestBlockNumberOrHash_UnmarshalJSON(t *testing.T) {
 		25: {`{"blockNumber":"0x1", "blockHash":"0x0000000000000000000000000000000000000000000000000000000000000000"}`, true, BlockNumberOrHash{}},
 	}
 
+	// Override canonical tests for `rpc: support decimal block number`
+	testsOverride := map[string]struct {
+		mustFail bool
+		expected BlockNumberOrHash
+	}{
+		`"0x00"`: {false, BlockNumberOrHashWithNumber(0)},
+		`"0x01"`: {false, BlockNumberOrHashWithNumber(1)},
+		`""`:     {false, BlockNumberOrHashWithNumber(0)},
+	}
 	for i, test := range tests {
+		if override, ok := testsOverride[test.input]; ok {
+			test.mustFail = override.mustFail
+			test.expected = override.expected
+		}
 		var bnh BlockNumberOrHash
 		err := json.Unmarshal([]byte(test.input), &bnh)
 		if test.mustFail && err == nil {
@@ -119,6 +145,46 @@ func TestBlockNumberOrHash_UnmarshalJSON(t *testing.T) {
 			hash != expectedHash || hashOk != expectedHashOk ||
 			num != expectedNum || numOk != expectedNumOk {
 			t.Errorf("Test %d got unexpected value, want %v, got %v", i, test.expected, bnh)
+		}
+	}
+}
+
+func TestEpochNumberJSONUnmarshal(t *testing.T) {
+	tests := []struct {
+		input    string
+		mustFail bool
+		expected EpochNumber
+	}{
+		0:  {`"0x"`, true, EpochNumber(0)},
+		1:  {`"0x0"`, false, EpochNumber(0)},
+		2:  {`"0x1"`, false, EpochNumber(1)},
+		3:  {`"0x12"`, false, EpochNumber(18)},
+		4:  {`"0x7fffffffffffffff"`, false, EpochNumber(math.MaxInt64)},
+		5:  {`"0x8000000000000000"`, true, EpochNumber(0)},
+		6:  {`1`, false, EpochNumber(1)},
+		7:  {`"0"`, false, EpochNumber(0)},
+		8:  {`""`, false, EpochNumber(0)},
+		9:  {`"-1"`, true, EpochNumber(0)},
+		10: {`"ff"`, true, EpochNumber(0)},
+		11: {`"latest"`, false, LatestEpochNumber},
+		12: {`"pending"`, true, EpochNumber(0)},
+		13: {`"earliest"`, true, EpochNumber(0)},
+		14: {`someString`, true, EpochNumber(0)},
+		15: {``, true, EpochNumber(0)},
+	}
+	for i, test := range tests {
+		var num EpochNumber
+		err := json.Unmarshal([]byte(test.input), &num)
+		if test.mustFail && err == nil {
+			t.Errorf("Test %d should fail", i)
+			continue
+		}
+		if !test.mustFail && err != nil {
+			t.Errorf("Test %d should pass but got err: %v", i, err)
+			continue
+		}
+		if num != test.expected {
+			t.Errorf("Test %d got unexpected value, want %d, got %d", i, test.expected, num)
 		}
 	}
 }

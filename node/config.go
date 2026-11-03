@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -45,6 +48,11 @@ const (
 	datadirStaticNodes     = "static-nodes.json"  // Path within the datadir to the static node list
 	datadirTrustedNodes    = "trusted-nodes.json" // Path within the datadir to the trusted node list
 	datadirNodeDatabase    = "nodes"              // Path within the datadir to store the node infos
+)
+
+const (
+	legacyVictionInstanceDir = "tomo"
+	legacyVictionTradingDir  = "tomox"
 )
 
 // Config represents a small collection of configuration values to fine tune the
@@ -315,6 +323,15 @@ var isOldGethResource = map[string]bool{
 	"trusted-nodes.json": false, // own separate warning.
 }
 
+var isOldVictionResource = map[string]bool{
+	"chaindata":          true,
+	"nodes":              true,
+	"nodekey":            true,
+	"static-nodes.json":  false, // no warning for these because they have their
+	"trusted-nodes.json": false, // own separate warning.
+	"trading":            true,
+}
+
 // ResolvePath resolves path in the instance directory.
 func (c *Config) ResolvePath(path string) string {
 	if filepath.IsAbs(path) {
@@ -324,15 +341,32 @@ func (c *Config) ResolvePath(path string) string {
 		return ""
 	}
 	// Backwards-compatibility: ensure that data directory files created
+	// by victionchain are used if they exist.
+	if warn, isOld := isOldVictionResource[path]; isOld {
+		oldpath := ""
+		if c.name() == "geth" || c.name() == "vic-geth" {
+			oldpath = filepath.Join(c.DataDir, legacyVictionInstanceDir, path)
+			if path == "trading" {
+				oldpath = filepath.Join(c.DataDir, legacyVictionTradingDir)
+			}
+		}
+		if oldpath != "" && common.FileExist(oldpath) {
+			if warn {
+				c.warnOnce(&c.oldGethResourceWarning, "Using deprecated resource file %s, please move this file to the 'vic-geth' subdirectory of datadir.", oldpath)
+			}
+			return oldpath
+		}
+	}
+	// Backwards-compatibility: ensure that data directory files created
 	// by geth 1.4 are used if they exist.
 	if warn, isOld := isOldGethResource[path]; isOld {
 		oldpath := ""
-		if c.name() == "geth" {
+		if c.name() == "geth" || c.name() == "vic-geth" {
 			oldpath = filepath.Join(c.DataDir, path)
 		}
 		if oldpath != "" && common.FileExist(oldpath) {
 			if warn {
-				c.warnOnce(&c.oldGethResourceWarning, "Using deprecated resource file %s, please move this file to the 'geth' subdirectory of datadir.", oldpath)
+				c.warnOnce(&c.oldGethResourceWarning, "Using deprecated resource file %s, please move this file to the 'vic-geth' subdirectory of datadir.", oldpath)
 			}
 			return oldpath
 		}

@@ -242,6 +242,8 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		if err != nil {
 			panic(err)
 		}
+		// Match the legacy revert behavior used by the chain processor when replaying Viction blocks before the Prometheus fork.
+		statedb.SetLegacyRevert(config.IsViction() && !config.IsPrometheus(big.NewInt(parent.Number().Int64()+1)))
 		block, receipt := genblock(i, parent, statedb)
 		blocks[i] = block
 		receipts[i] = receipt

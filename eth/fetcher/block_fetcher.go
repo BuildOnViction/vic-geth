@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -194,6 +195,9 @@ type BlockFetcher struct {
 	fetchingHook       func([]common.Hash)               // Method to call upon starting a block (eth/61) or header (eth/62) fetch
 	completingHook     func([]common.Hash)               // Method to call upon starting a block body fetch (eth/62)
 	importedHook       func(*types.Header, *types.Block) // Method to call upon successful header or block import (both eth/61 and eth/62)
+
+	// Reference to the posvBackend for accessing wallet.
+	posvBackend PosvBackend
 }
 
 // NewBlockFetcher creates a block fetcher to retrieve blocks based on hash announcements.
@@ -223,6 +227,12 @@ func NewBlockFetcher(light bool, getHeader HeaderRetrievalFn, getBlock blockRetr
 		insertChain:    insertChain,
 		dropPeer:       dropPeer,
 	}
+}
+
+// Set the backend instance into BlockFetcher for handling some features that require accessing to wallet.
+// Must be called right after creation of BlockFetcher.
+func (f *BlockFetcher) SetPosvBackend(posvBackend PosvBackend) {
+	f.posvBackend = posvBackend
 }
 
 // Start boots up the announcement based synchroniser, accepting and processing
@@ -763,7 +773,7 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 			return
 		}
 		// Validate the header and if something went wrong, drop the peer
-		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock {
+		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock && err != posv.ErrNoAttestorSignature {
 			log.Debug("Propagated header verification failed", "peer", peer, "number", header.Number, "hash", hash, "err", err)
 			f.dropPeer(peer)
 			return
@@ -793,10 +803,16 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 
 		// If the parent's unknown, abort insertion
 		parent := f.getBlock(block.ParentHash())
+		// PoSV: Retry once to handle edge case that blocks are concurrently reorg for importing block with Attestor signature.
+		if parent == nil && f.posvBackend != nil {
+			time.Sleep(200 * time.Millisecond)
+			parent = f.getBlock(block.ParentHash())
+		}
 		if parent == nil {
 			log.Debug("Unknown parent of propagated block", "peer", peer, "number", block.Number(), "hash", hash, "parent", block.ParentHash())
 			return
 		}
+		var lastErr error
 		// Quickly validate the header and propagate the block if it passes
 		switch err := f.verifyHeader(block.Header()); err {
 		case nil:
@@ -806,6 +822,14 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 
 		case consensus.ErrFutureBlock:
 			// Weird future block, don't fail, but neither propagate
+			lastErr = err
+
+		case posv.ErrNoAttestorSignature:
+			// PoSV: Block does not have attestor signature yet, will need a PoSV backend to attest it.
+			lastErr = err
+			if f.posvBackend == nil {
+				return
+			}
 
 		default:
 			// Something went very wrong, drop the peer
@@ -813,6 +837,41 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 			f.dropPeer(peer)
 			return
 		}
+
+		requireAttest := lastErr == posv.ErrNoAttestorSignature
+		dropPeer := false
+		if lastErr == consensus.ErrFutureBlock {
+			requireAttest, dropPeer = f.retryPosvBlock(peer, block)
+		}
+		if dropPeer {
+			f.dropPeer(peer)
+			return
+		}
+
+		if requireAttest {
+			attestedBlock, err := f.posvBackend.PosvAttestBlock(block)
+			// Something went wrong, the block can't be valid.
+			if err != nil {
+				log.Info("[Fetcher] Failed to attest propagated block", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
+				return
+			}
+			if attestedBlock == nil {
+				// This node is not attestor for this block, continue broadcast the block to other peers.
+				log.Debug("[Fetcher] Relay propagated block to other peers", "peer", peer, "number", block.NumberU64(), "hash", hash)
+				go f.broadcastBlock(block, true)
+				return
+			} else {
+				// Attestion ok, verify it again.
+				block = attestedBlock
+				log.Info("[Fetcher] Propagated block is attested successfully", "peer", peer, "number", block.Number(), "hash", block.Hash())
+				_, dropPeer = f.retryPosvBlock(peer, block)
+				if dropPeer {
+					f.dropPeer(peer)
+					return
+				}
+			}
+		}
+
 		// Run the actual import and log any issues
 		if _, err := f.insertChain(types.Blocks{block}); err != nil {
 			log.Debug("Propagated block import failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
@@ -821,6 +880,12 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		// If import succeeded, broadcast the block
 		blockAnnounceOutTimer.UpdateSince(block.ReceivedAt)
 		go f.broadcastBlock(block, false)
+
+		// PoSV: Submit scheduled transactions to txpool.
+		if f.posvBackend != nil {
+			f.posvBackend.PosvSignBlock(block)
+			f.posvBackend.PosvRandomNumber(block)
+		}
 
 		// Invoke the testing hook if needed
 		if f.importedHook != nil {

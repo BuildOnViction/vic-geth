@@ -18,8 +18,15 @@
 package utils
 
 import (
+	"flag"
 	"reflect"
 	"testing"
+	"time"
+
+	cli "gopkg.in/urfave/cli.v1"
+
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 func Test_SplitTagsFlag(t *testing.T) {
@@ -58,6 +65,42 @@ func Test_SplitTagsFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := SplitTagsFlag(tt.args); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("splitTagsFlag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_HTTPTimeoutFlag(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantTimeout time.Duration
+	}{
+		{"defaultFlag", nil, 120 * time.Second},
+		{"explicitValue", []string{"--http.timeout", "300"}, 300 * time.Second},
+		{"zeroValueKeepsDefaults", []string{"--http.timeout", "0"}, 30 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			HTTPTimeoutFlag.Apply(fs)
+			if tt.args != nil {
+				if err := fs.Parse(tt.args); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg := node.DefaultConfig
+
+			SetNodeConfig(cli.NewContext(nil, fs, nil), &cfg)
+
+			if cfg.HTTPTimeouts.ReadTimeout != tt.wantTimeout {
+				t.Errorf("ReadTimeout = %v, want %v", cfg.HTTPTimeouts.ReadTimeout, tt.wantTimeout)
+			}
+			if cfg.HTTPTimeouts.WriteTimeout != tt.wantTimeout {
+				t.Errorf("WriteTimeout = %v, want %v", cfg.HTTPTimeouts.WriteTimeout, tt.wantTimeout)
+			}
+			if cfg.HTTPTimeouts.IdleTimeout != rpc.DefaultHTTPTimeouts.IdleTimeout {
+				t.Errorf("IdleTimeout = %v, want default %v", cfg.HTTPTimeouts.IdleTimeout, rpc.DefaultHTTPTimeouts.IdleTimeout)
 			}
 		})
 	}

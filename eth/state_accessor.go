@@ -1,4 +1,7 @@
 // Copyright 2021 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -101,6 +104,7 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 		logged time.Time
 		parent common.Hash
 	)
+	vp := eth.blockchain.VictionProcessor().ForkAtBlock(statedb, current.Number())
 	for current.NumberU64() < origin {
 		// Print progress logs if long enough time elapsed
 		if time.Since(logged) > 8*time.Second && report {
@@ -112,7 +116,7 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 		if current = eth.blockchain.GetBlockByNumber(next); current == nil {
 			return nil, fmt.Errorf("block #%d not found", next)
 		}
-		_, _, _, err := eth.blockchain.Processor().Process(current, statedb, vm.Config{})
+		_, _, _, err := eth.blockchain.Processor().Process(current, statedb, vp, vm.Config{})
 		if err != nil {
 			return nil, fmt.Errorf("processing block %d failed: %v", current.NumberU64(), err)
 		}
@@ -139,44 +143,56 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
-func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, types.BalanceMap, string, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
-		return nil, vm.BlockContext{}, nil, errors.New("no transaction in genesis")
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, errors.New("no transaction in genesis")
 	}
 	// Create the parent state database
 	parent := eth.blockchain.GetBlock(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return nil, vm.BlockContext{}, nil, fmt.Errorf("parent %#x not found", block.ParentHash())
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, fmt.Errorf("parent %#x not found", block.ParentHash())
 	}
 	// Lookup the statedb of parent block from the live database,
 	// otherwise regenerate it on the flight.
 	statedb, err := eth.stateAtBlock(parent, reexec, nil, true)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, err
+		return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
 	}
 	if txIndex == 0 && len(block.Transactions()) == 0 {
-		return nil, vm.BlockContext{}, statedb, nil
+		return nil, vm.BlockContext{}, statedb, nil, core.NativeTxNone, nil
 	}
 	// Recompute transactions up to the target index.
 	signer := types.MakeSigner(eth.blockchain.Config(), block.Number())
+	vp := eth.blockchain.VictionProcessor().ForkAtBlock(statedb, block.Number())
+	zp := vp.ZeroGasPool()
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
+		// Reproduce Viction per-tx pre-checks (balance override + blacklist) before execution, mirroring block import.
+		if err := vp.PreApplyTransaction(block, tx, msg, statedb); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
+		}
 		txContext := core.NewEVMTxContext(msg)
 		context := core.NewEVMBlockContext(block.Header(), eth.blockchain, nil)
 		if idx == txIndex {
-			return msg, context, statedb, nil
+			kind := core.NativeTransactionKind(eth.blockchain.Config(), tx, block.Header())
+			return msg, context, statedb, zp, kind, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(context, txContext, statedb, eth.blockchain.Config(), vm.Config{})
 		statedb.Prepare(tx.Hash(), idx)
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
-			return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		res, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), zp)
+		if err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		}
+		core.PostTraceTx(statedb, core.NativeTransactionKind(eth.blockchain.Config(), tx, block.Header()), msg)
+		if err := vp.PostApplyTransaction(tx, msg, statedb, res.UsedGas, res.Failed()); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, err
 		}
 		// Ensure any modifications are committed to the state
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
 	}
-	return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+	return nil, vm.BlockContext{}, nil, nil, core.NativeTxNone, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }
