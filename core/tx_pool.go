@@ -257,6 +257,8 @@ type TxPool struct {
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
+
+	IsSigner func(common.Address) bool // Hook to backend for checking validator status
 }
 
 type txpoolResetRequest struct {
@@ -607,9 +609,15 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if err != nil {
 		return ErrInvalidSender
 	}
+	if err := pool.posvValidateBlacklistTx(tx, from); err != nil {
+		return err
+	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip
 	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 {
-		return ErrUnderpriced
+		// PoSV: Exempt special and zero-gas transactions.
+		if !pool.posvExemptUnderpriced(tx, from) {
+			return ErrUnderpriced
+		}
 	}
 	// Ensure the transaction adheres to nonce ordering
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
@@ -626,7 +634,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return err
 	}
 	if tx.Gas() < intrGas {
-		return ErrIntrinsicGas
+		// PoSV: Exempt special transactions.
+		if !pool.posvSkipIntrinsicGas(tx) {
+			return ErrIntrinsicGas
+		}
 	}
 	return nil
 }
@@ -655,6 +666,10 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
 		invalidTxMeter.Mark(1)
 		return false, err
+	}
+	// PoSV: Promote special transactions directly to pending.
+	if handled, replaced, err := pool.posvTryPromoteSpecial(tx, isLocal); handled {
+		return replaced, err
 	}
 	// If the transaction pool is full, discard underpriced transactions
 	if uint64(pool.all.Slots()+numSlots(tx)) > pool.config.GlobalSlots+pool.config.GlobalQueue {

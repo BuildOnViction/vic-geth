@@ -207,6 +207,24 @@ func (s *Ethereum) getEtherbaseWallet() (common.Address, accounts.Wallet, error)
 	return eb, wallet, nil
 }
 
+// IsPosvSigner reports whether addr is a validator in the current PoSV epoch, read from the nearest checkpoint header.
+func (s *Ethereum) IsPosvSigner(addr common.Address) bool {
+	config := s.blockchain.Config()
+	if config.Posv == nil {
+		return false
+	}
+	current := s.blockchain.CurrentHeader()
+	if current == nil {
+		return false
+	}
+	cp := posv.GetCheckpointHeader(config.Posv, current, nil, s.blockchain)
+	if cp == nil {
+		return false
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(cp)
+	return common.IndexOf(validators, addr) != -1
+}
+
 // Attach services required by Viction blockchain.
 func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
 	if !chainConfig.IsPosv() {
@@ -222,6 +240,9 @@ func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node
 	log.Info("[Backend] Set current backend reference to PoSV engine.")
 	s.handler.blockFetcher.SetPosvBackend(s)
 	log.Info("[Backend] Set current backend reference to BlockFetcher.")
+
+	s.txPool.IsSigner = s.IsPosvSigner
+	log.Info("[Backend] Wired PoSV txpool IsSigner callback.")
 
 	tradingStatedb, err := openTradingDatabase(stack)
 	if err != nil {
