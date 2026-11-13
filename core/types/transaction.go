@@ -383,53 +383,6 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 	}
 }
 
-// ExtractSpecialTransactionsForPosv extracts special transactions for POSV
-// signer allowlist from pending account queues.
-//
-// If an account is in signers, all transactions up to the last special
-// transaction in its nonce-ordered queue are extracted, and removed from txs.
-func ExtractSpecialTransactionsForPosv(
-	signer Signer,
-	txs map[common.Address]Transactions,
-	signers map[common.Address]struct{},
-) Transactions {
-	if len(signers) == 0 {
-		return Transactions{}
-	}
-	specialTxs := Transactions{}
-	for from, accTxs := range txs {
-		if len(accTxs) == 0 {
-			delete(txs, from)
-			continue
-		}
-		acc, _ := Sender(signer, accTxs[0])
-		if _, ok := signers[acc]; !ok {
-			continue
-		}
-		lastSpecialTx := -1
-		for i, tx := range accTxs {
-			if tx.IsPosvTransaction() {
-				lastSpecialTx = i
-			}
-		}
-		if lastSpecialTx < 0 {
-			continue
-		}
-
-		specialTxs = append(specialTxs, accTxs[:lastSpecialTx+1]...)
-		normalTxs := accTxs[lastSpecialTx+1:]
-		if len(normalTxs) > 0 {
-			txs[acc] = normalTxs
-		} else {
-			delete(txs, acc)
-		}
-		if from != acc {
-			delete(txs, from)
-		}
-	}
-	return specialTxs
-}
-
 // Peek returns the next transaction by price.
 func (t *TransactionsByPriceAndNonce) Peek() *Transaction {
 	if len(t.heads) == 0 {

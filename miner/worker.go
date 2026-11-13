@@ -804,10 +804,10 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		from, _ := types.Sender(w.current.signer, tx)
 		if skip, pop := w.EnforceBlacklist(tx, from); skip {
 			if pop {
-				log.Debug("Skipping transaction with blacklisted sender", "sender", from, "hash", tx.Hash())
+				log.Info("[Miner] Skipping transaction with blacklisted sender", "sender", from, "hash", tx.Hash())
 				txs.Pop()
 			} else {
-				log.Debug("Skipping transaction with blacklisted receiver", "receiver", tx.To(), "hash", tx.Hash())
+				log.Info("[Miner] Skipping transaction with blacklisted receiver", "receiver", tx.To(), "hash", tx.Hash())
 				txs.Shift()
 			}
 			continue
@@ -820,18 +820,18 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			txs.Pop()
 			continue
 		}
-		if tx.To() != nil && w.chainConfig.Viction != nil {
+		if tx.To() != nil && w.chainConfig.Viction != nil && w.chainConfig.Posv != nil {
 			if *tx.To() == w.chainConfig.Viction.ValidatorBlockSignContract {
 				if len(tx.Data()) < 68 {
-					log.Trace("Invalid BlockSigner transaction: payload length is incorrect", "hash", tx.Hash(), "len", len(tx.Data()))
+					log.Debug("[Miner] Invalid BlockSigner transaction: payload length is incorrect", "hash", tx.Hash(), "len", len(tx.Data()))
 					txs.Pop()
 					continue
 				}
 				blkNumber := binary.BigEndian.Uint64(tx.Data()[28:36])
 				curr := w.current.header.Number.Uint64()
 				epochRange := w.chainConfig.Posv.Epoch * 2
-				if w.chainConfig.Posv != nil && (blkNumber >= curr || (curr > epochRange && blkNumber <= curr-epochRange)) {
-					log.Trace("Invalid BlockSigner transaction: block number is incorrect", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr, "epoch", w.chainConfig.Posv.Epoch)
+				if blkNumber >= curr || (curr > epochRange && blkNumber <= curr-epochRange) {
+					log.Debug("[Miner] Invalid BlockSigner transaction: block number is incorrect", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr, "epoch", w.chainConfig.Posv.Epoch)
 					txs.Pop()
 					continue
 				}
@@ -926,15 +926,13 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     num.Add(num, common.Big1),
+		GasLimit:   core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil),
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
 	}
-
 	// Gas limit: fixed for POSV, dynamic for other consensus.
 	if isPosv {
 		header.GasLimit = params.VictionGasLimit
-	} else {
-		header.GasLimit = core.CalcGasLimit(parent, w.config.GasFloor, w.config.GasCeil)
 	}
 
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
@@ -1034,7 +1032,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		for _, v := range validators {
 			signers[v] = struct{}{}
 		}
-		specialTxs := types.ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+		specialTxs := ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
 		if len(specialTxs) > 0 {
 			specialTxsByAccount := make(map[common.Address]types.Transactions)
 			for _, tx := range specialTxs {
