@@ -301,14 +301,12 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	msg := st.msg
 	sender := vm.AccountRef(msg.From())
 	homestead := st.evm.ChainConfig().IsHomestead(st.evm.Context.BlockNumber)
-	istanbul := st.evm.ChainConfig().IsIstanbul(st.evm.Context.BlockNumber)
 	london := st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber)
+	isEIP2028 := st.evm.ChainConfig().IsEIP2028(st.evm.Context.BlockNumber)
 	contractCreation := msg.To() == nil
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	viction := st.evm.ChainConfig().IsViction()
-	prometheus := st.evm.ChainConfig().IsPrometheus(st.evm.Context.BlockNumber)
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, (prometheus && viction) || (istanbul && !viction))
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, homestead, isEIP2028)
 	if err != nil {
 		return nil, err
 	}

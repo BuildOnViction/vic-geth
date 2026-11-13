@@ -647,6 +647,16 @@ func (c *ChainConfig) IsIstanbul(num *big.Int) bool {
 	return isForked(c.IstanbulBlock, num)
 }
 
+// IsEIP2028 returns whether EIP-2028 data gas pricing applies whether num is either:
+// - from the Istanbul fork,
+// - deferred to the Prometheus fork for Viction chains.
+func (c *ChainConfig) IsEIP2028(num *big.Int) bool {
+	if c.IsViction() {
+		return c.IsPrometheus(num)
+	}
+	return c.IsIstanbul(num)
+}
+
 // IsSaigon returns whether num is either equal to the Saigon fork block or greater.
 func (c *ChainConfig) IsSaigon(num *big.Int) bool {
 	return isForked(c.SaigonBlock, num)

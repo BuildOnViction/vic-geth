@@ -68,6 +68,7 @@ type TxPool struct {
 	clearIdx     uint64                               // earliest block nr that can contain mined tx info
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
+	eip2028  bool // Fork indicator whether EIP-2028 data gas pricing applies.
 	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
 }
 
@@ -76,10 +77,11 @@ type TxPool struct {
 //
 // Send instructs backend to forward new transactions
 // NewHead notifies backend about a new head after processed by the tx pool,
-//  including  mined and rolled back transactions since the last event
+// including  mined and rolled back transactions since the last event
+//
 // Discard notifies backend about transactions that should be discarded either
-//  because they have been replaced by a re-send or because they have been mined
-//  long ago and no rollback is expected
+// because they have been replaced by a re-send or because they have been mined
+// long ago and no rollback is expected
 type TxRelayBackend interface {
 	Send(txs types.Transactions)
 	NewHead(head common.Hash, mined []common.Hash, rollback []common.Hash)
@@ -313,7 +315,7 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 
 	// Update fork indicator by next pending block number
 	next := new(big.Int).Add(head.Number, big.NewInt(1))
-	pool.istanbul = pool.config.IsIstanbul(next)
+	pool.eip2028 = pool.config.IsEIP2028(next)
 	pool.eip2718 = pool.config.IsBerlin(next)
 }
 
@@ -382,7 +384,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	}
 
 	// Should supply enough intrinsic gas
-	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.istanbul)
+	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.eip2028)
 	if err != nil {
 		return err
 	}
