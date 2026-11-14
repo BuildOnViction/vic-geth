@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -37,11 +39,6 @@ jobs:
 
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          # In order:
-          # * Module download cache
-          # * Build cache (Linux)
-          # * Build cache (Mac)
-          # * Build cache (Windows)
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
@@ -54,6 +51,12 @@ jobs:
       - name: Install zstd (MacOS)
         if: matrix.os == 'macos-latest'
         run: brew install zstd
+
+      - name: Get Git Info
+        shell: bash
+        run: |
+          echo "GIT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "GIT_DATE=$(git log -n1 --pretty='format:%cd' --date=format:'%Y%m%d')" >> $GITHUB_ENV
 
       # ==============================
       #       Linux Cross Compile for AMD64
@@ -69,11 +72,7 @@ jobs:
       - name: Build Binary for Linux AMD64
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go mod download
-          GIT_COMMIT=$(git rev-parse HEAD)
-          GIT_COMMIT_DATE=$(git log -n1 --pretty='format:%cd' --date=format:'%Y%m%d')
-          echo $GIT_COMMIT $GIT_COMMIT_DATE
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=$(pwd)/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-gcc go build -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_COMMIT_DATE -extldflags=-static" -o ./build/bin/vic-geth-linux-amd64 -a ./cmd/geth
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=$(pwd)/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-gcc go build -trimpath -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_DATE -extldflags=-static" -o ./build/bin/vic-geth-linux-amd64 ./cmd/geth
           tar -cf - -C ./build/bin vic-geth-linux-amd64 | zstd -o ./build/bin/vic-geth-$GIT_TAG-linux-amd64.tar.zst
 
       # ==============================
@@ -90,11 +89,7 @@ jobs:
       - name: Build Binary for Linux ARM64
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go mod download
-          GIT_COMMIT=$(git rev-parse HEAD)
-          GIT_COMMIT_DATE=$(git log -n1 --pretty='format:%cd' --date=format:'%Y%m%d')
-          echo $GIT_COMMIT $GIT_COMMIT_DATE
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=$(pwd)/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc go build -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_COMMIT_DATE -extldflags=-static" -o ./build/bin/vic-geth-linux-arm64 -a ./cmd/geth
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=$(pwd)/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc go build -trimpath -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_DATE -extldflags=-static" -o ./build/bin/vic-geth-linux-arm64 ./cmd/geth
           tar -cf - -C ./build/bin vic-geth-linux-arm64 | zstd -o ./build/bin/vic-geth-$GIT_TAG-linux-arm64.tar.zst
 
       # ==============================
@@ -104,11 +99,8 @@ jobs:
       - name: Build Binary for Windows AMD64
         if: matrix.os == 'windows-latest'
         run: |
-          go mod download
-          $GIT_COMMIT=git rev-parse HEAD
-          $GIT_COMMIT_DATE=$(git log -n1 --pretty='format:%cd' --date=format:'%Y%m%d')
-          Write-Host $GIT_COMMIT $GIT_COMMIT_DATE
-          go build -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_COMMIT_DATE" -o ./build/bin/vic-geth-windows-amd64.exe -a ./cmd/geth
+          $env:GOOS="windows"; $env:GOARCH="amd64"
+          go build -trimpath -ldflags "-X main.gitCommit=$env:GIT_COMMIT -X main.gitDate=$env:GIT_DATE" -o ./build/bin/vic-geth-windows-amd64.exe ./cmd/geth
           Compress-Archive -Path ./build/bin/vic-geth-windows-amd64.exe -DestinationPath ./build/bin/vic-geth-$env:GIT_TAG-windows-amd64.zip
 
       # ==============================
@@ -118,11 +110,7 @@ jobs:
       - name: Build Binary for MacOS ARM64
         if: matrix.os == 'macos-latest'
         run: |
-          go mod download
-          GIT_COMMIT=$(git rev-parse HEAD)
-          GIT_COMMIT_DATE=$(git log -n1 --pretty='format:%cd' --date=format:'%Y%m%d')
-          echo $GIT_COMMIT $GIT_COMMIT_DATE
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_COMMIT_DATE" -o ./build/bin/vic-geth-macos-arm64 -a ./cmd/geth
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.gitDate=$GIT_DATE" -o ./build/bin/vic-geth-macos-arm64 ./cmd/geth
           tar -cf - -C ./build/bin vic-geth-macos-arm64 | zstd -o ./build/bin/vic-geth-$GIT_TAG-macos-arm64.tar.zst
 
       # ==============================
@@ -206,9 +194,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: |
-            "Created by Github Actions"
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
