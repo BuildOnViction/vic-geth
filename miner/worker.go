@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -18,6 +21,7 @@ package miner
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"math/big"
 	"sync"
@@ -28,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -166,6 +171,10 @@ type worker struct {
 	snapshotBlock    *types.Block
 	snapshotReceipts types.Receipts
 	snapshotState    *state.StateDB
+
+	// posvLastParentCommitHash store parents block hash of last minted block. In PoSV new minted block is not insert into canonical chain immediately,
+	// so we need to store the last minted block hash to avoid minting multiple blocks on the same parent.
+	posvLastParentCommitHash atomic.Value
 
 	// atomic status counters
 	running int32 // The indicator whether the consensus engine is running or not.
@@ -400,6 +409,11 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
 			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
+				// PoSV: always retry on timer to handle out-of-turn block creation when in-turn validator is offline
+				if w.chainConfig.IsPosv() {
+					commit(true, commitInterruptResubmit)
+					continue
+				}
 				// Short circuit if no new transaction arrives.
 				if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
@@ -617,6 +631,11 @@ func (w *worker) resultLoop() {
 				log.Error("Block found but no relative pending task", "number", block.Number(), "sealhash", sealhash, "hash", hash)
 				continue
 			}
+			// PoSV: Minted block still need to be attested before inserting into canonical chain. Broadcast to network for attestation.
+			if w.chainConfig.IsPosv() {
+				w.mux.Post(core.NewMinedBlockEvent{Block: block})
+				continue
+			}
 			// Different block could share same sealhash, deep copy here to prevent write-write conflict.
 			var (
 				receipts = make([]*types.Receipt, len(task.receipts))
@@ -666,6 +685,8 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	if err != nil {
 		return err
 	}
+	// Match the legacy revert behavior used by the chain processor when replaying Viction blocks before the Prometheus fork.
+	state.SetLegacyRevert(w.chainConfig.IsViction() && !w.chainConfig.IsPrometheus(header.Number))
 	state.StartPrefetcher("miner")
 
 	env := &environment{
@@ -812,6 +833,16 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		//
 		// We use the eip155 signer regardless of the current hf.
 		from, _ := types.Sender(w.current.signer, tx)
+		if skip, pop := w.EnforceBlacklist(tx, from); skip {
+			if pop {
+				log.Info("[Miner] Skipping transaction with blacklisted sender", "sender", from, "hash", tx.Hash())
+				txs.Pop()
+			} else {
+				log.Info("[Miner] Skipping transaction with blacklisted receiver", "receiver", tx.To(), "hash", tx.Hash())
+				txs.Shift()
+			}
+			continue
+		}
 		// Check whether the tx is replay protected. If we're not in the EIP155 hf
 		// phase, start ignoring the sender until we do.
 		if tx.Protected() && !w.chainConfig.IsEIP155(w.current.header.Number) {
@@ -819,6 +850,23 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 
 			txs.Pop()
 			continue
+		}
+		if tx.To() != nil && w.chainConfig.Viction != nil && w.chainConfig.Posv != nil {
+			if *tx.To() == w.chainConfig.Viction.ValidatorBlockSignContract {
+				if len(tx.Data()) < 68 {
+					log.Debug("[Miner] Invalid BlockSigner transaction: payload length is incorrect", "hash", tx.Hash(), "len", len(tx.Data()))
+					txs.Pop()
+					continue
+				}
+				blkNumber := binary.BigEndian.Uint64(tx.Data()[28:36])
+				curr := w.current.header.Number.Uint64()
+				epochRange := w.chainConfig.Posv.Epoch * 2
+				if blkNumber >= curr || (curr > epochRange && blkNumber <= curr-epochRange) {
+					log.Debug("[Miner] Invalid BlockSigner transaction: block number is incorrect", "hash", tx.Hash(), "blkNumber", blkNumber, "current", curr, "epoch", w.chainConfig.Posv.Epoch)
+					txs.Pop()
+					continue
+				}
+			}
 		}
 		// Start executing the transaction
 		w.current.state.Prepare(tx.Hash(), w.current.tcount)
@@ -890,6 +938,16 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 
+	isPosv := w.chainConfig.IsPosv()
+	if isPosv {
+		if v := w.posvLastParentCommitHash.Load(); v != nil && parent.Hash() == v.(common.Hash) {
+			return
+		}
+		if !w.preCommitNewWorkForPosv(parent.Header()) {
+			return
+		}
+	}
+
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)
 	}
@@ -900,6 +958,10 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		GasLimit:   core.CalcGasLimit(parent.GasLimit(), w.config.GasCeil),
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
+	}
+	// Gas limit: fixed for POSV, dynamic for other consensus.
+	if isPosv {
+		header.GasLimit = params.VictionGasLimit
 	}
 	// Set baseFee and GasLimit if we are on an EIP-1559 chain
 	if w.chainConfig.IsLondon(header.Number) {
@@ -945,6 +1007,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(env.state)
 	}
+	misc.ApplyPosvHardForks(env.state, w.chainConfig, w.chainConfig.Viction, header.Number)
 	// Accumulate the uncles for the current block
 	uncles := make([]*types.Header, 0, 2)
 	commitUncles := func(blocks map[common.Hash]*types.Block) {
@@ -976,6 +1039,14 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.commit(uncles, nil, false, tstart)
 	}
 
+	// PoSV: Checkpoint block only allow state mutations from Prepare/Finalize.
+	if isPosv {
+		if w.chainConfig.Posv.IsCheckpointBlock(header.Number.Uint64()) {
+			w.commit(nil, w.fullTaskHook, true, tstart)
+			return
+		}
+	}
+
 	// Fill the block with all available pending transactions.
 	pending, err := w.eth.TxPool().Pending(true)
 	if err != nil {
@@ -988,6 +1059,28 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
 		w.updateSnapshot()
 		return
+	}
+
+	// PoSV: Extract and commit special transactions first.
+	if isPosv {
+		checkpointHeader := posv.GetCheckpointHeader(w.chainConfig.Posv, parent.Header(), nil, w.chain)
+		validators := posv.ExtractValidatorsFromCheckpointHeader(checkpointHeader)
+		signers := make(map[common.Address]struct{}, len(validators))
+		for _, v := range validators {
+			signers[v] = struct{}{}
+		}
+		specialTxs := ExtractSpecialTransactionsForPosv(w.current.signer, pending, signers)
+		if len(specialTxs) > 0 {
+			specialTxsByAccount := make(map[common.Address]types.Transactions)
+			for _, tx := range specialTxs {
+				from, _ := types.Sender(w.current.signer, tx)
+				specialTxsByAccount[from] = append(specialTxsByAccount[from], tx)
+			}
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, specialTxsByAccount, header.BaseFee)
+			if w.commitTransactions(txs, w.coinbase, nil) {
+				return
+			}
+		}
 	}
 	// Split the pending transactions into locals and remotes
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
@@ -1029,6 +1122,9 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		select {
 		case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
 			w.unconfirmed.Shift(block.NumberU64() - 1)
+			if w.chainConfig.Posv != nil && w.isRunning() {
+				w.posvLastParentCommitHash.Store(block.ParentHash())
+			}
 			log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
 				"uncles", len(uncles), "txs", w.current.tcount,
 				"gas", block.GasUsed(), "fees", totalFees(block, receipts),

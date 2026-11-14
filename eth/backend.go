@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
+	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/bloombits"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -55,6 +56,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 // Config contains the configuration options of the ETH protocol.
@@ -93,6 +95,8 @@ type Ethereum struct {
 	netRPCService *ethapi.PublicNetAPI
 
 	p2pServer *p2p.Server
+
+	blockSignersCache *lru.ARCCache
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
@@ -140,6 +144,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err := pruner.RecoverPruning(stack.ResolvePath(""), chainDb, stack.ResolvePath(config.TrieCleanCacheJournal)); err != nil {
 		log.Error("Failed to recover state", "error", err)
 	}
+	blockSignersCache, _ := lru.NewARC(recentBlockSigners)
 	eth := &Ethereum{
 		config:            config,
 		chainDb:           chainDb,
@@ -153,6 +158,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      core.NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
 		p2pServer:         stack.Server(),
+		blockSignersCache: blockSignersCache,
 	}
 
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
@@ -192,12 +198,19 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Set sync threshold if configured
+	eth.blockchain.SetSyncThreshold(config.SyncThreshold)
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
-		log.Warn("Rewinding chain to upgrade configuration", "err", compat)
-		eth.blockchain.SetHead(compat.RewindTo)
+		if config.SkipCompatRewind {
+			log.Info("Skipping chain rewind for incompatible configuration", "err", compat)
+		} else {
+			log.Warn("Rewinding chain to upgrade configuration", "err", compat)
+			eth.blockchain.SetHead(compat.RewindTo)
+		}
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
+
 	eth.bloomIndexer.Start(eth.blockchain)
 
 	if config.TxPool.Journal != "" {
@@ -246,6 +259,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	eth.snapDialCandidates, err = dnsclient.NewIterator(eth.config.SnapDiscoveryURLs...)
 	if err != nil {
+		return nil, err
+	}
+
+	// Setup required services for PoSV and PoSV extensions for Consensus, Fetcher, Miner
+	if err := eth.setupPosvBackend(chainConfig, stack); err != nil {
 		return nil, err
 	}
 
@@ -341,6 +359,16 @@ func (s *Ethereum) APIs() []rpc.API {
 			Namespace: "net",
 			Version:   "1.0",
 			Service:   s.netRPCService,
+			Public:    true,
+		}, {
+			Namespace: "posv",
+			Version:   "1.0",
+			Service:   NewPublicPosvAPI(s),
+			Public:    true,
+		}, {
+			Namespace: "posvdebug",
+			Version:   "1.0",
+			Service:   NewPublicPosvDebugAPI(s),
 			Public:    true,
 		},
 	}...)
@@ -472,6 +500,14 @@ func (s *Ethereum) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			clique.Authorize(eb, wallet.SignData)
+		}
+		if posvEngine, ok := s.engine.(*posv.Posv); ok {
+			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+			if wallet == nil || err != nil {
+				log.Error("Etherbase account unavailable locally", "err", err)
+				return fmt.Errorf("signer missing: %v", err)
+			}
+			posvEngine.Authorize(eb, wallet.SignData)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.

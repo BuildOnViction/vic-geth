@@ -57,7 +57,7 @@ func (j *journal) append(entry journalEntry) {
 
 // revert undoes a batch of journalled modifications along with any reverted
 // dirty handling too.
-func (j *journal) revert(statedb *StateDB, snapshot int) {
+func (j *journal) revert(statedb *StateDB, snapshot int, legacy bool) {
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		// Undo the changes made by the operation
 		j.entries[i].revert(statedb)
@@ -65,6 +65,15 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		// Drop any dirty tracking induced by the change
 		if addr := j.entries[i].dirtied(); addr != nil {
 			if j.dirties[*addr]--; j.dirties[*addr] == 0 {
+				if legacy {
+					// Only touchChange and createObjectChange are allowed to fully remove an address from the dirty set.
+					// This matches victionchain behavior in on Mainnet data.
+					switch j.entries[i].(type) {
+					case touchChange, createObjectChange:
+					default:
+						continue
+					}
+				}
 				delete(j.dirties, *addr)
 			}
 		}

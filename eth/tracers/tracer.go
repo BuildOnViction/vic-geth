@@ -525,6 +525,11 @@ func (jst *Tracer) Stop(err error) {
 	atomic.StoreUint32(&jst.interrupt, 1)
 }
 
+// Set the tracer's underlying state database reference.
+func (jst *Tracer) SetStateDB(statedb vm.StateDB) {
+	jst.dbWrapper.db = statedb
+}
+
 // call executes a method on a JS object, catching any errors, formatting and
 // returning them as error objects.
 func (jst *Tracer) call(noret bool, method string, args ...string) (json.RawMessage, error) {
@@ -584,8 +589,8 @@ func (jst *Tracer) CaptureStart(env *vm.EVM, from common.Address, to common.Addr
 
 	// Compute intrinsic gas
 	isHomestead := env.ChainConfig().IsHomestead(env.Context.BlockNumber)
-	isIstanbul := env.ChainConfig().IsIstanbul(env.Context.BlockNumber)
-	intrinsicGas, err := core.IntrinsicGas(input, nil, jst.ctx["type"] == "CREATE", isHomestead, isIstanbul)
+	isEIP2028 := env.ChainConfig().IsEIP2028(env.Context.BlockNumber)
+	intrinsicGas, err := core.IntrinsicGas(input, nil, jst.ctx["type"] == "CREATE", isHomestead, isEIP2028)
 	if err != nil {
 		return
 	}
