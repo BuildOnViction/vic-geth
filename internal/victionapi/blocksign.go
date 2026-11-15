@@ -124,6 +124,15 @@ func SubmitBlockSignTransaction(
 	if !IsEligibleValidator(etherbase, snapshot) {
 		return nil
 	}
+	isAuthorized, err := authorizeVote(blockchain, block.Header(), etherbase)
+	if err != nil {
+		// Fetcher drops the returned error, so the failure is reported here.
+		log.Warn("[SignBlock] Skipped. Vote could not be checked against the finality rule", "number", number, "blockHash", block.Hash(), "etherbase", etherbase, "err", err)
+		return err
+	}
+	if !isAuthorized {
+		return nil
+	}
 
 	nonce := NextNonce(etherbase, blockchain, txPool)
 	pendingTxs, _ := txPool.Pending(false)
@@ -141,4 +150,14 @@ func SubmitBlockSignTransaction(
 		return err
 	}
 	return nil
+}
+
+// Ask the PoSV engine whether the finality rule lets etherbase sign the block at header; the engine records the vote when it does.
+// It is asked last, once every other condition for signing holds, so no vote is recorded for a block this node would not sign anyway.
+func authorizeVote(blockchain *core.BlockChain, header *types.Header, etherbase common.Address) (bool, error) {
+	engine, ok := blockchain.Engine().(*posv.Posv)
+	if !ok {
+		return true, nil
+	}
+	return engine.AuthorizeVote(blockchain, header, etherbase)
 }

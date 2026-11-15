@@ -192,6 +192,7 @@ type Posv struct {
 	finalityViews *lru.ARCCache // Finality views of recent blocks to speed up tracking
 	finalized     *BlockRef     // Last finalized block of the canonical chain, nil when none is known
 	finalityLock  sync.Mutex    // Protects the finalized block
+	voteLock      sync.Mutex    // Makes the decision on a vote and its record one step
 
 	// Reference to the backend for accessing chain state.
 	backend PosvBackend
