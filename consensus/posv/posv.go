@@ -189,6 +189,10 @@ type Posv struct {
 	signFn SignerFn       // Signer function to authorize hashes with
 	lock   sync.RWMutex   // Protects the signer fields
 
+	finalityViews *lru.ARCCache // Finality views of recent blocks to speed up tracking
+	finalized     *BlockRef     // Last finalized block of the canonical chain, nil when none is known
+	finalityLock  sync.Mutex    // Protects the finalized block
+
 	// Reference to the backend for accessing chain state.
 	backend PosvBackend
 }
@@ -206,6 +210,7 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 	signatures, _ := lru.NewARC(inmemorySignatures)
 	attestSignatures, _ := lru.NewARC(inmemorySignatures)
 	verifiedBlocks, _ := lru.NewARC(recentVerifiedBlocks)
+	finalityViews, _ := lru.NewARC(inmemoryFinalityViews)
 
 	return &Posv{
 		config: &conf,
@@ -215,6 +220,9 @@ func New(config *params.PosvConfig, db ethdb.Database) *Posv {
 		signatures:       signatures,
 		attestSignatures: attestSignatures,
 		verifiedBlocks:   verifiedBlocks,
+
+		finalityViews: finalityViews,
+		finalized:     loadFinalizedBlock(db),
 
 		proposals: make(map[common.Address]bool),
 	}

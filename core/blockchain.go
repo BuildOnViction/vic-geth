@@ -630,6 +630,7 @@ func (bc *BlockChain) SetHeadBeyondRoot(head uint64, root common.Hash) (uint64, 
 	bc.txLookupCache.Purge()
 	bc.futureBlocks.Purge()
 
+	bc.updateFinality()
 	return rootNumber, bc.loadLastState()
 }
 
@@ -1991,6 +1992,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 				}
 			}
 		}
+		bc.updateFinality()
 	}
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && errors.Is(err, consensus.ErrFutureBlock) {

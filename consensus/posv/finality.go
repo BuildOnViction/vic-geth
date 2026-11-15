@@ -43,22 +43,22 @@ var (
 	// errInvalidFinalityChain is returned when a view is asked for a block that is not the child of the block the view was derived at.
 	errInvalidFinalityChain = errors.New("invalid finality chain")
 
-	// errInvalidFinalityRoot is returned when a root view is requested for headers that are not the root and its epoch header.
+	// errInvalidFinalityRoot is returned when a view is started from headers that do not fit: a block that is not the root, or a header that is not the block's epoch header.
 	errInvalidFinalityRoot = errors.New("invalid finality root")
 )
 
 // BlockRef identifies a block by number and hash.
 type BlockRef struct {
-	Number uint64
-	Hash   common.Hash
+	Number uint64      `json:"number"`
+	Hash   common.Hash `json:"hash"`
 }
 
 // FinalityTally collects the votes for one target while its vote window is open.
 type FinalityTally struct {
-	Target BlockRef         // Signed block being voted on
-	Source BlockRef         // Highest justified ancestor of the target, as seen at the target
-	Epoch  BlockRef         // Epoch header whose validators are the electorate of the target
-	Voters []common.Address // Electorate members whose vote was counted, in order of inclusion
+	Target BlockRef         `json:"target"` // Signed block being voted on
+	Source BlockRef         `json:"source"` // Highest justified ancestor of the target, as seen at the target
+	Epoch  BlockRef         `json:"epoch"`  // Epoch header whose validators are the electorate of the target
+	Voters []common.Address `json:"voters"` // Electorate members whose vote was counted, in order of inclusion
 }
 
 // FinalityView is the finality state of a chain as seen at one of its blocks.
@@ -84,12 +84,12 @@ type FinalityTally struct {
 //
 // A view is not modified once derived: apply returns the view of the next block.
 type FinalityView struct {
-	Number    uint64           // Block number the view was derived at
-	Hash      common.Hash      // Block hash the view was derived at
-	Epoch     BlockRef         // Latest epoch header at or below this block
-	Justified BlockRef         // Highest justified signed block
-	Finalized *BlockRef        // Highest finalized signed block, nil until a block is finalized
-	Tallies   []*FinalityTally // Targets inside their vote window and not yet justified, ascending
+	Number    uint64           `json:"number"`    // Block number the view was derived at
+	Hash      common.Hash      `json:"hash"`      // Block hash the view was derived at
+	Epoch     BlockRef         `json:"epoch"`     // Latest epoch header at or below this block
+	Justified BlockRef         `json:"justified"` // Highest justified signed block, zero while an unanchored view knows none
+	Finalized *BlockRef        `json:"finalized"` // Highest finalized signed block, nil until a block is finalized
+	Tallies   []*FinalityTally `json:"tallies"`   // Targets inside their vote window and not yet justified, ascending
 }
 
 // Return the view at the root of finality: the signed block before the first target.
@@ -99,22 +99,38 @@ func newRootFinalityView(config *params.ChainConfig, root, epoch *types.Header) 
 	if err != nil {
 		return nil, err
 	}
-	rootNumber := p.firstTarget - p.interval
-	if root.Number.Uint64() != rootNumber {
+	if rootNumber := p.rootNumber(); root.Number.Uint64() != rootNumber {
 		return nil, fmt.Errorf("%w: block %d is not the root %d", errInvalidFinalityRoot, root.Number, rootNumber)
 	}
-	epochNumber := rootNumber - rootNumber%p.epoch
-	if epoch.Number.Uint64() != epochNumber {
-		return nil, fmt.Errorf("%w: block %d is not the epoch header %d", errInvalidFinalityRoot, epoch.Number, epochNumber)
-	}
-	if epochNumber == rootNumber && epoch.Hash() != root.Hash() {
-		return nil, fmt.Errorf("%w: root %d is an epoch header but another header was given", errInvalidFinalityRoot, rootNumber)
+	if err := p.checkEpochHeader(root, epoch); err != nil {
+		return nil, err
 	}
 	return &FinalityView{
-		Number:    rootNumber,
+		Number:    root.Number.Uint64(),
 		Hash:      root.Hash(),
 		Epoch:     blockRefOf(epoch),
 		Justified: blockRefOf(root),
+	}, nil
+}
+
+// Return a view for a block whose finality history is out of reach: it knows no justified block and tallies no target at or below the block.
+// The view never claims more than a view with the full history: it justifies and finalizes only what the votes included after the block prove.
+// The epoch header must be the latest one at or below the block on the block's own chain.
+func newUnanchoredFinalityView(config *params.ChainConfig, block, epoch *types.Header) (*FinalityView, error) {
+	p, err := newFinalityParams(config)
+	if err != nil {
+		return nil, err
+	}
+	if block.Number.Uint64() < p.rootNumber() {
+		return nil, errFinalityInactive
+	}
+	if err := p.checkEpochHeader(block, epoch); err != nil {
+		return nil, err
+	}
+	return &FinalityView{
+		Number: block.Number.Uint64(),
+		Hash:   block.Hash(),
+		Epoch:  blockRefOf(epoch),
 	}, nil
 }
 
@@ -303,6 +319,24 @@ func newFinalityParams(config *params.ChainConfig) (*finalityParams, error) {
 		p.firstTarget = p.interval
 	}
 	return p, nil
+}
+
+// Check that epoch can be the latest epoch header at or below block: it has that number, and is block itself when block is an epoch header.
+func (p *finalityParams) checkEpochHeader(block, epoch *types.Header) error {
+	number := block.Number.Uint64()
+	epochNumber := number - number%p.epoch
+	if epoch.Number.Uint64() != epochNumber {
+		return fmt.Errorf("%w: block %d is not the epoch header %d", errInvalidFinalityRoot, epoch.Number, epochNumber)
+	}
+	if epochNumber == number && epoch.Hash() != block.Hash() {
+		return fmt.Errorf("%w: block %d is an epoch header but another header was given", errInvalidFinalityRoot, number)
+	}
+	return nil
+}
+
+// Return the number of the root: the signed block before the first target.
+func (p *finalityParams) rootNumber() uint64 {
+	return p.firstTarget - p.interval
 }
 
 // Return the reference of the block with the given header.

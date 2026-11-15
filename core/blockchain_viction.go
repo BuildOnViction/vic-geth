@@ -287,3 +287,17 @@ func (bc *BlockChain) stopViction() {
 	bc.flushNativeTrieGCCache(bc.tradingTrieAccess())
 	bc.flushNativeTrieGCCache(bc.lendingTrieAccess())
 }
+
+// Bring the finality tracking of the PoSV engine up to the current head block.
+// Tracking only reports: a failure is logged and never fails the import or the rewind that led here.
+// The caller must hold the chain mutex.
+func (bc *BlockChain) updateFinality() {
+	engine, ok := bc.engine.(*posv.Posv)
+	if !ok {
+		return
+	}
+	head := bc.CurrentBlock().Header()
+	if err := engine.UpdateFinality(bc, head); err != nil {
+		log.Warn("[Blockchain] Failed to update finality", "number", head.Number, "hash", head.Hash(), "err", err)
+	}
+}

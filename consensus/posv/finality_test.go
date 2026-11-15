@@ -584,7 +584,9 @@ func TestNewRootFinalityViewRejectsWrongHeaders(t *testing.T) {
 // finalityTestChain is an in-memory set of headers addressed by hash, so forks can coexist.
 type finalityTestChain struct {
 	config     *params.ChainConfig
+	blocks     map[common.Hash]*types.Block // Blocks added by extend, read back when a view is derived by replay
 	headers    map[common.Hash]*types.Header
+	head       *types.Header    // Head of the canonical chain, which lookups by number follow
 	validators []common.Address // Written into every epoch header added from now on
 	fork       byte             // Tells sibling headers apart
 }
@@ -615,6 +617,7 @@ func newFinalityTestChain(prometheus uint64, validators []common.Address) *final
 				ValidatorSignInterval:      finalityTestInterval,
 			},
 		},
+		blocks:     make(map[common.Hash]*types.Block),
 		headers:    make(map[common.Hash]*types.Header),
 		validators: validators,
 	}
@@ -680,7 +683,9 @@ func (c *finalityTestChain) start(t *testing.T) finalityTestTip {
 func (c *finalityTestChain) extend(t *testing.T, tip finalityTestTip, txs ...*types.Transaction) finalityTestTip {
 	t.Helper()
 	header := c.addHeader(tip.header)
-	view, err := tip.view.apply(c, types.NewBlockWithHeader(header).WithBody(txs, nil))
+	block := types.NewBlockWithHeader(header).WithBody(txs, nil)
+	c.blocks[block.Hash()] = block
+	view, err := tip.view.apply(c, block)
 	if err != nil {
 		t.Fatalf("apply block %d: %v", header.Number, err)
 	}
