@@ -164,6 +164,118 @@ func TestForgottenFinalizedBlockStaysForgottenAfterRestart(t *testing.T) {
 	requireTrackedFinalized(t, restarted, nil)
 }
 
+func TestFinalizedBlockReportsTrackedBlock(t *testing.T) {
+	chain, quorum := newFinalityTrackerTestChain(t, 0)
+	engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+	tips := chain.tipsTo(t, chain.start(t), 47, quorum, isEveryTarget)
+
+	chain.moveHead(t, engine, tips[30].header)
+	none, isKnownEarly := engine.FinalizedBlock()
+	chain.moveHead(t, engine, tips[47].header)
+	finalized, isKnown := engine.FinalizedBlock()
+
+	if isKnownEarly || none != (BlockRef{}) {
+		t.Fatalf("finalized block before any is finalized: have %d (known %t), want none", none.Number, isKnownEarly)
+	}
+	if !isKnown || finalized != blockRefOf(tips[30].header) {
+		t.Fatalf("finalized block: have %d (%s, known %t), want 30 (%s)", finalized.Number, finalized.Hash, isKnown, tips[30].header.Hash())
+	}
+}
+
+func TestJustifiedBlock(t *testing.T) {
+	tests := []struct {
+		name string
+		head uint64
+		want uint64
+	}{
+		{name: "root until a target is justified", head: 15, want: 0},
+		{name: "target once its votes are included", head: 16, want: 15},
+		{name: "highest of the justified targets", head: 47, want: 45},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain, quorum := newFinalityTrackerTestChain(t, 0)
+			engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+			tips := chain.tipsTo(t, chain.start(t), 47, quorum, isEveryTarget)
+
+			justified, err := engine.JustifiedBlock(chain, tips[tt.head].header)
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if justified != blockRefOf(tips[tt.want].header) {
+				t.Fatalf("justified block: have %d (%s), want %d (%s)", justified.Number, justified.Hash, tt.want, tips[tt.want].header.Hash())
+			}
+		})
+	}
+}
+
+func TestJustifiedBlockOfSideChain(t *testing.T) {
+	chain, quorum := newFinalityTrackerTestChain(t, 0)
+	engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+	tips := chain.tipsTo(t, chain.start(t), 47, quorum, isEveryTarget)
+	chain.fork = 1
+	fork := chain.extendTo(t, tips[20], 50)
+	chain.moveHead(t, engine, tips[47].header)
+
+	justified, err := engine.JustifiedBlock(chain, fork.header)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if justified != blockRefOf(tips[15].header) {
+		t.Fatalf("justified block: have %d, want 15, the last one justified before the fork", justified.Number)
+	}
+}
+
+func TestJustifiedBlockUnknownBelowRoot(t *testing.T) {
+	chain, _ := newFinalityTrackerTestChain(t, 100)
+	engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+	head := chain.addHeader(nil)
+	for head.Number.Uint64() < 89 {
+		head = chain.addHeader(head)
+	}
+
+	justified, err := engine.JustifiedBlock(chain, head)
+
+	if !errors.Is(err, ErrNoJustifiedBlock) {
+		t.Fatalf("error: have %v, want %v", err, ErrNoJustifiedBlock)
+	}
+	if justified != (BlockRef{}) {
+		t.Fatalf("justified block: have %d, want none", justified.Number)
+	}
+}
+
+func TestJustifiedBlockUnknownInUnanchoredView(t *testing.T) {
+	chain, quorum := newFinalityTrackerTestChain(t, 0)
+	engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+	// Block 15 is justified more than one epoch below the head, out of reach of the unanchored start at 140.
+	tips := chain.tipsTo(t, chain.start(t), 200, quorum, func(target uint64) bool { return target == 15 })
+	requireJustified(t, tips[200].view, tips[15].header)
+
+	justified, err := engine.JustifiedBlock(chain, tips[200].header)
+
+	if !errors.Is(err, ErrNoJustifiedBlock) {
+		t.Fatalf("error: have %v, want %v", err, ErrNoJustifiedBlock)
+	}
+	if justified != (BlockRef{}) {
+		t.Fatalf("justified block: have %d, want none", justified.Number)
+	}
+}
+
+func TestJustifiedBlockFailsOnMissingChainData(t *testing.T) {
+	chain, quorum := newFinalityTrackerTestChain(t, 0)
+	engine := New(chain.config.Posv, rawdb.NewMemoryDatabase())
+	tips := chain.tipsTo(t, chain.start(t), 10, quorum, isEveryTarget)
+	delete(chain.blocks, tips[5].header.Hash())
+
+	_, err := engine.JustifiedBlock(chain, tips[10].header)
+
+	if !errors.Is(err, errUnknownBlock) {
+		t.Fatalf("error: have %v, want %v", err, errUnknownBlock)
+	}
+}
+
 func TestFinalityViewEqualsStepwiseView(t *testing.T) {
 	tests := []struct {
 		name string

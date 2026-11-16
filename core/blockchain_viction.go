@@ -20,12 +20,14 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/common/sortlgc"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -33,14 +35,17 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// Return underlying VictionProcessor instance in the Proccesor.
-func (bc *BlockChain) VictionProcessor() *VictionProcessor {
-	p, ok := bc.processor.(*StateProcessor)
-	if !ok || p == nil {
-		return nil
-	}
-	return p.viction
+// finalitySource is the finality knowledge that fork choice takes from the consensus engine.
+type finalitySource interface {
+	// Return the last finalized block of the canonical chain; the second result is false when none is known.
+	FinalizedBlock() (posv.BlockRef, bool)
+
+	// Return the highest justified block that the finality view at header knows, or posv.ErrNoJustifiedBlock when it knows none.
+	JustifiedBlock(chain consensus.ChainReader, header *types.Header) (posv.BlockRef, error)
 }
+
+// Fork choice finds the source by type assertion, so an engine that stopped matching would switch finality off unnoticed.
+var _ finalitySource = (*posv.Posv)(nil)
 
 // nativeTrieAccess groups the per-platform accessors needed to flush a native state trie.
 type nativeTrieAccess struct {
@@ -50,6 +55,15 @@ type nativeTrieAccess struct {
 	root   func(*VictionProcessor) common.Hash    // returns the last committed state root
 	trieDB func(*VictionProcessor) *trie.Database // returns the platform trie DB, or nil if the engine is unset
 	triegc *prque.Prque                           // deferred GC queue for the platform trie roots
+}
+
+// Return underlying VictionProcessor instance in the Proccesor.
+func (bc *BlockChain) VictionProcessor() *VictionProcessor {
+	p, ok := bc.processor.(*StateProcessor)
+	if !ok || p == nil {
+		return nil
+	}
+	return p.viction
 }
 
 // Return the per-blockchain accessors for the native lending trie.
@@ -282,6 +296,68 @@ func (bc *BlockChain) commitNativeExchangeState(block *types.Block) error {
 	return bc.commitNativeTrieDeferred(bc.lendingTrieAccess(), block)
 }
 
+// Decide whether candidate replaces current as head of the canonical chain, given what total difficulty decided.
+// Once the head passed the Prometheus fork, finality decides first: a chain without the finalized block is never adopted,
+// then the chain whose head knows the higher justified block wins.
+// The decision of total difficulty stands where finality has none: the justified blocks are equal, or one of them is unknown.
+// The caller must hold the chain mutex.
+func (bc *BlockChain) finalityForkChoice(current, candidate *types.Header, isPreferredByDifficulty bool) bool {
+	source, ok := bc.engine.(finalitySource)
+	if !ok || !bc.chainConfig.IsPrometheus(current.Number) {
+		return isPreferredByDifficulty
+	}
+	// Finality decides between competing chains only: child of head, or block of head's own chain, competes with nothing.
+	if candidate.ParentHash == current.Hash() || bc.GetCanonicalHash(candidate.Number.Uint64()) == candidate.Hash() {
+		return isPreferredByDifficulty
+	}
+	if finalized, ok := source.FinalizedBlock(); ok && !bc.hasAncestor(candidate, finalized) {
+		if isPreferredByDifficulty {
+			log.Warn("[Blockchain] Refused chain without the finalized block", "number", candidate.Number, "hash", candidate.Hash(), "finalized", finalized.Number, "finalizedHash", finalized.Hash)
+		}
+		return false
+	}
+
+	currentJustified, ok := bc.justifiedNumber(source, current)
+	if !ok {
+		return isPreferredByDifficulty
+	}
+	candidateJustified, ok := bc.justifiedNumber(source, candidate)
+	if !ok || candidateJustified == currentJustified {
+		return isPreferredByDifficulty
+	}
+	isPreferred := candidateJustified > currentJustified
+	if isPreferred != isPreferredByDifficulty {
+		log.Info("[Blockchain] Justified block overrode total difficulty", "number", candidate.Number, "hash", candidate.Hash(), "justified", candidateJustified, "head", current.Number, "headJustified", currentJustified, "adopted", isPreferred)
+	}
+	return isPreferred
+}
+
+// Report whether ancestor is on the chain that ends at header, header's own block included.
+func (bc *BlockChain) hasAncestor(header *types.Header, ancestor posv.BlockRef) bool {
+	for header != nil && header.Number.Uint64() > ancestor.Number {
+		// Below a canonical block the chain is the canonical one, which is indexed by number: no need to walk it.
+		if bc.GetCanonicalHash(header.Number.Uint64()) == header.Hash() {
+			return bc.GetCanonicalHash(ancestor.Number) == ancestor.Hash
+		}
+		header = bc.GetHeader(header.ParentHash, header.Number.Uint64()-1)
+	}
+	return header != nil && header.Hash() == ancestor.Hash
+}
+
+// Return the number of the highest justified block that the finality view at header knows.
+// The second result is false when the view knows none or cannot be derived; the failure is logged here, where fork choice falls back to total difficulty.
+func (bc *BlockChain) justifiedNumber(source finalitySource, header *types.Header) (uint64, bool) {
+	justified, err := source.JustifiedBlock(bc, header)
+	if errors.Is(err, posv.ErrNoJustifiedBlock) {
+		return 0, false
+	}
+	if err != nil {
+		log.Warn("[Blockchain] Failed to read justified block, fork choice follows total difficulty", "number", header.Number, "hash", header.Hash(), "err", err)
+		return 0, false
+	}
+	return justified.Number, true
+}
+
 // Flush any in-memory trading/lending trie roots not yet committed to LevelDB.
 func (bc *BlockChain) stopViction() {
 	bc.flushNativeTrieGCCache(bc.tradingTrieAccess())
@@ -289,7 +365,7 @@ func (bc *BlockChain) stopViction() {
 }
 
 // Bring the finality tracking of the PoSV engine up to the current head block.
-// Tracking only reports: a failure is logged and never fails the import or the rewind that led here.
+// A failure is logged and never fails the import or the rewind that led here: fork choice goes on with the finalized block known before.
 // The caller must hold the chain mutex.
 func (bc *BlockChain) updateFinality() {
 	engine, ok := bc.engine.(*posv.Posv)

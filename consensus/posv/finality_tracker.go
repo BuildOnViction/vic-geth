@@ -35,6 +35,10 @@ const (
 	inmemoryFinalityViews = 128 // Number of recent finality views to keep in memory
 )
 
+// ErrNoJustifiedBlock is returned when the finality view of a block knows no justified block:
+// finality is not active at the block, or the view was started without its history and no block was justified since.
+var ErrNoJustifiedBlock = errors.New("no justified block known")
+
 var (
 	// finalizedBlockKey -> last finalized block of the canonical chain.
 	finalizedBlockKey = []byte("posv-finality-finalized")
@@ -48,6 +52,34 @@ var (
 type finalityBlockChain interface {
 	finalityChain
 	GetBlock(hash common.Hash, number uint64) *types.Block
+}
+
+// Return the last finalized block of the canonical chain; the second result is false when none is known.
+// The block is the one of the last UpdateFinality: a head moved since then can have left it behind.
+func (c *Posv) FinalizedBlock() (BlockRef, bool) {
+	c.finalityLock.Lock()
+	defer c.finalityLock.Unlock()
+
+	if c.finalized == nil {
+		return BlockRef{}, false
+	}
+	return *c.finalized, true
+}
+
+// Return the highest justified block that the finality view at header knows, whether header is canonical or not.
+// Return ErrNoJustifiedBlock when the view knows none; a caller must read that as unknown, never as lower than the justified block of another chain.
+func (c *Posv) JustifiedBlock(chain consensus.ChainReader, header *types.Header) (BlockRef, error) {
+	view, err := c.finalityView(chain, header)
+	if errors.Is(err, errFinalityInactive) {
+		return BlockRef{}, ErrNoJustifiedBlock
+	}
+	if err != nil {
+		return BlockRef{}, err
+	}
+	if view.Justified == (BlockRef{}) {
+		return BlockRef{}, ErrNoJustifiedBlock
+	}
+	return view.Justified, nil
 }
 
 // Bring finality tracking up to head, which must be the head of the canonical chain.
