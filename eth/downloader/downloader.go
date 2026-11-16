@@ -1,4 +1,7 @@
 // Copyright 2015 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -802,6 +805,7 @@ func (d *Downloader) findAncestor(p *peerConnection, remoteHeader *types.Header)
 			floor = int64(d.genesis) - 1
 		}
 	}
+	floor = d.posvAncestorFloor(floor)
 
 	ancestor, err := d.findAncestorSpanSearch(p, mode, remoteHeight, localHeight, floor)
 	if err == nil {

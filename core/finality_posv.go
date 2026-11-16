@@ -18,6 +18,7 @@
 package core
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -80,9 +81,82 @@ func newPosvFinality(chain posvFinalityChain, db ethdb.KeyValueStore, engine con
 	return f
 }
 
+// Return the PoSV-finalized block that fork choice keeps, or nil when the chain is not PoSV, no block is finalized,
+// or the finalized block is below the Prometheus fork.
+func (bc *BlockChain) PosvEnforcedFinalizedHeader() *types.Header {
+	if bc.posvFinality == nil {
+		return nil
+	}
+	return bc.posvFinality.enforcedHeader()
+}
+
+// Return ErrPosvFinalityConflict when the contiguous batch of blocks is on a chain that drops the enforced finalized block.
+func (bc *BlockChain) checkPosvFinality(chain types.Blocks) error {
+	finalized := bc.PosvEnforcedFinalizedHeader()
+	if finalized == nil || !bc.posvFinality.conflicts(chain, finalized) {
+		return nil
+	}
+	last := chain[len(chain)-1]
+	return fmt.Errorf("%w: blocks #%d-#%d, finalized #%d [%x]", ErrPosvFinalityConflict, chain[0].Number(), last.Number(), finalized.Number, finalized.Hash().Bytes()[:4])
+}
+
+// Return ErrPosvFinalityConflict when a reorg forking at commonBlock would drop the enforced finalized block.
+func (bc *BlockChain) checkPosvReorg(commonBlock *types.Block) error {
+	finalized := bc.PosvEnforcedFinalizedHeader()
+	if finalized == nil || commonBlock.NumberU64() >= finalized.Number.Uint64() {
+		return nil
+	}
+	return fmt.Errorf("%w: fork at #%d, finalized #%d [%x]", ErrPosvFinalityConflict, commonBlock.Number(), finalized.Number, finalized.Hash().Bytes()[:4])
+}
+
 // Return the highest finalized block, or nil when none is known.
 func (f *posvFinality) finalizedHeader() *types.Header {
 	return f.finalized.Load().(*types.Header)
+}
+
+// Return the finalized block that fork choice must keep, or nil when none is known or it is below the Prometheus fork.
+func (f *posvFinality) enforcedHeader() *types.Header {
+	finalized := f.finalizedHeader()
+	if finalized == nil || !f.chain.Config().IsPrometheus(finalized.Number) {
+		return nil
+	}
+	return finalized
+}
+
+// Report whether the contiguous batch of blocks is on a chain that drops the finalized block.
+// The batch keeps it when the batch block at its height is the finalized block, when the whole batch lies below it on the
+// canonical chain, or when the first block descends from it.
+func (f *posvFinality) conflicts(chain types.Blocks, finalized *types.Header) bool {
+	var (
+		first           = chain[0].NumberU64()
+		last            = chain[len(chain)-1]
+		finalizedNumber = finalized.Number.Uint64()
+	)
+	switch {
+	case finalizedNumber > last.NumberU64():
+		return f.chain.GetCanonicalHash(last.NumberU64()) != last.Hash()
+	case finalizedNumber >= first:
+		return chain[finalizedNumber-first].Hash() != finalized.Hash()
+	default:
+		return !f.descends(chain[0].ParentHash(), first-1, finalized)
+	}
+}
+
+// Report whether the block with hash at number is the finalized block or descends from it.
+// Unknown ancestry counts as descending, leaving the import to report the missing ancestor.
+func (f *posvFinality) descends(hash common.Hash, number uint64, finalized *types.Header) bool {
+	for finalizedNumber := finalized.Number.Uint64(); number > finalizedNumber; number-- {
+		// The finalized block is canonical, so a canonical ancestor above it descends from it.
+		if f.chain.GetCanonicalHash(number) == hash {
+			return true
+		}
+		header := f.chain.GetHeader(hash, number)
+		if header == nil {
+			return true
+		}
+		hash = header.ParentHash
+	}
+	return hash == finalized.Hash()
 }
 
 // Reload the finalized block stored in the database for the given head and restart tallying from the next canonical block.

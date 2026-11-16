@@ -103,5 +103,8 @@ var (
 
 	ErrPosvRequired = errors.New("posv engine is required")
 
+	// ErrPosvFinalityConflict is returned when a block or reorg would drop the finalized block of a PoSV chain past the Prometheus fork.
+	ErrPosvFinalityConflict = errors.New("block conflicts with the finalized block")
+
 	ErrBlacklistedAddress = errors.New("blacklisted address")
 )

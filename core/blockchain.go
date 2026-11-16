@@ -1715,6 +1715,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	if atomic.LoadInt32(&bc.procInterrupt) == 1 {
 		return 0, nil
 	}
+	// PoSV: refuse chains that drop the finalized block before executing them.
+	if err := bc.checkPosvFinality(chain); err != nil {
+		return 0, err
+	}
 	// Start a parallel signature recovery (signer will fluke on fork transition, minimal perf loss)
 	senderCacher.recoverFromBlocks(types.MakeSigner(bc.chainConfig, chain[0].Number()), chain)
 
@@ -2249,6 +2253,9 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 		if newBlock == nil {
 			return fmt.Errorf("invalid new chain")
 		}
+	}
+	if err := bc.checkPosvReorg(commonBlock); err != nil {
+		return err
 	}
 	// Ensure the user sees large reorgs
 	if len(oldChain) > 0 && len(newChain) > 0 {

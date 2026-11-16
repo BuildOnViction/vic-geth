@@ -19,10 +19,12 @@ package core
 
 import (
 	"crypto/ecdsa"
+	"errors"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -39,7 +41,11 @@ const (
 	finalityTestWindow         = 30 // ConsensusLimitTimeFinality of the test chains
 )
 
-var finalityTestSignContract = common.HexToAddress("0x0000000000000000000000000000000000000089")
+var (
+	finalityTestSignContract = common.HexToAddress("0x0000000000000000000000000000000000000089")
+	finalityTestCoinbaseA    = common.HexToAddress("0x000000000000000000000000000000000000000a")
+	finalityTestCoinbaseB    = common.HexToAddress("0x000000000000000000000000000000000000000b")
+)
 
 func TestPosvFinalityFinalizesAtQuorum(t *testing.T) {
 	env := newFinalityTestEnv(t, 900)
@@ -303,59 +309,160 @@ func TestNewPosvFinalityRequiresPosvChain(t *testing.T) {
 
 // Insert blocks into a real chain and check that the canonical-head and state-reload hooks drive the tracker.
 func TestPosvFinalityTracksBlockChain(t *testing.T) {
-	keys := makeFinalityTestKeys(4)
-	addrs := finalityTestAddresses(keys)
-	alloc := GenesisAlloc{}
-	for _, addr := range addrs {
-		alloc[addr] = GenesisAccount{Balance: big.NewInt(params.Ether)}
-	}
-	var (
-		db      = rawdb.NewMemoryDatabase()
-		engine  = ethash.NewFaker()
-		gspec   = &Genesis{Config: params.TestChainConfig, ExtraData: makeCheckpointExtra(addrs), Alloc: alloc}
-		genesis = gspec.MustCommit(db)
-		signer  = types.LatestSigner(params.TestChainConfig)
-	)
-	blocks, _ := GenerateChain(params.TestChainConfig, genesis, engine, db, 2, func(i int, b *BlockGen) {
-		if i != 1 {
-			return
-		}
-		target := b.PrevBlock(0)
-		for _, key := range keys[:3] {
-			addr := crypto.PubkeyToAddress(key.PublicKey)
-			tx := types.NewTransaction(b.TxNonce(addr), finalityTestSignContract, common.Big0, 100000, b.BaseFee(), makeFinalityTestSignData(target))
-			signed, err := types.SignTx(tx, signer, key)
-			if err != nil {
-				t.Fatalf("failed to sign vote: %v", err)
-			}
-			b.AddTx(signed)
-		}
-	})
-	bc, err := NewBlockChain(db, nil, params.TestChainConfig, engine, vm.Config{}, nil, nil)
-	if err != nil {
-		t.Fatalf("failed to create chain: %v", err)
-	}
-	defer bc.Stop()
-	posvChain := finalityTestConfigChain{BlockChain: bc, config: newFinalityTestConfig(params.TestChainConfig, 900)}
-	bc.posvFinality = newPosvFinality(posvChain, db, posv.New(posvChain.config.Posv, db))
-	bc.posvFinality.load(bc.CurrentBlock().Header())
+	env := newFinalityTestBlockChain(t, nil)
+	blocks := env.generate(env.genesis, 2, finalityTestCoinbaseA, 1)
 
-	if _, err := bc.InsertChain(blocks); err != nil {
+	if _, err := env.chain.InsertChain(blocks); err != nil {
 		t.Fatalf("failed to insert blocks: %v", err)
 	}
-	inserted := bc.posvFinality.finalizedHeader()
-	if err := bc.SetHead(0); err != nil {
+	inserted := env.chain.posvFinality.finalizedHeader()
+	if err := env.chain.SetHead(0); err != nil {
 		t.Fatalf("failed to rewind: %v", err)
 	}
 
 	if inserted == nil || inserted.Hash() != blocks[0].Hash() {
 		t.Fatalf("inserted votes did not finalize block 1: have %v", inserted)
 	}
-	if rewound := bc.posvFinality.finalizedHeader(); rewound != nil {
+	if rewound := env.chain.posvFinality.finalizedHeader(); rewound != nil {
 		t.Fatalf("rewind below the finalized block kept it: %d", rewound.Number)
 	}
-	if stored := rawdb.ReadPosvFinalizedBlockHash(db); stored != (common.Hash{}) {
+	if stored := rawdb.ReadPosvFinalizedBlockHash(env.db); stored != (common.Hash{}) {
 		t.Fatalf("rewind below the finalized block kept it stored: %x", stored)
+	}
+}
+
+func TestPosvFinalityForkChoice(t *testing.T) {
+	tests := []struct {
+		name       string
+		prometheus *big.Int
+		// Build the batch to insert on top of canonical chain main, whose block 2 (main[1]) is finalized.
+		batch         func(env *finalityTestBlockChain, main []*types.Block) []*types.Block
+		wantConflict  bool
+		wantFinalized bool
+	}{
+		{
+			name:       "fork below the finalized block is rejected",
+			prometheus: common.Big0,
+			batch: func(env *finalityTestBlockChain, main []*types.Block) []*types.Block {
+				return env.generate(env.genesis, 5, finalityTestCoinbaseB, -1)
+			},
+			wantConflict:  true,
+			wantFinalized: true,
+		},
+		{
+			name:       "batch re-importing a canonical block then forking below the finalized block is rejected",
+			prometheus: common.Big0,
+			batch: func(env *finalityTestBlockChain, main []*types.Block) []*types.Block {
+				return append([]*types.Block{main[0]}, env.generate(main[0], 4, finalityTestCoinbaseB, -1)...)
+			},
+			wantConflict:  true,
+			wantFinalized: true,
+		},
+		{
+			name:       "fork above the finalized block is accepted",
+			prometheus: common.Big0,
+			batch: func(env *finalityTestBlockChain, main []*types.Block) []*types.Block {
+				return env.generate(main[1], 3, finalityTestCoinbaseB, -1)
+			},
+			wantFinalized: true,
+		},
+		{
+			name:       "fork below the finalized block is accepted before the Prometheus fork",
+			prometheus: big.NewInt(1000),
+			batch: func(env *finalityTestBlockChain, main []*types.Block) []*types.Block {
+				return env.generate(env.genesis, 5, finalityTestCoinbaseB, -1)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newFinalityTestBlockChain(t, tt.prometheus)
+			main := env.generate(env.genesis, 4, finalityTestCoinbaseA, 2)
+			if _, err := env.chain.InsertChain(main); err != nil {
+				t.Fatalf("failed to insert canonical chain: %v", err)
+			}
+			batch := tt.batch(env, main)
+
+			_, err := env.chain.InsertChain(batch)
+
+			if tt.wantConflict {
+				if !errors.Is(err, ErrPosvFinalityConflict) {
+					t.Fatalf("error mismatch: have %v, want %v", err, ErrPosvFinalityConflict)
+				}
+				if head := env.chain.CurrentBlock(); head.Hash() != main[len(main)-1].Hash() {
+					t.Fatalf("head moved to #%d %x", head.NumberU64(), head.Hash())
+				}
+				if fork := batch[len(batch)-1]; env.chain.HasBlock(fork.Hash(), fork.NumberU64()) {
+					t.Fatalf("rejected block #%d stored", fork.NumberU64())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("failed to insert batch: %v", err)
+				}
+				if head := env.chain.CurrentBlock(); head.Hash() != batch[len(batch)-1].Hash() {
+					t.Fatalf("head mismatch: have #%d %x, want #%d %x", head.NumberU64(), head.Hash(), batch[len(batch)-1].NumberU64(), batch[len(batch)-1].Hash())
+				}
+			}
+			finalized := env.chain.posvFinality.finalizedHeader()
+			if tt.wantFinalized && (finalized == nil || finalized.Hash() != main[1].Hash()) {
+				t.Fatalf("finalized block mismatch: have %v, want #2 %x", finalized, main[1].Hash())
+			}
+			if !tt.wantFinalized && finalized != nil {
+				t.Fatalf("finalized block kept after reorg below it: #%d", finalized.Number)
+			}
+		})
+	}
+}
+
+func TestPosvFinalityReorgGuard(t *testing.T) {
+	tests := []struct {
+		name         string
+		forkParent   func(env *finalityTestBlockChain, main []*types.Block) *types.Block
+		wantConflict bool
+	}{
+		{
+			name:         "reorg forking below the finalized block is refused",
+			forkParent:   func(env *finalityTestBlockChain, main []*types.Block) *types.Block { return main[0] },
+			wantConflict: true,
+		},
+		{
+			name:       "reorg forking at the finalized block is allowed",
+			forkParent: func(env *finalityTestBlockChain, main []*types.Block) *types.Block { return main[1] },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newFinalityTestBlockChain(t, common.Big0)
+			main := env.generate(env.genesis, 4, finalityTestCoinbaseA, 2)
+			if _, err := env.chain.InsertChain(main); err != nil {
+				t.Fatalf("failed to insert canonical chain: %v", err)
+			}
+			parent := tt.forkParent(env, main)
+			fork := env.generate(parent, int(main[len(main)-1].NumberU64()-parent.NumberU64()), finalityTestCoinbaseB, -1)
+			for _, block := range fork {
+				rawdb.WriteBlock(env.db, block)
+			}
+
+			env.chain.chainmu.Lock()
+			err := env.chain.reorg(env.chain.CurrentBlock(), fork[len(fork)-1])
+			env.chain.chainmu.Unlock()
+
+			if tt.wantConflict {
+				if !errors.Is(err, ErrPosvFinalityConflict) {
+					t.Fatalf("error mismatch: have %v, want %v", err, ErrPosvFinalityConflict)
+				}
+				if canonical := env.chain.GetCanonicalHash(main[1].NumberU64()); canonical != main[1].Hash() {
+					t.Fatalf("finalized block replaced on the canonical chain by %x", canonical)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("reorg failed: %v", err)
+			}
+			if canonical := env.chain.GetCanonicalHash(fork[0].NumberU64()); canonical != fork[0].Hash() {
+				t.Fatalf("fork block not canonical: have %x, want %x", canonical, fork[0].Hash())
+			}
+		})
 	}
 }
 
@@ -399,6 +506,70 @@ type finalityTestConfigChain struct {
 }
 
 func (c finalityTestConfigChain) Config() *params.ChainConfig { return c.config }
+
+// finalityTestBlockChain is an ethash chain whose finality tracker reads a PoSV config, so its blocks can carry BlockSigner votes
+// counted against four genesis validators.
+type finalityTestBlockChain struct {
+	t       *testing.T
+	chain   *BlockChain
+	db      ethdb.Database
+	genDb   ethdb.Database // state of generated blocks, so forks can be generated from any of them
+	engine  consensus.Engine
+	keys    []*ecdsa.PrivateKey
+	genesis *types.Block
+}
+
+// Create the chain with the tracker enforcing finality from the prometheus block; nil never enforces.
+func newFinalityTestBlockChain(t *testing.T, prometheus *big.Int) *finalityTestBlockChain {
+	t.Helper()
+	keys := makeFinalityTestKeys(4)
+	alloc := GenesisAlloc{}
+	for _, addr := range finalityTestAddresses(keys) {
+		alloc[addr] = GenesisAccount{Balance: big.NewInt(params.Ether)}
+	}
+	var (
+		gspec   = &Genesis{Config: params.TestChainConfig, ExtraData: makeCheckpointExtra(finalityTestAddresses(keys)), Alloc: alloc}
+		db      = rawdb.NewMemoryDatabase()
+		genDb   = rawdb.NewMemoryDatabase()
+		genesis = gspec.MustCommit(db)
+		engine  = ethash.NewFaker()
+	)
+	gspec.MustCommit(genDb)
+	bc, err := NewBlockChain(db, nil, params.TestChainConfig, engine, vm.Config{}, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create chain: %v", err)
+	}
+	t.Cleanup(bc.Stop)
+	config := newFinalityTestConfig(params.TestChainConfig, 900)
+	config.PrometheusBlock = prometheus
+	bc.posvFinality = newPosvFinality(finalityTestConfigChain{BlockChain: bc, config: config}, db, posv.New(config.Posv, db))
+	bc.posvFinality.load(bc.CurrentBlock().Header())
+	return &finalityTestBlockChain{t: t, chain: bc, db: db, genDb: genDb, engine: engine, keys: keys, genesis: genesis}
+}
+
+// Generate n blocks on parent with coinbase, which tells forks apart.
+// The block at index votedAt, when not negative, carries votes of three of the four validators for its parent.
+func (c *finalityTestBlockChain) generate(parent *types.Block, n int, coinbase common.Address, votedAt int) []*types.Block {
+	c.t.Helper()
+	signer := types.LatestSigner(params.TestChainConfig)
+	blocks, _ := GenerateChain(params.TestChainConfig, parent, c.engine, c.genDb, n, func(i int, b *BlockGen) {
+		b.SetCoinbase(coinbase)
+		if i != votedAt {
+			return
+		}
+		target := b.PrevBlock(i - 1)
+		for _, key := range c.keys[:3] {
+			addr := crypto.PubkeyToAddress(key.PublicKey)
+			tx := types.NewTransaction(b.TxNonce(addr), finalityTestSignContract, common.Big0, 100000, b.BaseFee(), makeFinalityTestSignData(target))
+			signed, err := types.SignTx(tx, signer, key)
+			if err != nil {
+				c.t.Fatalf("failed to sign vote: %v", err)
+			}
+			b.AddTx(signed)
+		}
+	})
+	return blocks
+}
 
 // finalityTestVote is a BlockSigner transaction of the validator key at index signer for target.
 type finalityTestVote struct {

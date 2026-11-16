@@ -21,6 +21,7 @@ package victionapi
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -29,11 +30,23 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
 )
+
+var (
+	errSignNonCanonical = errors.New("block is not on the canonical chain")
+	errSignConflict     = errors.New("another block at this height was already signed")
+)
+
+// canonicalHashReader reads the canonical block hash at a height.
+type canonicalHashReader interface {
+	GetCanonicalHash(number uint64) common.Hash
+}
 
 // Serialize `BlockSign.sign` function call data.
 func CreateBlockSignData(blockNumber *big.Int, blockHash common.Hash) []byte {
@@ -98,6 +111,7 @@ func SubmitBlockSignTransaction(
 	config *params.ChainConfig,
 	victionConfig *params.VictionConfig,
 	blockchain *core.BlockChain,
+	chainDb ethdb.Database,
 	etherbase common.Address,
 	wallet accounts.Wallet,
 	txPool *core.TxPool,
@@ -114,6 +128,14 @@ func SubmitBlockSignTransaction(
 	if !IsEligibleValidator(etherbase, snapshot) {
 		return nil
 	}
+	if err := checkBlockSignable(chainDb, blockchain, etherbase, block); err != nil {
+		if errors.Is(err, errSignConflict) {
+			log.Warn("[SignBlock] Refused to sign a block competing with a signed one", "number", number, "blockHash", block.Hash(), "etherbase", etherbase, "err", err)
+		} else {
+			log.Debug("[SignBlock] Skipped block off the canonical chain", "number", number, "blockHash", block.Hash())
+		}
+		return nil
+	}
 
 	nonce := NextNonce(etherbase, blockchain, txPool)
 	pendingTxs, _ := txPool.Pending(false)
@@ -126,9 +148,34 @@ func SubmitBlockSignTransaction(
 		}
 	}
 
+	// Record before submitting, so a failed or crashed submission can never be followed by a vote for a competing block.
+	// Votes for blocks older than two epochs are not mined, so older records cannot matter.
+	recordBlockSign(chainDb, etherbase, block, 2*config.Posv.Epoch)
 	transaction := CreateBlockSignTransaction(nonce, victionConfig.ValidatorBlockSignContract, block.Number(), block.Hash())
 	if err := SignAndSubmitTransaction(etherbase, wallet, transaction, config.ChainID, txPool, "SignBlock"); err != nil {
 		return err
 	}
 	return nil
+}
+
+// Check that etherbase may sign block: the block is canonical and etherbase signed no other block at its height,
+// so a validator never votes for two competing blocks.
+func checkBlockSignable(db ethdb.KeyValueReader, chain canonicalHashReader, etherbase common.Address, block *types.Block) error {
+	number := block.NumberU64()
+	if chain.GetCanonicalHash(number) != block.Hash() {
+		return errSignNonCanonical
+	}
+	if signed := rawdb.ReadPosvSignedBlockHash(db, etherbase, number); signed != (common.Hash{}) && signed != block.Hash() {
+		return fmt.Errorf("%w: signed %x", errSignConflict, signed)
+	}
+	return nil
+}
+
+// Record that etherbase signs block, dropping its records more than retention blocks older.
+func recordBlockSign(db ethdb.KeyValueStore, etherbase common.Address, block *types.Block, retention uint64) {
+	number := block.NumberU64()
+	rawdb.WritePosvSignedBlockHash(db, etherbase, number, block.Hash())
+	if number > retention {
+		rawdb.DeletePosvSignedBlockHashesBelow(db, etherbase, number-retention)
+	}
 }

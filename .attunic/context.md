@@ -182,7 +182,6 @@ Common use cases include: Build, Test, Lint, Format, Install.
 
 - `make geth` - build only the geth binary (via `build/ci.go install ./cmd/geth`), output in `./build/bin`.
 - `make all` - build the full suite of tools from `cmd/`.
-- Plain go alternative: `go build ./...` - on modern toolchains it requires `GOFLAGS=-ldflags=-checklinkname=0` (see Confirmed Facts).
 - Cross compile: `make geth-cross` (per-OS targets like `geth-linux-amd64` use `build/ci.go xgo`).
 
 ### Test

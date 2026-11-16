@@ -191,7 +191,7 @@ func (s *Ethereum) PosvSignBlock(
 		return nil
 	}
 	config := s.blockchain.Config()
-	return victionapi.SubmitBlockSignTransaction(block, snapshot, config, config.Viction, s.blockchain, eb, wallet, s.txPool)
+	return victionapi.SubmitBlockSignTransaction(block, snapshot, config, config.Viction, s.blockchain, s.ChainDb(), eb, wallet, s.txPool)
 }
 
 // Get current etherbase altogether with it signing wallet.
