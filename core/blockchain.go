@@ -1,4 +1,7 @@
 // Copyright 2014 The go-ethereum Authors
+// (original work)
+// Copyright 2025 The Viction Authors
+// (modifications)
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -169,6 +172,8 @@ type BlockChain struct {
 	tradingTriegc *prque.Prque // deferred GC queue for native trading trie roots
 	lendingTriegc *prque.Prque // deferred GC queue for native lending trie roots
 
+	posvFinality *posvFinality // PoSV finality tracker, nil on other chains
+
 	// txLookupLimit is the maximum number of blocks from head whose tx indices
 	// are reserved:
 	//  * 0:   means no limit and regenerate any missing indexes
@@ -269,6 +274,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	if bc.genesisBlock == nil {
 		return nil, ErrNoGenesis
 	}
+	bc.posvFinality = newPosvFinality(bc, db, engine)
 
 	var nilBlock *types.Block
 	bc.currentBlock.Store(nilBlock)
@@ -478,6 +484,9 @@ func (bc *BlockChain) loadLastState() error {
 	log.Info("Loaded most recent local fast block", "number", currentFastBlock.Number(), "hash", currentFastBlock.Hash(), "td", fastTd, "age", common.PrettyAge(time.Unix(int64(currentFastBlock.Time()), 0)))
 	if pivot := rawdb.ReadLastPivotNumber(bc.db); pivot != nil {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
+	}
+	if bc.posvFinality != nil {
+		bc.posvFinality.load(currentBlock.Header())
 	}
 	return nil
 }
@@ -806,6 +815,10 @@ func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	}
 	bc.currentBlock.Store(block)
 	headBlockGauge.Update(int64(block.NumberU64()))
+
+	if bc.posvFinality != nil {
+		bc.posvFinality.applyHead(block)
+	}
 }
 
 // Genesis retrieves the chain's genesis block.
