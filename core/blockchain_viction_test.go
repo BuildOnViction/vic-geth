@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/posv"
 	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -256,6 +257,110 @@ func TestFinalityForkChoiceImportsLighterSideChainWithHigherJustifiedBlock(t *te
 	test.requireHead(t, fork, true)
 }
 
+func TestFinalityForkChoiceOnKnownBlockInTheMiddleOfBatch(t *testing.T) {
+	tests := []struct {
+		name          string
+		prometheus    *big.Int // nil when the fork is not scheduled
+		finalized     uint64   // 0 for none
+		mainJustified *uint64
+		forkJustified *uint64
+		wantAdopted   bool
+	}{
+		{name: "known block without the finalized block is refused", prometheus: big.NewInt(0), finalized: 10},
+		{name: "known block with a lower justified block is refused", prometheus: big.NewInt(0), mainJustified: justifiedAt(30), forkJustified: justifiedAt(15)},
+		{name: "known block with a higher justified block is adopted", prometheus: big.NewInt(0), mainJustified: justifiedAt(15), forkJustified: justifiedAt(30), wantAdopted: true},
+		// Fork is lighter: upstream adopts a known block in the middle of a batch whatever its total difficulty.
+		{name: "known block is adopted where finality has no say", prometheus: big.NewInt(0), wantAdopted: true},
+		{name: "known block is adopted before Prometheus", finalized: 10, mainJustified: justifiedAt(30), forkJustified: justifiedAt(15), wantAdopted: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			test := newFinalityForkChoiceTest(t, tt.prometheus, TriesInMemory)
+			if tt.finalized != 0 {
+				test.finalize(tt.finalized)
+			}
+			fork := test.fork(0, 2, 0)
+			test.importWithPrunedFirstState(t, fork)
+			test.justify(test.main, tt.mainJustified)
+			test.justify(fork, tt.forkJustified)
+
+			test.insert(t, fork)
+
+			test.requireHead(t, fork, tt.wantAdopted)
+		})
+	}
+}
+
+func TestFinalityForkChoiceAdoptsBatchPastRefusedKnownBlock(t *testing.T) {
+	test := newFinalityForkChoiceTest(t, big.NewInt(0), TriesInMemory)
+	fork := test.fork(0, 3, 0)
+	stored, tip := fork[:2], fork[2:]
+	test.importWithPrunedFirstState(t, stored)
+	test.justify(test.main, justifiedAt(30))
+	test.justify(stored, justifiedAt(15))
+	test.justify(tip, justifiedAt(45))
+
+	test.insert(t, fork)
+
+	test.requireHead(t, fork, true)
+	known := stored[1]
+	if canonical := test.chain.GetCanonicalHash(known.NumberU64()); canonical != known.Hash() {
+		t.Fatalf("canonical block %d: have %s, want refused known block %s", known.NumberU64(), canonical, known.Hash())
+	}
+}
+
+func TestFinalityTrackingFollowsNewHead(t *testing.T) {
+	tests := []struct {
+		name  string
+		adopt func(t *testing.T, test *finalityForkChoiceTest) []*types.Block // Make the returned blocks the head chain through the path under test
+	}{
+		{name: "imported block", adopt: func(t *testing.T, test *finalityForkChoiceTest) []*types.Block {
+			blocks := test.fork(uint64(len(test.main)), 1, 0)
+			test.insert(t, blocks)
+			return blocks
+		}},
+		{name: "known chain at the start of a batch", adopt: func(t *testing.T, test *finalityForkChoiceTest) []*types.Block {
+			fork := test.lighterFork(finalityTestForkParent)
+			test.justify(test.main, justifiedAt(15))
+			test.insert(t, fork)
+			test.requireHead(t, fork, false)
+			test.justify(fork, justifiedAt(30))
+			test.insert(t, fork)
+			return fork
+		}},
+		{name: "known block in the middle of a batch", adopt: func(t *testing.T, test *finalityForkChoiceTest) []*types.Block {
+			fork := test.fork(0, 2, 0)
+			test.importWithPrunedFirstState(t, fork)
+			test.justify(test.main, justifiedAt(15))
+			test.justify(fork, justifiedAt(30))
+			test.insert(t, fork)
+			return fork
+		}},
+		{name: "block sealed by the node", adopt: func(t *testing.T, test *finalityForkChoiceTest) []*types.Block {
+			blocks := test.fork(uint64(len(test.main)), 1, 0)
+			test.writeSealed(t, blocks[0])
+			return blocks
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			test := newFinalityForkChoiceTest(t, big.NewInt(0), TriesInMemory)
+
+			blocks := tt.adopt(t, test)
+
+			test.requireHead(t, blocks, true)
+			head := blocks[len(blocks)-1]
+			tracked := test.engine.tracked
+			if tracked == nil {
+				t.Fatalf("finality never tracked, want head block %d (%s)", head.NumberU64(), head.Hash())
+			}
+			if tracked.Hash() != head.Hash() {
+				t.Fatalf("finality tracked up to block %d (%s), want head block %d (%s)", tracked.Number, tracked.Hash(), head.NumberU64(), head.Hash())
+			}
+		})
+	}
+}
+
 func TestHasAncestor(t *testing.T) {
 	test := newFinalityForkChoiceTest(t, nil, finalityTestMainLength)
 	fork := test.lighterFork(finalityTestForkParent)
@@ -298,6 +403,12 @@ type finalityStubEngine struct {
 	finalized  *posv.BlockRef
 	justified  map[common.Hash]uint64 // Justified block number by head; a head without entry knows none
 	unreadable map[common.Hash]bool   // Heads whose justified block cannot be read
+	tracked    *types.Header          // Head of the last update of finality tracking, nil before the first
+}
+
+func (e *finalityStubEngine) UpdateFinality(chain consensus.ChainReader, head *types.Header) error {
+	e.tracked = head
+	return nil
 }
 
 func (e *finalityStubEngine) FinalizedBlock() (posv.BlockRef, bool) {
@@ -362,9 +473,13 @@ func newFinalityForkChoiceTest(t *testing.T, prometheus *big.Int, length int) *f
 	return test
 }
 
-// fork returns length blocks on top of the main chain block at parent. Each block's time is moved by timeOffset seconds.
+// Return length blocks on top of the main chain block at parent, genesis for 0. Each block's time is moved by timeOffset seconds.
 func (f *finalityForkChoiceTest) fork(parent uint64, length int, timeOffset int64) []*types.Block {
-	blocks, _ := GenerateChain(f.config, f.main[parent-1], f.engine, f.makerDb, length, func(i int, b *BlockGen) {
+	parentBlock := f.genesis
+	if parent > 0 {
+		parentBlock = f.main[parent-1]
+	}
+	blocks, _ := GenerateChain(f.config, parentBlock, f.engine, f.makerDb, length, func(i int, b *BlockGen) {
 		b.SetCoinbase(common.Address{2})
 		b.OffsetTime(timeOffset)
 	})
@@ -403,6 +518,40 @@ func (f *finalityForkChoiceTest) justify(blocks []*types.Block, justified *uint6
 func (f *finalityForkChoiceTest) failJustified(blocks []*types.Block) {
 	for _, block := range blocks {
 		f.engine.unreadable[block.Hash()] = true
+	}
+}
+
+// Import blocks, a fork from genesis that fork choice must refuse, then extend the main chain by the one block
+// whose write garbage collects the state of the first of blocks and keeps the state of the next one.
+// Importing blocks again then executes their first block, on genesis state that is never pruned, and finds the next one known in the middle of the batch.
+// The main chain must hold TriesInMemory blocks.
+func (f *finalityForkChoiceTest) importWithPrunedFirstState(t *testing.T, blocks []*types.Block) {
+	t.Helper()
+	f.insert(t, blocks)
+	f.requireHead(t, blocks, false)
+	f.main = append(f.main, f.fork(uint64(len(f.main)), 1, 0)...)
+	f.insert(t, f.main[len(f.main)-1:])
+	f.requireHead(t, f.main, true)
+
+	first, next := blocks[0], blocks[1]
+	if hasFirst, hasNext := f.chain.HasState(first.Root()), f.chain.HasBlockAndState(next.Hash(), next.NumberU64()); hasFirst || !hasNext {
+		t.Fatalf("state of fork blocks %d and %d: have %t and %t, want false and true", first.NumberU64(), next.NumberU64(), hasFirst, hasNext)
+	}
+}
+
+// Execute block on its parent's state and write it the way the miner writes a block it sealed.
+func (f *finalityForkChoiceTest) writeSealed(t *testing.T, block *types.Block) {
+	t.Helper()
+	statedb, err := state.New(f.chain.GetBlockByHash(block.ParentHash()).Root(), f.chain.stateCache, nil)
+	if err != nil {
+		t.Fatalf("open state of parent of block %d: %v", block.NumberU64(), err)
+	}
+	receipts, logs, _, err := f.chain.processor.Process(block, statedb, nil, vm.Config{})
+	if err != nil {
+		t.Fatalf("execute block %d: %v", block.NumberU64(), err)
+	}
+	if _, err := f.chain.WriteBlockWithState(block, receipts, logs, statedb, false); err != nil {
+		t.Fatalf("write block %d: %v", block.NumberU64(), err)
 	}
 }
 

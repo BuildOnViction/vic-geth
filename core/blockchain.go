@@ -1458,6 +1458,7 @@ func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 		}
 	}
 	bc.writeHeadBlock(block)
+	bc.updateFinality()
 	return nil
 }
 
@@ -1589,6 +1590,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// Set new head.
 	if status == CanonStatTy {
 		bc.writeHeadBlock(block)
+		bc.updateFinality()
 	}
 	bc.futureBlocks.Remove(block.Hash())
 
@@ -1853,6 +1855,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 				log.Error("Please file an issue, skip known block execution without receipt",
 					"hash", block.Hash(), "number", block.NumberU64())
 			}
+			// Upstream adopts a known block unconditionally here; one that finality refuses stays a side block.
+			if !bc.finalityForkChoice(bc.CurrentBlock().Header(), block.Header(), true) {
+				stats.ignored++
+				continue
+			}
 			if err := bc.writeKnownBlock(block); err != nil {
 				return it.index, err
 			}
@@ -1993,7 +2000,6 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 				}
 			}
 		}
-		bc.updateFinality()
 	}
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && errors.Is(err, consensus.ErrFutureBlock) {

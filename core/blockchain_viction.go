@@ -44,8 +44,17 @@ type finalitySource interface {
 	JustifiedBlock(chain consensus.ChainReader, header *types.Header) (posv.BlockRef, error)
 }
 
-// Fork choice finds the source by type assertion, so an engine that stopped matching would switch finality off unnoticed.
-var _ finalitySource = (*posv.Posv)(nil)
+// finalityTracker is the finality tracking of the consensus engine, which the chain brings up to every new head.
+type finalityTracker interface {
+	// Bring finality tracking up to head, which must be the head of the canonical chain.
+	UpdateFinality(chain consensus.ChainReader, head *types.Header) error
+}
+
+// Fork choice and finality tracking find the engine by type assertion, so an engine that stopped matching would switch finality off unnoticed.
+var (
+	_ finalitySource  = (*posv.Posv)(nil)
+	_ finalityTracker = (*posv.Posv)(nil)
+)
 
 // nativeTrieAccess groups the per-platform accessors needed to flush a native state trie.
 type nativeTrieAccess struct {
@@ -364,16 +373,16 @@ func (bc *BlockChain) stopViction() {
 	bc.flushNativeTrieGCCache(bc.lendingTrieAccess())
 }
 
-// Bring the finality tracking of the PoSV engine up to the current head block.
-// A failure is logged and never fails the import or the rewind that led here: fork choice goes on with the finalized block known before.
+// Bring the finality tracking of the consensus engine up to the current head block.
+// A failure is logged and never fails the write of the head or the rewind that led here: fork choice goes on with the finalized block known before.
 // The caller must hold the chain mutex.
 func (bc *BlockChain) updateFinality() {
-	engine, ok := bc.engine.(*posv.Posv)
+	tracker, ok := bc.engine.(finalityTracker)
 	if !ok {
 		return
 	}
 	head := bc.CurrentBlock().Header()
-	if err := engine.UpdateFinality(bc, head); err != nil {
+	if err := tracker.UpdateFinality(bc, head); err != nil {
 		log.Warn("[Blockchain] Failed to update finality", "number", head.Number, "hash", head.Hash(), "err", err)
 	}
 }
