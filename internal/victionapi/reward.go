@@ -132,11 +132,10 @@ func CalcRewardsForValidators(
 		}
 		signer := types.MakeSigner(config, h.Number)
 		for _, tx := range txs {
-			txData := tx.Data()
-			if len(txData) < common.HashLength {
+			signedBlockHash, ok := tx.SignedBlockHash(victionConfig.ValidatorBlockSignContract)
+			if !ok {
 				continue
 			}
-			signedBlockHash := common.BytesToHash(txData[len(txData)-common.HashLength:])
 			msg, err := tx.AsMessage(signer, nil)
 			if err != nil {
 				continue

@@ -178,7 +178,10 @@ func PenalizeValidatorsTIPSigning(
 			signer := types.MakeSigner(config, big.NewInt(int64(signBlockNumber)))
 			// Check for BlockSign of specific signer
 			for _, tx := range txs {
-				signedBlockHash := common.BytesToHash(tx.Data()[len(tx.Data())-32:])
+				signedBlockHash, ok := tx.SignedBlockHash(victionConfig.ValidatorBlockSignContract)
+				if !ok {
+					continue
+				}
 				from, err := types.Sender(signer, &tx)
 				if err != nil {
 					return nil, err

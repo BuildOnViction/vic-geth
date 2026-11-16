@@ -61,6 +61,16 @@ func (tx *Transaction) IsSigningTransaction(blockSignAddr common.Address) bool {
 	return bytes.Equal(data[0:4], common.Hex2Bytes("e341eaa4")) // sign(uint256,bytes32)
 }
 
+// Return the hash of the block a BlockSigner transaction signs, or false when tx is not a signing transaction for blockSignAddr.
+// The block number argument of the transaction is not checked: a vote is identified by the signed hash alone.
+func (tx *Transaction) SignedBlockHash(blockSignAddr common.Address) (common.Hash, bool) {
+	if !tx.IsSigningTransaction(blockSignAddr) {
+		return common.Hash{}, false
+	}
+	data := tx.Data()
+	return common.BytesToHash(data[len(data)-common.HashLength:]), true
+}
+
 func (tx *Transaction) IsPosvTransaction() bool {
 	if tx.To() == nil {
 		return false

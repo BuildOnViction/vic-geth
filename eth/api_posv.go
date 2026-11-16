@@ -917,7 +917,10 @@ func getSignersFromBlocks(e *Ethereum, blockNumber uint64, blockHash common.Hash
 			return addrs, err
 		}
 		for _, signtx := range signTxs {
-			blkHash := common.BytesToHash(signtx.Data()[len(signtx.Data())-32:])
+			blkHash, ok := signtx.SignedBlockHash(cfg.Viction.ValidatorBlockSignContract)
+			if !ok {
+				continue
+			}
 			from, err := types.Sender(signer, &signtx)
 			if err != nil {
 				// A sender that does not recover is not a signer; skip its transaction.

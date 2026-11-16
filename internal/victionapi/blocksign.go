@@ -71,8 +71,7 @@ func GetBlockSignData(
 	}
 
 	signTxs := []types.Transaction{}
-	// Successful signing transactions count toward rewards and penalties, failed transactions don't.
-	// On post-Byzantium receipt format, `Receipt.Status` is the correct source of success/failure. Using `len(PostState)` is unreliable and can misclassify.
+	// Successful signing transactions count toward rewards, penalties and finality, failed transactions don't.
 	transactions := block.Transactions()
 	receipts := blockchain.GetReceiptsByHash(blockHash)
 	if len(transactions) != len(receipts) {
@@ -83,17 +82,8 @@ func GetBlockSignData(
 		if !tx.IsSigningTransaction(victionConfig.ValidatorBlockSignContract) {
 			continue
 		}
-		if receipts != nil && i < len(receipts) {
-			r := receipts[i]
-			var status uint64
-			if len(r.PostState) > 0 {
-				status = types.ReceiptStatusSuccessful
-			} else {
-				status = r.Status
-			}
-			if status == types.ReceiptStatusFailed {
-				continue
-			}
+		if receipts != nil && i < len(receipts) && !receipts[i].IsSuccessful() {
+			continue
 		}
 		signTxs = append(signTxs, *tx)
 	}
