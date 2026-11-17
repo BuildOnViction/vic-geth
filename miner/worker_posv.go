@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	posvWaitPeriod           = 10 * time.Second
-	posvWaitPeriodCheckpoint = 20 * time.Second
+	defaultPosvWaitPeriod           = 10 * time.Second
+	defaultPosvWaitPeriodCheckpoint = 20 * time.Second
 )
 
 // Attempt to commit new block for PoSV consensus. Returns true if it's our turn or we've waited long enough for out-of-turn fallback.
@@ -58,14 +58,14 @@ func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 			return false
 		}
 		h := common.CircularDistance(myIdx, parentIdx, nValidators) - 1
-		gap := posvWaitPeriod * time.Duration(h)
+		gap := w.posvWaitPeriod * time.Duration(h)
 		epoch := w.chainConfig.Posv.Epoch
 		if epoch > 0 {
 			nearest := epoch - (parentHeader.Number.Uint64() % epoch)
 			if uint64(h) >= nearest {
 				log.Debug("[Miner] Near-epoch out-of-turn wait", "parentNum", parentHeader.Number.Uint64(),
-					"nearestBlocksToCheckpoint", nearest, "hops", h, "gap", posvWaitPeriodCheckpoint*time.Duration(h))
-				gap = posvWaitPeriodCheckpoint * time.Duration(h)
+					"nearestBlocksToCheckpoint", nearest, "hops", h, "gap", w.posvWaitPeriodCheckpoint*time.Duration(h))
+				gap = w.posvWaitPeriodCheckpoint * time.Duration(h)
 			}
 		}
 		waited := time.Since(time.Unix(int64(parentHeader.Time), 0))

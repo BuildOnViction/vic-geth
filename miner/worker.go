@@ -175,6 +175,10 @@ type worker struct {
 	// posvLastParentCommitHash store parents block hash of last minted block. In PoSV new minted block is not insert into canonical chain immediately,
 	// so we need to store the last minted block hash to avoid minting multiple blocks on the same parent.
 	posvLastParentCommitHash atomic.Value
+	// PoSV: time an out-of-turn validator waits, per validator it skips, before it builds on a parent; the checkpoint
+	// value applies when the skipped validators reach the next checkpoint block. Written only before start.
+	posvWaitPeriod           time.Duration
+	posvWaitPeriodCheckpoint time.Duration
 
 	// atomic status counters
 	running int32 // The indicator whether the consensus engine is running or not.
@@ -220,6 +224,9 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		startCh:            make(chan struct{}, 1),
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+
+		posvWaitPeriod:           defaultPosvWaitPeriod,
+		posvWaitPeriodCheckpoint: defaultPosvWaitPeriodCheckpoint,
 	}
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
