@@ -541,6 +541,43 @@ func TestApplySignTransaction_NonceMismatch(t *testing.T) {
 	}
 }
 
+func TestTxPool_Posv_InsufficientFundsRejected(t *testing.T) {
+	// The upstream balance check applies to POSV pools as well: a regular tx
+	// costing more than the sender's balance is rejected.
+	pool, key := setupTxPoolPosv()
+	defer pool.Stop()
+
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	pool.currentState.AddBalance(addr, big.NewInt(1000)) // cost = 1000 + 21000*2500
+
+	tx := makeRegularTx(0, big.NewInt(2500), key)
+
+	err := pool.AddRemote(tx)
+	if err != ErrInsufficientFunds {
+		t.Fatalf("posv: tx above sender balance should be rejected, got: %v", err)
+	}
+}
+
+func TestTxPool_Posv_SpecialTxNotExemptWithoutSigner(t *testing.T) {
+	// Without a configured IsSigner callback, no special-tx exemption is granted:
+	// a zero-gas-price BlockSigner tx is rejected as underpriced.
+	pool, key := setupTxPoolPosv()
+	defer pool.Stop()
+
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	pool.currentState.AddBalance(addr, big.NewInt(1000000000))
+	pool.SetGasPrice(big.NewInt(2500))
+
+	// IsSigner deliberately left nil
+
+	tx := makeBlockSignerTx(0, 100, common.HexToHash("0xdeadbeef"), key)
+
+	err := pool.AddRemote(tx)
+	if err != ErrUnderpriced {
+		t.Fatalf("posv: block signer tx without IsSigner should be rejected (underpriced), got: %v", err)
+	}
+}
+
 // --- Test helpers ---
 
 // applyTxTestChain is a minimal ChainContext for ApplyTransaction tests.

@@ -47,7 +47,7 @@ func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 	// IsMyTurn returns (inTurn, currentIndex, parentIndex, validatorCount, err).
 	ok, myIdx, parentIdx, nValidators, err := c.IsMyTurn(w.coinbase, parentHeader, validators)
 	if err != nil {
-		log.Warn("[Miner][PoSV] Failed to commit new work", "err", err)
+		log.Warn("[Miner] Failed to commit new work", "err", err)
 		return false
 	}
 	if !ok {
@@ -63,7 +63,7 @@ func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 		if epoch > 0 {
 			nearest := epoch - (parentHeader.Number.Uint64() % epoch)
 			if uint64(h) >= nearest {
-				log.Debug("Near-epoch out-of-turn wait", "parentNum", parentHeader.Number.Uint64(),
+				log.Debug("[Miner] Near-epoch out-of-turn wait", "parentNum", parentHeader.Number.Uint64(),
 					"nearestBlocksToCheckpoint", nearest, "hops", h, "gap", posvWaitPeriodCheckpoint*time.Duration(h))
 				gap = posvWaitPeriodCheckpoint * time.Duration(h)
 			}
@@ -72,11 +72,11 @@ func (w *worker) preCommitNewWorkForPosv(parentHeader *types.Header) bool {
 		if waited < 0 {
 			waited = 0
 		}
-		log.Info("[Miner][PoSV] Waiting for my turn", "gap", gap, "hops", h, "waited", waited)
+		log.Info("[Miner] Waiting for my turn", "gap", gap, "hops", h, "waited", waited)
 		if gap > waited {
 			return false
 		}
-		log.Info("[Miner][PoSV] Waited until timeout. Committing new work", "waited", waited)
+		log.Info("[Miner] Waited until timeout. Committing new work", "waited", waited)
 	}
 	return true
 }
@@ -91,4 +91,48 @@ func (w *worker) EnforceBlacklist(tx *types.Transaction, from common.Address) (s
 		return true, false
 	}
 	return false, false
+}
+
+// Extracts the PoSV special transactions of validator accounts from the pending transactions, so the miner can commit them ahead of regular ones.
+// Regular transactions with lower nonces are extracted along with them, and everything extracted is removed from txs.
+func ExtractSpecialTransactionsForPosv(
+	signer types.Signer,
+	txs map[common.Address]types.Transactions,
+	signers map[common.Address]struct{},
+) types.Transactions {
+	if len(signers) == 0 {
+		return types.Transactions{}
+	}
+	specialTxs := types.Transactions{}
+	for from, accTxs := range txs {
+		if len(accTxs) == 0 {
+			delete(txs, from)
+			continue
+		}
+		acc, _ := types.Sender(signer, accTxs[0])
+		if _, ok := signers[acc]; !ok {
+			continue
+		}
+		lastSpecialTx := -1
+		for i, tx := range accTxs {
+			if tx.IsPosvTransaction() {
+				lastSpecialTx = i
+			}
+		}
+		if lastSpecialTx < 0 {
+			continue
+		}
+
+		specialTxs = append(specialTxs, accTxs[:lastSpecialTx+1]...)
+		normalTxs := accTxs[lastSpecialTx+1:]
+		if len(normalTxs) > 0 {
+			txs[acc] = normalTxs
+		} else {
+			delete(txs, acc)
+		}
+		if from != acc {
+			delete(txs, from)
+		}
+	}
+	return specialTxs
 }

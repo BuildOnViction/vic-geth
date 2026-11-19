@@ -96,7 +96,8 @@ When the list is not empty and a top-level file/folder is missing from it, promp
 ├── graphql/            # GraphQL API service
 ├── internal/           # non-importable internals
 │   ├── ethapi/         # common RPC facades shared by all transports
-│   └── victionapi/     # Viction system service APIs (validators, attestors, penalties, rewards)
+│   ├── victionapi/     # Viction system service APIs (validators, attestors, penalties, rewards)
+│   └── web3ext/        # web3.js console bindings for the RPC namespaces
 ├── legacy/             # legacy lending/trading engines (kept for compatibility)
 ├── les/                # light-server protocol
 ├── light/              # light-client helpers

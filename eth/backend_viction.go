@@ -20,6 +20,7 @@
 package eth
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -91,13 +92,21 @@ func (s *Ethereum) PosvGetCreatorAttestorPairs(
 }
 
 // Calculate rewards at the end of each epoch.
+// Returns an error when the header's parent is unavailable, including at the genesis block.
 func (s *Ethereum) PosvGetEpochRewards(
 	header *types.Header,
 	config *params.ChainConfig, posvConfig *params.PosvConfig, victionConfig *params.VictionConfig,
 	chainReader consensus.ChainReader, statedb *state.StateDB, logger log.Logger,
 ) (*posv.EpochReward, error) {
 	number := header.Number.Uint64()
+	if number == 0 {
+		// Genesis has no parent header; the number-1 lookup below would underflow.
+		return nil, errors.New("epoch reward is not available at the genesis block")
+	}
 	preCheckpointHeader := chainReader.GetHeader(header.ParentHash, number-1)
+	if preCheckpointHeader == nil {
+		return nil, fmt.Errorf("parent header of block %d not found", number)
+	}
 	preCheckpointState, err := s.BlockChain().StateAt(preCheckpointHeader.Root)
 	if err != nil {
 		logger.Warn("[Backend] Get preCheckpoint state failed. Fallback to checkpoint state", "number", number-1, "hash", header.ParentHash, "err", err)
@@ -203,6 +212,24 @@ func (s *Ethereum) getEtherbaseWallet() (common.Address, accounts.Wallet, error)
 	return eb, wallet, nil
 }
 
+// IsPosvSigner reports whether addr is a validator in the current PoSV epoch, read from the nearest checkpoint header.
+func (s *Ethereum) IsPosvSigner(addr common.Address) bool {
+	config := s.blockchain.Config()
+	if config.Posv == nil {
+		return false
+	}
+	current := s.blockchain.CurrentHeader()
+	if current == nil {
+		return false
+	}
+	cp := posv.GetCheckpointHeader(config.Posv, current, nil, s.blockchain)
+	if cp == nil {
+		return false
+	}
+	validators := posv.ExtractValidatorsFromCheckpointHeader(cp)
+	return common.IndexOf(validators, addr) != -1
+}
+
 // Attach services required by Viction blockchain.
 func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node.Node) error {
 	if !chainConfig.IsPosv() {
@@ -218,6 +245,9 @@ func (s *Ethereum) setupPosvBackend(chainConfig *params.ChainConfig, stack *node
 	log.Info("[Backend] Set current backend reference to PoSV engine.")
 	s.protocolManager.blockFetcher.SetPosvBackend(s)
 	log.Info("[Backend] Set current backend reference to BlockFetcher.")
+
+	s.txPool.IsSigner = s.IsPosvSigner
+	log.Info("[Backend] Wired PoSV txpool IsSigner callback.")
 
 	tradingStatedb, err := openTradingDatabase(stack)
 	if err != nil {

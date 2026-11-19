@@ -224,10 +224,7 @@ type TxPool struct {
 	mu          sync.RWMutex
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
-
-	// [POSV] IsSigner checks if an address is a current epoch validator.
-	// Set by the eth backend for POSV chains; nil on non-POSV chains.
-	IsSigner func(common.Address) bool
+	eip2028  bool // Fork indicator whether EIP-2028 data gas pricing applies.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *txNoncer      // Pending state tracking virtual nonces
@@ -250,6 +247,8 @@ type TxPool struct {
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
+
+	IsSigner func(common.Address) bool // Hook to backend for checking validator status
 }
 
 type txpoolResetRequest struct {
@@ -539,15 +538,14 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if err != nil {
 		return ErrInvalidSender
 	}
-	// [POSV] Reject transactions from or to blacklisted addresses.
-	if err := pool.validateBlacklistTx(tx, from); err != nil {
+	if err := pool.posvValidateBlacklistTx(tx, from); err != nil {
 		return err
 	}
 	// Drop non-local transactions under our own minimal accepted gas price
 	local = local || pool.locals.contains(from) // account may be local even if the transaction arrived from the network
 	if !local && tx.GasPriceIntCmp(pool.gasPrice) < 0 {
-		// [POSV] Exempt special transactions (BlockSigner/Randomize) from signers.
-		if !pool.posvValidateGasPrice(tx, from) {
+		// PoSV: Exempt special and zero-gas transactions.
+		if !pool.posvExemptUnderpriced(tx, from) {
 			return ErrUnderpriced
 		}
 	}
@@ -555,20 +553,19 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
 	}
-	// Use custom VRC25 balance validation
-	if err := pool.validateSufficientTransaction(tx, from); err != nil {
-		return err
+	// Transactor should have enough funds to cover the costs
+	// cost == V + GP * GL
+	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+		return ErrInsufficientFunds
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
-	// [POSV] Skip intrinsic gas check for special transactions (BlockSigner/Randomize).
-	if !pool.posvSkipIntrinsicGas(tx) {
-		// On Viction (Posv) networks, EIP-2028 data gas reduction is intentionally not applied:
-		isEIP2028 := pool.istanbul && pool.chainconfig.Posv == nil
-		intrGas, err := IntrinsicGas(tx.Data(), tx.To() == nil, true, isEIP2028)
-		if err != nil {
-			return err
-		}
-		if tx.Gas() < intrGas {
+	intrGas, err := IntrinsicGas(tx.Data(), tx.To() == nil, true, pool.eip2028)
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < intrGas {
+		// PoSV: Exempt special transactions.
+		if !pool.posvSkipIntrinsicGas(tx) {
 			return ErrIntrinsicGas
 		}
 	}
@@ -596,9 +593,8 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		invalidTxMeter.Mark(1)
 		return false, err
 	}
-	// [POSV] Fast-path: promote special transactions directly to pending.
-	from, _ := types.Sender(pool.signer, tx) // already validated above
-	if handled, replaced, err := pool.posvTryPromoteSpecial(tx, from, local); handled {
+	// PoSV: Promote special transactions directly to pending.
+	if handled, replaced, err := pool.posvTryPromoteSpecial(tx, local); handled {
 		return replaced, err
 	}
 	// If the transaction pool is full, discard underpriced transactions
@@ -618,7 +614,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		}
 	}
 	// Try to replace an existing transaction in the pending pool
-	// (from already resolved above)
+	from, _ := types.Sender(pool.signer, tx) // already validated
 	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.config.PriceBump)
@@ -1200,6 +1196,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	// Update all fork indicator by next pending block number.
 	next := new(big.Int).Add(newHead.Number, big.NewInt(1))
 	pool.istanbul = pool.chainconfig.IsIstanbul(next)
+	pool.eip2028 = pool.chainconfig.IsEIP2028(next)
 }
 
 // promoteExecutables moves transactions that have become processable from the
