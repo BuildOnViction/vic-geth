@@ -194,6 +194,11 @@ Common use cases include: Build, Test, Lint, Format, Install.
 - `go test ./...` - run the whole test suite with the go test runner.
 - `make test` - depends on `all` (rebuilds everything first), then `build/ci.go test`.
 - Narrower: `go test ./core/...`, `go test ./consensus/posv/...`, etc.
+- Race detector on Windows: set `GOFLAGS=-ldflags=-extldflags=-Wl,--disable-dynamicbase,--disable-high-entropy-va` before `go test -race ./...`.
+  - Without it, packages that link cgo (`crypto/secp256k1`, and everything importing it: `core`, `consensus/...`) fail at startup with `ThreadSanitizer failed to allocate ... (error code: 87)`.
+  - Cause: binutils >= 2.36 enables ASLR (`--dynamicbase`, `--high-entropy-va`) by default when go1.18 links externally, so the exe loads at a high address that TSan v2 can't shadow. Newer Go turns ASLR off for `-race` on Windows (golang/go#53539), but go1.18 doesn't.
+  - Use `-extldflags`, not `CGO_LDFLAGS`. `CGO_LDFLAGS` also changes the internally linked pure-Go race builds, which then fail with `duplicate symbol reference ... libmsvcrt.a`.
+  - A `-ldflags` on the command line replaces the one in `GOFLAGS`, so put `-extldflags=...` inside that same `-ldflags` value.
 
 ### Lint
 
