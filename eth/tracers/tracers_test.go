@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/core/vm/runtime"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -299,4 +300,45 @@ func jsonEqual(x, y interface{}) bool {
 		return false
 	}
 	return reflect.DeepEqual(xTrace, yTrace)
+}
+
+func BenchmarkCallTracerLoop(b *testing.B) {
+	// This loop consumes gas without changing the call tree.
+	code := common.FromHex("0x620186a05b60019003806004575000")
+	javascript, _ := tracer("callTracer")
+	for _, test := range []struct {
+		name   string
+		tracer string
+	}{
+		{"filtered", "callTracer"},
+		{"unfiltered", javascript},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				tracer, err := New(test.tracer)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_, _, err = runtime.Execute(code, nil, &runtime.Config{
+					GasLimit:  3000000,
+					EVMConfig: vm.Config{Debug: true, Tracer: tracer},
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+				result, err := tracer.GetResult()
+				if err != nil {
+					b.Fatal(err)
+				}
+				var trace callTrace
+				if err := json.Unmarshal(result, &trace); err != nil {
+					b.Fatal(err)
+				}
+				if trace.Error != "" || len(trace.Calls) != 0 || trace.GasUsed == nil || uint64(*trace.GasUsed) != 2600005 {
+					b.Fatalf("unexpected loop trace: %s", result)
+				}
+			}
+		})
+	}
 }
