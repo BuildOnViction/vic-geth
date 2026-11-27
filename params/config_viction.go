@@ -20,7 +20,10 @@
 package params
 
 import (
+	"errors"
+	"fmt"
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -345,24 +348,52 @@ var victionBypassValidators = map[uint64]bool{
 	14458500: true,
 }
 
-var victionHardforks = map[string]bool{
-	"tip2019Block":          true,
-	"tipSigningBlock":       true,
-	"tipRandomizeBlock":     true,
-	"tipGasPriceBlock":      true,
-	"tipNativeTradingBlock": true,
-	"tipNativeLendingBlock": true,
-	"tip2021Block":          true,
+// victionHardforks returns the Viction own fork blocks of c, keyed by their JSON name.
+func (c *ChainConfig) victionHardforks() map[string]*big.Int {
+	return map[string]*big.Int{
+		"tip2019Block":          c.TIP2019Block,
+		"tipSigningBlock":       c.TIPSigningBlock,
+		"tipRandomizeBlock":     c.TIPRandomizeBlock,
+		"tipGasPriceBlock":      c.TIPGasPriceBlock,
+		"tipNativeTradingBlock": c.TIPNativeTradingBlock,
+		"tipNativeLendingBlock": c.TIPNativeLendingBlock,
+		"tip2021Block":          c.TIP2021Block,
 
-	"saigonBlock":       true,
-	"atlasBlock":        true,
-	"atlasRefreshBlock": true,
-	"prometheusBlock":   true,
+		"saigonBlock":       c.SaigonBlock,
+		"atlasBlock":        c.AtlasBlock,
+		"atlasRefreshBlock": c.AtlasRefreshBlock,
+		"prometheusBlock":   c.PrometheusBlock,
+	}
 }
 
-func isVictionHardfork(name string) bool {
-	if _, ok := victionHardforks[name]; ok {
-		return true
+func (c *ChainConfig) isVictionHardfork(name string) bool {
+	_, ok := c.victionHardforks()[name]
+	return ok
+}
+
+// CheckVictionConfig rejects a chain config that is only partly a Viction chain.
+// posv selects the PoSV engine, which reads the viction section without nil
+// checks, and the viction section alone switches on the Viction EVM rules, so
+// both must be set together. Viction forks need both as well.
+func (c *ChainConfig) CheckVictionConfig() error {
+	if c.Posv != nil && c.Viction == nil {
+		return errors.New("invalid chain config: posv is set but viction is missing")
 	}
-	return false
+	if c.Posv == nil && c.Viction != nil {
+		return errors.New("invalid chain config: viction is set but posv is missing")
+	}
+	if c.Posv != nil {
+		return nil
+	}
+	var set []string
+	for name, block := range c.victionHardforks() {
+		if block != nil {
+			set = append(set, name)
+		}
+	}
+	if len(set) > 0 {
+		sort.Strings(set)
+		return fmt.Errorf("invalid chain config: Viction forks %v are set but posv and viction are missing", set)
+	}
+	return nil
 }
