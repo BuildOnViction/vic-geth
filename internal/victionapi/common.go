@@ -86,7 +86,10 @@ func DecryptRandomize(secrets [][32]byte, opening [32]byte) (int64, error) {
 			trimSecret := bytes.TrimLeft(secret[:], "\x00")
 			decryptSecret, err := DecryptAesCfb(opening[:], string(trimSecret))
 			if err != nil {
-				return 0, err
+				// Same as the legacy client (contracts/utils.go Decrypt): a secret that cannot
+				// be decrypted is skipped, it never fails the attestor computation.
+				log.Warn("Skipping randomize secret that cannot be decrypted", "err", err)
+				continue
 			}
 			intNumber, err := strconv.ParseInt(decryptSecret, 10, 64)
 			if err == nil {
