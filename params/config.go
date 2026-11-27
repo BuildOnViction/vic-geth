@@ -713,6 +713,9 @@ func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *Confi
 // CheckConfigForkOrder checks that we don't "skip" any forks, geth isn't pluggable enough
 // to guarantee that forks can be implemented in a different order than on official networks
 func (c *ChainConfig) CheckConfigForkOrder() error {
+	if err := c.CheckVictionConfig(); err != nil {
+		return err
+	}
 	type fork struct {
 		name     string
 		block    *big.Int
@@ -745,7 +748,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "londonBlock", block: c.LondonBlock},
 	} {
 		// Skip Viction own hard fork for non-Viction networks.
-		if c.Posv == nil && isVictionHardfork(cur.name) {
+		if c.Posv == nil && c.isVictionHardfork(cur.name) {
 			continue
 		} else {
 			if c.ChainID != nil && c.ChainID.Cmp(big.NewInt(89)) == 0 && cur.name == "tip2019Block" {

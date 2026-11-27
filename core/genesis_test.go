@@ -208,3 +208,21 @@ func TestGenesisHashes(t *testing.T) {
 		}
 	}
 }
+
+// A chain config that is only partly a Viction chain is rejected both when the
+// genesis is written and when a node restarts on a database that already stores it.
+func TestSetupGenesisRejectsPartialVictionConfig(t *testing.T) {
+	bad := &params.ChainConfig{ChainID: big.NewInt(1337), Posv: &params.PosvConfig{Period: 2, Epoch: 900, Gap: 5}}
+
+	if _, err := (&Genesis{Config: bad}).Commit(rawdb.NewMemoryDatabase()); err == nil {
+		t.Fatal("genesis with posv but no viction was committed")
+	}
+
+	// A database written before the check existed: valid genesis, bad stored config.
+	db := rawdb.NewMemoryDatabase()
+	block := (&Genesis{Config: &params.ChainConfig{ChainID: big.NewInt(1337)}}).MustCommit(db)
+	rawdb.WriteChainConfig(db, block.Hash(), bad)
+	if _, _, err := SetupGenesisBlock(db, nil); err == nil {
+		t.Fatal("stored config with posv but no viction was accepted on restart")
+	}
+}

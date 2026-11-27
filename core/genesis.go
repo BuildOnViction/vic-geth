@@ -223,6 +223,9 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
 	// if we just continued here.
 	if genesis == nil && stored != params.MainnetGenesisHash {
+		if err := storedcfg.CheckVictionConfig(); err != nil {
+			return storedcfg, stored, err
+		}
 		return storedcfg, stored, nil
 	}
 	// Check config compatibility and write the config. Compatibility errors

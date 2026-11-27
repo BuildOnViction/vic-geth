@@ -29,7 +29,7 @@ import (
 
 // Apply PoSV-specific hard forks.
 func ApplyPosvHardForks(statedb *state.StateDB, config *params.ChainConfig, victionConfig *params.VictionConfig, headerNumber *big.Int) {
-	if config.Posv == nil && victionConfig != nil {
+	if config.Posv == nil || victionConfig == nil {
 		return
 	}
 	if config.TIPSigningBlock != nil && config.TIPSigningBlock.Cmp(headerNumber) == 0 {
