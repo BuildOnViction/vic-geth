@@ -59,7 +59,7 @@ func (pool *TxPool) posvExemptUnderpriced(tx *types.Transaction, from common.Add
 
 		feeCap := pool.currentState.VicGetZeroGasCapacity(pool.chainconfig.Viction.VRC25RegistryContract, tx.To())
 		if feeCap != nil && feeCap.Sign() > 0 {
-			if err := ValidateSponsoredTx(pool.currentState, pool.chainconfig.Viction.VRC25RegistryContract, from, *tx.To(), tx.Data()); err == nil {
+			if err := ValidateSponsoredTx(pool.currentState, *tx.To(), from, tx.Data()); err == nil {
 				return true
 			}
 		}

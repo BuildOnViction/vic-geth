@@ -59,7 +59,7 @@ func PayTxFeeUsingToken(statedb *state.StateDB, from common.Address, token commo
 }
 
 // Check given transaction is valid for sponsoring fee.
-func ValidateSponsoredTx(statedb *state.StateDB, token common.Address, from common.Address, to common.Address, data []byte) error {
+func ValidateSponsoredTx(statedb *state.StateDB, token common.Address, from common.Address, data []byte) error {
 	if statedb == nil || data == nil {
 		return ErrInvalidParams
 	}
