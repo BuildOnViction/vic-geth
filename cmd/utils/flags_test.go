@@ -25,6 +25,8 @@ import (
 
 	cli "gopkg.in/urfave/cli.v1"
 
+	"github.com/ethereum/go-ethereum/eth/downloader"
+	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -101,6 +103,47 @@ func Test_HTTPTimeoutFlag(t *testing.T) {
 			}
 			if cfg.HTTPTimeouts.IdleTimeout != rpc.DefaultHTTPTimeouts.IdleTimeout {
 				t.Errorf("IdleTimeout = %v, want default %v", cfg.HTTPTimeouts.IdleTimeout, rpc.DefaultHTTPTimeouts.IdleTimeout)
+			}
+		})
+	}
+}
+
+func Test_VictionSyncModeAndSnapshot(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		wantSyncMode downloader.SyncMode
+		wantSnapshot bool
+	}{
+		{"victestDefault", []string{"--victest"}, downloader.FullSync, false},
+		{"victestSnapRequested", []string{"--victest", "--syncmode", "snap"}, downloader.FullSync, false},
+		{"victestSnapshotFlag", []string{"--victest", "--snapshot"}, downloader.FullSync, true},
+		{"victionDefault", []string{"--viction"}, downloader.FullSync, false},
+		{"ethereumSnapUnchanged", []string{"--syncmode", "snap"}, downloader.SnapSync, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			for _, f := range []cli.Flag{VictionFlag, VictestFlag, SyncModeFlag, SnapshotFlag, GCModeFlag} {
+				f.Apply(fs)
+			}
+			if err := fs.Parse(tt.args); err != nil {
+				t.Fatal(err)
+			}
+			stack, err := node.New(&node.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stack.Close()
+			cfg := ethconfig.Defaults
+
+			SetEthConfig(cli.NewContext(nil, fs, nil), stack, &cfg)
+
+			if cfg.SyncMode != tt.wantSyncMode {
+				t.Errorf("SyncMode = %v, want %v", cfg.SyncMode, tt.wantSyncMode)
+			}
+			if gotSnapshot := cfg.SnapshotCache > 0; gotSnapshot != tt.wantSnapshot {
+				t.Errorf("snapshot enabled = %v, want %v", gotSnapshot, tt.wantSnapshot)
 			}
 		})
 	}

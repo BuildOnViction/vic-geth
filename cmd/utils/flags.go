@@ -1556,6 +1556,16 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.GlobalIsSet(SyncModeFlag.Name) {
 		cfg.SyncMode = *GlobalTextMarshaler(ctx, SyncModeFlag.Name).(*downloader.SyncMode)
 	}
+	// Viction networks only support full sync. Force it here, not in the network
+	// switch below, because the snapshot check below
+	// (`if cfg.SyncMode == downloader.SnapSync` under `if !ctx.GlobalBool(SnapshotFlag.Name)`)
+	// would otherwise still see the default snap mode and enable the snapshot.
+	if ctx.GlobalBool(VictionFlag.Name) || ctx.GlobalBool(VictestFlag.Name) {
+		if ctx.GlobalIsSet(SyncModeFlag.Name) && cfg.SyncMode != downloader.FullSync {
+			log.Warn("Viction networks only support full sync, ignoring --syncmode", "requested", cfg.SyncMode)
+		}
+		cfg.SyncMode = downloader.FullSync
+	}
 	if ctx.GlobalIsSet(NetworkIdFlag.Name) {
 		cfg.NetworkId = ctx.GlobalUint64(NetworkIdFlag.Name)
 	}
@@ -1659,7 +1669,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 88
 		}
 		cfg.Genesis = core.DefaultVictionGenesisBlock()
-		cfg.SyncMode = downloader.FullSync
 		SetDNSDiscoveryDefaults(cfg, params.VictionGenesisHash)
 	case ctx.GlobalBool(RopstenFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
@@ -1689,7 +1698,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 89
 		}
 		cfg.Genesis = core.DefaultVictestGenesisBlock()
-		cfg.SyncMode = downloader.FullSync
 		SetDNSDiscoveryDefaults(cfg, params.VictestGenesisHash)
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
