@@ -27,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/internal/cmdtest"
+	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -160,4 +162,33 @@ To exit, press ctrl-d
 func trulyRandInt(lo, hi int) int {
 	num, _ := rand.Int(rand.Reader, big.NewInt(int64(hi-lo)))
 	return int(num.Int64()) + lo
+}
+
+// Tests that "geth --victest attach" finds the IPC endpoint of a victest node that
+// runs with the default data directory.
+func TestAttachVictest(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("IPC endpoint is a named pipe on windows")
+	}
+	// Short HOME: unix socket paths are limited to about 104 bytes.
+	home, err := os.MkdirTemp("", "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(home)
+	t.Setenv("HOME", home)
+
+	// The node gets the default victest datadir explicitly, as runGeth always passes --datadir.
+	datadir := filepath.Join(node.DefaultDataDir(), "victest")
+	geth := runGeth(t, "--victest", "--datadir", datadir, "--port", "0", "--nat", "none",
+		"--nodiscover", "--maxpeers", "0", "--cache", "64")
+	defer geth.Interrupt()
+	waitForEndpoint(t, filepath.Join(datadir, "geth.ipc"), 10*time.Second)
+
+	// No --datadir: attach must derive the same path as the node.
+	attach := &testgeth{}
+	attach.TestCmd = cmdtest.NewTestCmd(t, attach)
+	attach.Run("geth-test", "--victest", "attach", "--exec", "net.version")
+	attach.ExpectRegexp(`"89"`)
+	attach.ExpectExit()
 }
