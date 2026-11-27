@@ -384,6 +384,54 @@ func TestTxPoolPosvInsufficientFundsRejected(t *testing.T) {
 
 // --- Tests: ApplyTransaction ---
 
+// A zero-gas transaction to a sponsored VRC25 token, received from a peer, is
+// exempt from the gas price check only when the sender holds enough of that
+// token to pay its fee: the check reads the token, not the registry.
+func TestTxPoolPosvRemoteZeroGasTx(t *testing.T) {
+	registry := common.HexToAddress("0x8c0faeb5c6bed2129b8674f262fd45c4e9468bee")
+	token := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	config := *testPosvConfig
+	vc := *testPosvConfig.Viction
+	vc.VRC25RegistryContract = registry
+	config.Viction = &vc
+
+	// transfer(0x01, 5) needs a token balance of at least minFee (10) + 5.
+	data := append(common.Hex2Bytes(state.TransferMethodHex), make([]byte, 64)...)
+	data[4+31] = 0x01
+	data[4+63] = 5
+
+	tests := []struct {
+		name    string
+		balance int64
+		wantErr error
+	}{
+		{"enough token balance", 15, nil},
+		{"not enough token balance", 14, ErrUnderpriced},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, _ := crypto.GenerateKey()
+			from := crypto.PubkeyToAddress(key.PublicKey)
+			statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+			statedb.VicSetZeroGasCapacity(registry, token, big.NewInt(1e18))
+			statedb.VicSetVrc25Balance(token, from, big.NewInt(tt.balance))
+			statedb.SetState(token, state.StorageLocationFromSlot(1).Hash(), common.BigToHash(big.NewInt(10))) // minFee slot
+			// The registry slot 1 holds a non-zero value, as on a real chain, so reading
+			// the registry instead of the token would reject the transaction.
+			statedb.SetState(registry, state.StorageLocationFromSlot(1).Hash(), common.BigToHash(big.NewInt(1)))
+
+			blockchain := &testBlockChain{statedb: statedb, gasLimit: 84000000, chainHeadFeed: new(event.Feed)}
+			pool := NewTxPool(testTxPoolConfig, &config, blockchain)
+			defer pool.Stop()
+
+			tx, _ := types.SignTx(types.NewTransaction(0, token, big.NewInt(0), 100000, big.NewInt(0), data), types.LatestSigner(&config), key)
+			if err := pool.AddRemotesSync([]*types.Transaction{tx})[0]; err != tt.wantErr {
+				t.Fatalf("AddRemote error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestApplyTransactionBlockSignerBypassesEVM(t *testing.T) {
 	// Setup a state with an account that has a nonce
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
